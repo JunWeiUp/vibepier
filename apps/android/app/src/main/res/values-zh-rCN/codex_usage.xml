@@ -1,0 +1,37 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="codex_usage_title">Codex 使用情况</string>
+    <string name="codex_usage_account_scope">当前 Mac 登录的 Codex 账户用量，所有会话共享。</string>
+    <string name="codex_usage_loading">读取中…</string>
+    <string name="codex_usage_refresh">刷新</string>
+    <string name="codex_usage_unavailable">暂时无法读取用量，请在 Mac 上检查 Codex 后刷新。</string>
+    <string name="codex_usage_pending">有一次重置结果尚未确认。请检查回执或在 Mac 的 Codex 中核对，暂不重复使用卡片。</string>
+    <string name="codex_usage_check_receipt">检查重置回执</string>
+    <string name="codex_usage_windows_unknown">暂未提供剩余用量</string>
+    <string name="codex_usage_five_hours">五小时额度</string>
+    <string name="codex_usage_weekly">每周额度</string>
+    <string name="codex_usage_window_minutes">周期：%1$d 分钟</string>
+    <string name="codex_usage_window_unknown">用量周期</string>
+    <string name="codex_usage_remaining">剩余 %1$d%%</string>
+    <string name="codex_usage_resets_at">重置时间：%1$s</string>
+    <string name="codex_usage_cards_unknown">暂未提供重置卡信息</string>
+    <string name="codex_usage_cards_count">赠送重置卡：%1$d 张</string>
+    <string name="codex_usage_no_cards">目前没有可用的重置卡。</string>
+    <string name="codex_usage_not_eligible">五小时或每周额度剩余不超过 %1$d%% 时可使用重置卡。</string>
+    <string name="codex_usage_full_reset">完整重置卡</string>
+    <string name="codex_usage_expires_at">到期时间：%1$s</string>
+    <string name="codex_usage_expiry_none">未提供到期时间</string>
+    <string name="codex_usage_use_card">使用这张重置卡</string>
+    <string name="codex_usage_confirm_title">使用一张重置卡？</string>
+    <string name="codex_usage_confirm_body">使用“%1$s”重置当前 Mac 上 Codex 账户符合条件的用量额度。将消耗一张赠送卡片，无法撤销。</string>
+    <string name="codex_usage_cancel">取消</string>
+    <string name="codex_usage_confirm_use">确认使用一张</string>
+    <string name="codex_usage_redeeming">正在重置…</string>
+    <string name="codex_usage_reset_done">重置已确认。</string>
+    <string name="codex_usage_nothing_to_reset">当前没有可重置的额度，本次未消耗卡片。</string>
+    <string name="codex_usage_not_submitted">Mac 未收到此次重置操作，可以重新选择卡片。</string>
+    <string name="codex_usage_time_unknown">暂未提供</string>
+    <string name="codex_usage_updated_at">更新于：%1$s</string>
+    <string name="codex_usage_close">关闭</string>
+    <string name="codex_usage_card_details_missing">暂未提供卡片详情，请刷新后选择具体卡片。</string>
+</resources>

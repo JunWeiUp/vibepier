@@ -1,0 +1,3 @@
+import VibePierCore
+
+await runVibePierCLI()

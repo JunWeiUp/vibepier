@@ -1,0 +1,113 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="attachment_name">附件</string>
+    <string name="attachment_too_large">附件不能超过 10 MB</string>
+    <string name="attachment_unreadable_selection">无法读取所选文件</string>
+    <string name="attachment_empty">附件不能为空</string>
+    <string name="image_unreadable">无法读取图片</string>
+    <string name="attachment_unreadable">无法读取附件</string>
+    <string name="attachment_expired">附件文件已失效</string>
+    <string name="attachment_upload_cancelled">附件上传已取消</string>
+    <string name="image_loading">图片加载中…</string>
+    <string name="composer_add_description">添加附件和上下文</string>
+    <string name="approval_mode">审批模式</string>
+    <string name="context_usage_description">查看当前会话上下文用量</string>
+    <string name="choose_model">选择模型</string>
+    <string name="image_open_description">图片 %1$d，点按查看大图</string>
+    <string name="image_unavailable">图片不可用</string>
+    <string name="image_title">图片</string>
+    <string name="close">关闭</string>
+    <string name="reload">重新加载</string>
+    <string name="image_large_loading">正在加载大图…</string>
+    <string name="image_large_failed">大图暂无法加载，请重试</string>
+    <string name="earlier_content">↑ 更早的内容</string>
+    <string name="continue_content">继续读取后续内容</string>
+    <string name="content_loading">正在读取内容…</string>
+    <string name="retry_error">%1$s · 点按重试</string>
+    <string name="continue_reading">继续阅读</string>
+    <string name="continue_output">继续加载输出</string>
+    <string name="thinking">思考</string>
+    <string name="file_changes">文件修改</string>
+    <string name="tool_call">工具调用</string>
+    <string name="running">运行中</string>
+    <string name="failed">失败</string>
+    <string name="not_run">未执行</string>
+    <string name="collapse">收起</string>
+    <string name="expand_content">展开内容</string>
+    <string name="step_description">%1$s，%2$s，%3$s</string>
+    <string name="step_description_no_status">%1$s，%2$s</string>
+    <string name="connect_to_read">连接 Mac 后可读取内容</string>
+    <string name="view_reference">查看 %1$s</string>
+    <string name="awaiting_output">等待输出…</string>
+    <string name="no_output">（无输出）</string>
+    <string name="content_read_failed">内容读取失败</string>
+    <string name="you">你</string>
+    <string name="expand_message">展开完整消息</string>
+    <string name="provider_working">%1$s 正在处理…</string>
+    <string name="document_reading">正在读取…</string>
+    <string name="document_close">关闭 MD 文件</string>
+    <string name="document_read_failed">读取失败，请重试</string>
+    <string name="document_incomplete">文档回执不完整，请重新加载</string>
+    <string name="document_receiving">正在读取 · 已接收 %1$s</string>
+    <string name="document_preview">预览</string>
+    <string name="document_source">源码</string>
+    <string name="document_kind">文档</string>
+    <string name="document_previous_page">上一页内容</string>
+    <string name="document_next_page">下一页内容</string>
+    <string name="document_show_more">继续显示文档</string>
+    <string name="document_empty">这个 MD 文件暂无内容</string>
+    <string name="document_reading_mac">正在从 Mac 读取文档…</string>
+    <string name="document_error_retained">%1$s · 已读取的内容保留</string>
+    <string name="document_read_only">只读 · %1$s</string>
+    <string name="retry">重试</string>
+    <string name="document_copy_all">复制全文</string>
+    <string name="document_copy_large">文档较大，请在 Mac 上复制全文</string>
+    <string name="document_copied">已复制全文</string>
+    <string name="document_copy_failed">无法写入剪贴板，请在 Mac 上复制全文</string>
+    <string name="task_done">已完成</string>
+    <string name="task_not_done">未完成</string>
+    <string name="markdown_quote">引用：%1$s</string>
+    <string name="code">代码</string>
+    <string name="document_link_description">查看文件，%1$s，%2$s</string>
+    <string name="document_line_description">查看文件，%1$s，%2$s，第%3$d行引用</string>
+    <string name="table_previous_columns">前面列</string>
+    <string name="table_columns_range">列：%1$d–%2$d / %3$d</string>
+    <string name="table_next_columns">后续列</string>
+    <string name="table_previous_rows">上一组行</string>
+    <string name="table_rows_range">行：%1$d–%2$d / %3$d</string>
+    <string name="table_next_rows">下一组行</string>
+    <string name="table_description">表格，%1$d列，%2$d行，可左右滑动</string>
+    <plurals name="expand_middle_segments">
+        <item quantity="other">展开中间的 %1$d 段内容</item>
+    </plurals>
+    <string name="group_file_read">文件读取</string>
+    <string name="group_file_search">文件搜索</string>
+    <string name="group_web_search">网页搜索</string>
+    <string name="group_web_fetch">网页访问</string>
+    <string name="group_agent">子任务</string>
+    <string name="group_image_view">查看图片</string>
+    <string name="group_image_generation">生成图片</string>
+    <string name="group_attachment">文件附件</string>
+    <string name="group_action_count">%1$s · %2$d 次</string>
+    <plurals name="group_commands">
+        <item quantity="other">%1$d 条命令</item>
+    </plurals>
+    <plurals name="group_edits">
+        <item quantity="other">%1$d 处文件编辑</item>
+    </plurals>
+    <plurals name="group_thoughts">
+        <item quantity="other">%1$d 段思考</item>
+    </plurals>
+    <plurals name="group_notices">
+        <item quantity="other">%1$d 条提示</item>
+    </plurals>
+    <plurals name="group_named_calls">
+        <item quantity="other">%1$s · %2$d 次调用</item>
+    </plurals>
+    <plurals name="group_failed">
+        <item quantity="other">%1$d 失败</item>
+    </plurals>
+    <plurals name="group_not_run">
+        <item quantity="other">%1$d 未执行</item>
+    </plurals>
+</resources>

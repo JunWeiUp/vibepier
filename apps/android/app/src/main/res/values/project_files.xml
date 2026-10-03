@@ -1,0 +1,117 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="files_project_root">"Project root"</string>
+    <string name="files_quote_in_reply">"Quote in reply"</string>
+    <string name="files_this_session_cannot_be_replied_to_from_the_phone">"This session cannot be replied to from the phone"</string>
+    <string name="files_add_as_attachment">"Add as attachment"</string>
+    <string name="files_this_session_does_not_support_attachments">"This session does not support attachments"</string>
+    <string name="files_copy_relative_path">"Copy relative path"</string>
+    <string name="files_path_copied">"Path copied"</string>
+    <string name="files_could_not_write_to_clipboard">"Could not write to clipboard"</string>
+    <string name="files_open_on_mac">"Open on Mac"</string>
+    <string name="files_default_app">"Default app"</string>
+    <string name="files_show_in_finder">"Show in Finder"</string>
+    <string name="files_showing_in_finder">"Showing in Finder…"</string>
+    <string name="files_opening_on_mac">"Opening on Mac…"</string>
+    <string name="files_mac_could_not_open_the_file">"Mac could not open the file"</string>
+    <string name="files_opened_on_mac_unlock_to_view">"Opened on Mac; unlock to view"</string>
+    <string name="files_shown_in_finder">"Shown in Finder"</string>
+    <string name="files_opened_on_mac">"Opened on Mac"</string>
+    <string name="files_line_1">"Line %1$s, "</string>
+    <string name="files_copy">"Copy"</string>
+    <string name="files_open_on_mac_19">"Open on Mac"</string>
+    <string name="files_back">"Back"</string>
+    <string name="files_find_in_file">"Find in file"</string>
+    <string name="files_file_actions">"File actions"</string>
+    <string name="files_could_not_read_retry">"Could not read; retry"</string>
+    <string name="files_incomplete_file_response_reload">"Incomplete file response; reload"</string>
+    <string name="files_image_preview_unavailable">"Image preview unavailable"</string>
+    <string name="files_could_not_read_changes">"Could not read changes"</string>
+    <string name="files_this_project_is_not_a_git_repository">"This project is not a Git repository"</string>
+    <string name="files_binary_file_changed_no_text_diff_available">"Binary file changed; no text diff available"</string>
+    <string name="files_no_text_changes_compared_with_head">"No text changes compared with HEAD"</string>
+    <string name="files_preview">"Preview"</string>
+    <string name="files_source">"Source"</string>
+    <string name="files_changes_new_file">"Changes · New file"</string>
+    <string name="files_changes_1_2">"Changes +%1$d −%2$d"</string>
+    <string name="files_changes">"Changes"</string>
+    <string name="files_1_selected">"%1$s, selected"</string>
+    <string name="files_switch_to_1">"Switch to %1$s"</string>
+    <plurals name="files_1_lines"><item quantity="one">"%1$d line"</item><item quantity="other">"%1$d lines"</item></plurals>
+    <string name="files_added">"Added"</string>
+    <string name="files_modified">"Modified"</string>
+    <string name="files_deleted">"Deleted"</string>
+    <string name="files_file_too_large">"File too large"</string>
+    <string name="files_1_exceeds_the_2_mb_preview_limit_open_it_on_the_mac_to_view">"%1$s exceeds the 2 MB preview limit. Open it on the Mac to view."</string>
+    <string name="files_preview_unavailable">"Preview unavailable"</string>
+    <string name="files_this_is_a_binary_file_copy_its_path_or_show_it_in_finder">"This is a binary file. Copy its path or show it in Finder."</string>
+    <string name="files_loading_image">"Loading image…"</string>
+    <string name="files_could_not_read">"Could not read"</string>
+    <string name="files_reading_from_mac">"Reading from Mac…"</string>
+    <string name="files_received_1">"Received %1$s"</string>
+    <string name="files_loading_changes">"Loading changes…"</string>
+    <string name="files_no_changes">"No changes"</string>
+    <string name="files_large_diff_showing_the_first_128_kb">"Large diff; showing the first 128 KB"</string>
+    <string name="files_large_diff">"Large diff"</string>
+    <string name="files_retry">"Retry"</string>
+    <string name="files_quote_line_1">"Quote line %1$d"</string>
+    <string name="files_file_too_large_to_copy_here_copy_it_on_the_mac">"File too large to copy here; copy it on the Mac"</string>
+    <string name="files_full_text_copied">"Full text copied"</string>
+    <string name="files_find_text">"Find text"</string>
+    <string name="files_find_in_1">"Find in %1$s"</string>
+    <string name="files_find_next">"Find next"</string>
+    <string name="files_close">"Close"</string>
+    <string name="files_no_matches">"No matches"</string>
+    <string name="files_project_files">"Project files"</string>
+    <string name="files_search_file_names_across_the_project">"Search file names across the project"</string>
+    <string name="files_back_to_session">"Back to session"</string>
+    <string name="files_refresh">"Refresh"</string>
+    <string name="files_search">"Search"</string>
+    <string name="files_could_not_read_directory">"Could not read directory"</string>
+    <string name="files_search_failed">"Search failed"</string>
+    <string name="files_all">"All"</string>
+    <string name="files_turn_changes_1">"Turn changes %1$d"</string>
+    <string name="files_turn_changes">"Turn changes"</string>
+    <string name="files_recent">"Recent"</string>
+    <string name="files_files">"Files"</string>
+    <string name="files_back_to_1">"Back to %1$s"</string>
+    <string name="files_loading_directory">"Loading directory…"</string>
+    <plurals name="files_read_only_dotfiles_hidden_1_entries"><item quantity="one">"Read only · Dotfiles hidden · %1$d entry"</item><item quantity="other">"Read only · Dotfiles hidden · %1$d entries"</item></plurals>
+    <string name="files_showing_the_first_200_entries">" · Showing the first 200 entries"</string>
+    <string name="files_empty_folder">"Empty folder"</string>
+    <string name="files_loading">"Loading…"</string>
+    <string name="files_folder">"Folder "</string>
+    <string name="files_file">"File "</string>
+    <string name="files_modified_82">", modified"</string>
+    <string name="files_added_83">", added"</string>
+    <string name="files_deleted_84">", deleted"</string>
+    <string name="files_expanded">", expanded"</string>
+    <string name="files_tap_to_expand">", tap to expand"</string>
+    <string name="files_tap_to_open_hold_for_more_actions">", tap to open; hold for more actions"</string>
+    <string name="files_too_large">"Too large"</string>
+    <string name="files_open_this_folder">"Open this folder"</string>
+    <string name="files_loading_turn_changes">"Loading turn changes…"</string>
+    <string name="files_no_file_changes_in_this_turn">"No file changes in this turn"</string>
+    <string name="files_the_latest_reply_did_not_change_files_in_this_project">"The latest reply did not change files in this project."</string>
+    <plurals name="files_nthe_workspace_has_1_uncommitted_changes_see_marked_files_under_all"><item quantity="one">"\nThe workspace has %1$d uncommitted change. See marked files under All."</item><item quantity="other">"\nThe workspace has %1$d uncommitted changes. See marked files under All."</item></plurals>
+    <string name="files_files_changed_by_the_latest_reply_tap_to_view_diff">"Files changed by the latest reply · Tap to view diff"</string>
+    <string name="files_no_recent_files">"No recent files"</string>
+    <string name="files_files_opened_from_all_or_search_appear_here">"Files opened from All or search appear here."</string>
+    <string name="files_stored_only_on_this_phone_up_to_20_files">"Stored only on this phone · Up to 20 files"</string>
+    <string name="files_searching">"Searching…"</string>
+    <string name="files_no_file_names_contain_1">"No file names contain “%1$s”."</string>
+    <plurals name="files_1_results"><item quantity="one">"%1$d result"</item><item quantity="other">"%1$d results"</item></plurals>
+    <string name="files_showing_the_first_100_narrow_your_search">" · Showing the first 100; narrow your search"</string>
+    <string name="files_connect_to_the_mac_and_open_a_session_to_browse_project_files">"Connect to the Mac and open a session to browse project files."</string>
+    <string name="files_update_vibepier_on_the_mac_to_browse_project_files">"Update VibePier on the Mac to browse project files."</string>
+    <string name="files_view_markdown_files">"View Markdown files…"</string>
+    <string name="files_connect_to_the_mac_and_open_a_session_to_view_files">"Connect to the Mac and open a session to view files"</string>
+    <string name="files_update_vibepier_on_the_mac_to_view_this_file">"Update VibePier on the Mac to view this file"</string>
+    <string name="files_quoted_1">"Quoted %1$s"</string>
+    <plurals name="files_project_files_1_files_changed_in_this_turn"><item quantity="one">"Project files, %1$d file changed in this turn"</item><item quantity="other">"Project files, %1$d files changed in this turn"</item></plurals>
+    <plurals name="files_1_files_changed_in_this_turn_open_project_files"><item quantity="one">"%1$d file changed in this turn; open project files"</item><item quantity="other">"%1$d files changed in this turn; open project files"</item></plurals>
+    <plurals name="files_1_files_changed_in_this_turn"><item quantity="one">"%1$d file changed in this turn"</item><item quantity="other">"%1$d files changed in this turn"</item></plurals>
+    <string name="files_view_changes_to_1">"View changes to %1$s"</string>
+    <plurals name="files_view_all_1_files"><item quantity="one">"View all %1$d file"</item><item quantity="other">"View all %1$d files"</item></plurals>
+    <string name="files_html_preview_unavailable">HTML preview is unavailable on this device. You can still view the source.</string>
+</resources>

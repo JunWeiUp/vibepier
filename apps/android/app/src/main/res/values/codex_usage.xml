@@ -1,0 +1,37 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="codex_usage_title">Codex usage</string>
+    <string name="codex_usage_account_scope">Usage for the Codex account signed in on this Mac, shared across its sessions.</string>
+    <string name="codex_usage_loading">Loading…</string>
+    <string name="codex_usage_refresh">Refresh</string>
+    <string name="codex_usage_unavailable">Usage is unavailable. Check Codex on the Mac and refresh.</string>
+    <string name="codex_usage_pending">A reset result is unconfirmed. Check its receipt or verify it in Codex on the Mac before using another card.</string>
+    <string name="codex_usage_check_receipt">Check reset receipt</string>
+    <string name="codex_usage_windows_unknown">Remaining usage unavailable</string>
+    <string name="codex_usage_five_hours">5-hour window</string>
+    <string name="codex_usage_weekly">Weekly window</string>
+    <string name="codex_usage_window_minutes">Window: %1$d min</string>
+    <string name="codex_usage_window_unknown">Usage window</string>
+    <string name="codex_usage_remaining">%1$d%% remaining</string>
+    <string name="codex_usage_resets_at">Resets: %1$s</string>
+    <string name="codex_usage_cards_unknown">Reset cards unavailable</string>
+    <string name="codex_usage_cards_count">Gifted reset cards: %1$d</string>
+    <string name="codex_usage_no_cards">No reset cards currently available.</string>
+    <string name="codex_usage_not_eligible">A 5-hour or weekly window must have %1$d%% or less remaining to use a reset.</string>
+    <string name="codex_usage_full_reset">Full reset</string>
+    <string name="codex_usage_expires_at">Expires: %1$s</string>
+    <string name="codex_usage_expiry_none">No expiry provided</string>
+    <string name="codex_usage_use_card">Use this reset card</string>
+    <string name="codex_usage_confirm_title">Use one reset card?</string>
+    <string name="codex_usage_confirm_body">Use “%1$s” to reset eligible usage windows for the Codex account on this Mac. This consumes one gifted card and cannot be undone.</string>
+    <string name="codex_usage_cancel">Cancel</string>
+    <string name="codex_usage_confirm_use">Use one card</string>
+    <string name="codex_usage_redeeming">Applying reset…</string>
+    <string name="codex_usage_reset_done">Reset confirmed.</string>
+    <string name="codex_usage_nothing_to_reset">There is no eligible window to reset. No card was consumed.</string>
+    <string name="codex_usage_not_submitted">The Mac has no record of this reset. You can select a card again.</string>
+    <string name="codex_usage_time_unknown">Not provided</string>
+    <string name="codex_usage_updated_at">Updated: %1$s</string>
+    <string name="codex_usage_close">Close</string>
+    <string name="codex_usage_card_details_missing">Card details are unavailable. Refresh to select a specific card.</string>
+</resources>

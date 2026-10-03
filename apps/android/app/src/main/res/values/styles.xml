@@ -1,0 +1,16 @@
+<resources>
+    <style name="Theme.VibePier" parent="android:style/Theme.Material.NoActionBar">
+        <item name="android:colorAccent">#72D4B9</item>
+        <item name="android:windowBackground">@color/window_background</item>
+        <item name="android:statusBarColor">@color/window_background</item>
+        <item name="android:navigationBarColor">@color/window_background</item>
+        <item name="android:windowLightStatusBar">false</item>
+    </style>
+    <style name="Theme.VibePier.Dialog" parent="android:style/Theme.Material.Dialog.Alert">
+        <item name="android:colorAccent">#72D4B9</item>
+        <item name="android:colorBackground">@color/dialog_surface</item>
+        <item name="android:textColorPrimary">#E9EEF0</item>
+        <item name="android:textColorSecondary">#A3AFB4</item>
+        <item name="android:windowBackground">@drawable/dialog_background</item>
+    </style>
+</resources>

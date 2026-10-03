@@ -1,0 +1,86 @@
+name: CI
+on:
+  push:
+  pull_request:
+  workflow_dispatch:
+permissions:
+  contents: read
+concurrency:
+  group: ci-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  macos:
+    runs-on: macos-15
+    env:
+      DEVELOPER_DIR: /Applications/Xcode_16.4.app/Contents/Developer
+    steps:
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
+        with:
+          persist-credentials: false
+      - run: swift --version
+      - run: make test-macos lint-macos
+      - run: ./scripts/build/macos.sh
+
+  android:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
+        with:
+          persist-credentials: false
+      - uses: actions/setup-java@b6effb05e454b25005698d916606bdc6ffcbf961 # v5
+        with:
+          distribution: temurin
+          java-version: '17'
+          cache: gradle
+          cache-dependency-path: |
+            apps/android/**/*.gradle.kts
+            apps/android/gradle/wrapper/gradle-wrapper.properties
+      - name: Install declared Android SDK
+        run: |
+          sdk_tools="${ANDROID_HOME:?}/cmdline-tools/latest/bin"
+          "$sdk_tools/sdkmanager" 'platforms;android-35' 'build-tools;35.0.0'
+      - run: ./apps/android/gradlew -p apps/android :app:testReleaseUnitTest :app:lintRelease :app:assembleDebug :app:assembleRelease :app:assembleDesignReview :app:assembleDesignReviewAndroidTest --console=plain
+      - run: python3 scripts/check/android-lint.py
+      - uses: actions/upload-artifact@330a01c490aca151604b8cf639adc76d48f6c5d4 # v5
+        if: always()
+        with:
+          name: android-test-reports
+          path: |
+            apps/android/app/build/reports/
+            apps/android/app/build/test-results/
+          retention-days: 7
+
+  relay:
+    runs-on: ubuntu-24.04
+    strategy:
+      matrix:
+        go: ['1.22.x', '1.27.x']
+    steps:
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
+        with:
+          persist-credentials: false
+      - uses: actions/setup-go@924ae3a1cded613372ab5595356fb5720e22ba16 # v6
+        with:
+          go-version: ${{ matrix.go }}
+          cache: false
+      - run: make test-relay lint-relay package-relay
+
+  repository:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+      - run: python3 scripts/check/repository.py
+      - run: python3 scripts/check/localization.py
+      - run: python3 scripts/dev/localize-macos.py --check
+      - uses: actions/setup-go@924ae3a1cded613372ab5595356fb5720e22ba16 # v6
+        with:
+          go-version: '1.27.x'
+          cache: false
+      - name: Install pinned secret scanner
+        run: go install github.com/zricethezav/gitleaks/v8@v8.30.1
+      - name: Scan history for secrets
+        run: gitleaks git --redact --no-banner .

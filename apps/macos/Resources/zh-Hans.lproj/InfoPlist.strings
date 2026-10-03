@@ -1,0 +1,5 @@
+/* User-visible system permission explanations. */
+"NSMicrophoneUsageDescription" = "访问音频设备，用于你开启的语音控制与手机麦克风路由。";
+"NSBluetoothAlwaysUsageDescription" = "将手机与这台 Mac 配对，并连接你已授权的 VibePier 设备。";
+"NSLocalNetworkUsageDescription" = "通过本地网络连接你已授权的手机与这台 Mac。";
+"NSAppleEventsUsageDescription" = "执行你为遥控按键明确配置的桌面操作。";

@@ -1,0 +1,9 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="creation_claude_images">图片会按需压缩，并随首条消息发送；其他文件以本地文件引用传入。</string>
+    <string name="creation_draft_unavailable">无法读取或保存新会话草稿，请检查手机存储后重试。</string>
+    <string name="creation_choose_options">请先选择可用的模型和审批模式。</string>
+    <string name="creation_invalid_prompt">首条文字最多 32 KB，可添加最多 6 个不同的附件。</string>
+    <string name="creation_loading_options">正在读取模型和审批模式…</string>
+    <string name="creation_options_unavailable">无法读取新会话选项，请检查 Mac 上的 VibePier。</string>
+</resources>

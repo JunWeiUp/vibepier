@@ -1,0 +1,7 @@
+SYNTHETIC VISUAL FIXTURES — NOT LIVE SCREENSHOTS
+Rendered with the real TaskActivityMenuIcon at 4x pixel scale using SwiftUI ImageRenderer.
+The base is the production 18pt VibePier brand template from MenuBarIcon.
+Rows: no tasks; one running; three unread completions; one running + three unread;
+one running + 25 unread; one running + 257 unread.
+light/dark are standalone; comparison places them side by side.
+No production state, session, device, network, or application preferences are read or changed.

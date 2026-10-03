@@ -1,0 +1,9 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="creation_claude_images">Images are compressed when needed and included in the first message. Other files are shared as local file references.</string>
+    <string name="creation_draft_unavailable">Could not read or save the draft. Check phone storage and retry.</string>
+    <string name="creation_choose_options">Choose an available model and approval mode first.</string>
+    <string name="creation_invalid_prompt">Use at most 32 KB of text and 6 distinct attachments.</string>
+    <string name="creation_loading_options">Loading models and approval modes…</string>
+    <string name="creation_options_unavailable">Cannot load creation options. Check VibePier on the Mac.</string>
+</resources>

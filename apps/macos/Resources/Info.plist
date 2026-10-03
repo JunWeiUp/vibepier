@@ -1,0 +1,28 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+    <key>CFBundleExecutable</key><string>VibePier</string>
+    <key>CFBundleIdentifier</key><string>io.github.junweiup.vibepier</string>
+    <key>CFBundleName</key><string>VibePier</string>
+    <key>CFBundleDisplayName</key><string>VibePier</string>
+    <key>CFBundlePackageType</key><string>APPL</string>
+    <key>CFBundleShortVersionString</key><string>0.1.0</string>
+    <key>CFBundleVersion</key><string>1</string>
+    <key>CFBundleIconFile</key><string>VibePier</string>
+    <key>CFBundleDevelopmentRegion</key><string>en</string>
+    <key>CFBundleLocalizations</key><array><string>en</string><string>zh-Hans</string></array>
+    <key>LSMinimumSystemVersion</key><string>14.0</string>
+    <key>LSUIElement</key><true/>
+    <key>NSHighResolutionCapable</key><true/>
+    <key>NSMicrophoneUsageDescription</key>
+    <string>Access audio devices for optional voice controls and phone microphone routing.</string>
+    <key>NSBluetoothAlwaysUsageDescription</key>
+    <string>Pair your phone with this Mac and connect to your authorized VibePier devices.</string>
+    <key>NSLocalNetworkUsageDescription</key>
+    <string>Connect your authorized phone to this Mac on the local network.</string>
+    <key>NSAppleEventsUsageDescription</key>
+    <string>Run the desktop actions you explicitly configure for your remote controls.</string>
+    <key>NSHumanReadableCopyright</key><string>MIT License. See the bundled LICENSE and NOTICE.</string>
+</dict>
+</plist>

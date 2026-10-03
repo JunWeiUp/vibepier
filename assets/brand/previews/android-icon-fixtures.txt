@@ -1,0 +1,4 @@
+SYNTHETIC RESOURCE RENDERING — NOT A LIVE PHONE SCREENSHOT
+Rendered by BrandAssetsProbe from the shipped Android AdaptiveIconDrawable at 16/32/48/96 pixels.
+The monochrome resource is tinted black/white to emulate launcher theme tint on light/dark backgrounds.
+Foreground alpha is checked against the central 66dp safe circle in a 108dp canvas. No applications, sessions, credentials or transport state are read.

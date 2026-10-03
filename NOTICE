@@ -1,0 +1,21 @@
+VibePier
+Copyright (c) 2026 VibePier contributors
+
+VibePier derives from vibed, the open-source Ulanzi Vibe Key driver by
+Ben Gittins: https://github.com/ihavespoons/vibed
+
+The original MIT copyright notice is preserved in LICENSE. The new repository
+starts with a consolidated release commit; this does not change the original
+code's license or authorship. Further work includes the Mac menu app, Android
+companion, AI session integrations, voice controls, and self-hosted relay.
+
+VibePier is an independent community project. It is not affiliated with
+Ulanzi, OpenAI, Anthropic, or the makers of ZCode. Referenced product names and
+logos belong to their respective owners. BlackHole is an optional external
+audio driver and is not included in the installation packages.
+
+Original VibePier brand vectors and source-controlled illustrations are
+distributed under the repository's MIT license. The README scene illustrations
+and editorial covers were created with AI image generation; they are conceptual
+artwork, not screenshots or evidence of product behavior. Generation records
+for the covers are in assets/GENERATION-PROMPTS.md.

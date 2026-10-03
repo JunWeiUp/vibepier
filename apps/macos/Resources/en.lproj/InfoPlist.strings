@@ -1,0 +1,5 @@
+/* User-visible system permission explanations. */
+"NSMicrophoneUsageDescription" = "Access audio devices for optional voice controls and phone microphone routing.";
+"NSBluetoothAlwaysUsageDescription" = "Pair your phone with this Mac and connect to your authorized VibePier devices.";
+"NSLocalNetworkUsageDescription" = "Connect your authorized phone to this Mac on the local network.";
+"NSAppleEventsUsageDescription" = "Run the desktop actions you explicitly configure for your remote controls.";

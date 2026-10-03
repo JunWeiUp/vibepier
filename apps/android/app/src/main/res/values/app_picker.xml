@@ -1,0 +1,20 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="app_picker_title">Mac apps</string>
+    <string name="app_picker_scope">Choose apps for the bottom dock. Changes are shared with the Mac and your other phones.</string>
+    <string name="app_picker_search">Search installed Mac apps</string>
+    <string name="app_picker_close">Close</string>
+    <string name="app_picker_loading">Loading Mac apps…</string>
+    <string name="app_picker_failed">Could not update apps. Refresh and try again.</string>
+    <string name="app_picker_refresh">Refresh</string>
+    <string name="app_picker_slot">%1$d · %2$s</string>
+    <string name="app_picker_add">Add an app</string>
+    <string name="app_picker_back">Back to shortcuts</string>
+    <string name="app_picker_choose_slot">Choose an app for slot %1$d</string>
+    <string name="app_picker_clear">Clear this slot</string>
+    <string name="app_picker_empty">No matching installed apps</string>
+    <string name="app_picker_saving">Saving…</string>
+    <string name="app_picker_saved">Saved. The dock will update automatically.</string>
+    <string name="app_picker_manage">Configure apps</string>
+    <string name="app_picker_source_changed">The connected Mac changed. Refresh its app list before choosing.</string>
+</resources>

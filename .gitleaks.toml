@@ -1,0 +1,24 @@
+title = "VibePier secret scanning"
+
+[extend]
+useDefault = true
+
+# Only this known synthetic value in these specific protocol tests. No test-directory exclusion.
+[[allowlists]]
+description = "Public relay interoperability secret"
+condition = "AND"
+paths = [
+  '''(^|/)protocol/fixtures/relay-hello\.json$''',
+  '''(^|/)apps/android/app/src/test/java/io/github/junweiup/vibepier/remote/RelayLinkTest\.kt$''',
+  '''(^|/)apps/macos/Tests/VibePierCoreTests/RelayClientTests\.swift$''',
+  '''(^|/)services/relay/internal/relay/relay_test\.go$''',
+]
+regexTarget = "secret"
+regexes = ['''^0123456789abcdef0123456789abcdef$''']
+
+[[allowlists]]
+description = "Three independently derived public control fixture keys"
+condition = "AND"
+paths = ['''(^|/)protocol/fixtures/control-v1\.properties$''']
+regexTarget = "secret"
+regexes = ['''^(e08e1edc9d02af573951be1ce57dac7e92f4378bb896657ec3f87afa76c971de|a67400b415ffe78759c539929e960753b002c3b4c318df24352e39913c9ee481|ae834fb9d7d6655076790d59ddb1b63e4408a6b6e1bcec9d2cd4d102c6dd3742)$''']

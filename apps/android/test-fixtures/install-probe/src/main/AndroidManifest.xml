@@ -1,0 +1,6 @@
+<?xml version="1.0" encoding="utf-8"?>
+<manifest xmlns:android="http://schemas.android.com/apk/res/android">
+    <!-- No Activity, services, permissions, or executable code: installation-only emulator fixture. -->
+    <application android:label="VibePier Install Probe" android:hasCode="false"
+        android:icon="@android:drawable/sym_def_app_icon" android:allowBackup="false" />
+</manifest>

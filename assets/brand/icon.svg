@@ -1,0 +1,8 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1024 1024" role="img" aria-label="VibePier: work within reach">
+<rect width="1024" height="1024" rx="224" fill="#0F1416"/>
+<g fill="none" stroke="#72D4B9" stroke-width="96" stroke-linecap="round" stroke-linejoin="round">
+  <path d="M280 310 L454 626 Q480 674 509 626 L650 358"/>
+  <path d="M288 752 H736"/>
+</g>
+<circle cx="718" cy="230" r="57" fill="#72D4B9"/>
+</svg>

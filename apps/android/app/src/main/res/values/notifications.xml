@@ -1,0 +1,7 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="task_notifications">Task completion notifications</string>
+    <string name="task_notifications_detail">Notify when a task finishes. Tap to enable or manage notifications.</string>
+    <string name="task_notification_title">%1$s task completed</string>
+    <string name="task_notification_body">Open VibePier to view the result.</string>
+</resources>

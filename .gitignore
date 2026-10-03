@@ -1,0 +1,34 @@
+# Local state and generated outputs
+.local/
+.build/
+.swiftpm/
+.gradle/
+**/build/
+!scripts/build/
+!scripts/build/**
+DerivedData/
+*.xcodeproj/
+.DS_Store
+.idea/
+*.iml
+local.properties
+dist/
+*.log
+__pycache__/
+*.py[cod]
+# Credentials and signing material
+.env
+.env.*
+!.env.example
+*.jks
+*.keystore
+*.p12
+*.p8
+*.mobileprovision
+signing.properties
+# Personal agent configuration
+.claude/
+.codex/
+
+# Local visual QA notes reference private capture files
+/design-qa.md

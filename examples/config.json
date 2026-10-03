@@ -1,0 +1,14 @@
+{
+  "actions": {
+    "talk": {
+      "keys": "rcmd",
+      "on": "both",
+      "keysMode": "hold",
+      "sequential": true,
+      "switchInput": true
+    }
+  },
+  "agentLightsEnabled": false,
+  "agentMode": "off",
+  "heartbeatMode": "on"
+}

@@ -1,0 +1,117 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="files_project_root">"项目根目录"</string>
+    <string name="files_quote_in_reply">"引用到回复"</string>
+    <string name="files_this_session_cannot_be_replied_to_from_the_phone">"当前会话不能从手机回复"</string>
+    <string name="files_add_as_attachment">"作为附件添加"</string>
+    <string name="files_this_session_does_not_support_attachments">"当前会话不支持附件"</string>
+    <string name="files_copy_relative_path">"复制相对路径"</string>
+    <string name="files_path_copied">"已复制路径"</string>
+    <string name="files_could_not_write_to_clipboard">"无法写入剪贴板"</string>
+    <string name="files_open_on_mac">"在 Mac 上打开"</string>
+    <string name="files_default_app">"默认应用"</string>
+    <string name="files_show_in_finder">"在访达中显示"</string>
+    <string name="files_showing_in_finder">"正在访达中显示…"</string>
+    <string name="files_opening_on_mac">"正在 Mac 上打开…"</string>
+    <string name="files_mac_could_not_open_the_file">"Mac 未能打开"</string>
+    <string name="files_opened_on_mac_unlock_to_view">"已在 Mac 上打开，解锁后可见"</string>
+    <string name="files_shown_in_finder">"已在访达中显示"</string>
+    <string name="files_opened_on_mac">"已在 Mac 上打开"</string>
+    <string name="files_line_1">"第 %1$s 行，"</string>
+    <string name="files_copy">"复制"</string>
+    <string name="files_open_on_mac_19">"在 Mac 打开"</string>
+    <string name="files_back">"返回"</string>
+    <string name="files_find_in_file">"在文件中查找"</string>
+    <string name="files_file_actions">"文件操作"</string>
+    <string name="files_could_not_read_retry">"读取失败，请重试"</string>
+    <string name="files_incomplete_file_response_reload">"文件回执不完整，请重新加载"</string>
+    <string name="files_image_preview_unavailable">"图片暂无法预览"</string>
+    <string name="files_could_not_read_changes">"改动读取失败"</string>
+    <string name="files_this_project_is_not_a_git_repository">"此项目不是 git 仓库"</string>
+    <string name="files_binary_file_changed_no_text_diff_available">"二进制文件已改动，无法显示文本差异"</string>
+    <string name="files_no_text_changes_compared_with_head">"与 HEAD 相比没有文本改动"</string>
+    <string name="files_preview">"预览"</string>
+    <string name="files_source">"源码"</string>
+    <string name="files_changes_new_file">"改动 · 新文件"</string>
+    <string name="files_changes_1_2">"改动 +%1$d −%2$d"</string>
+    <string name="files_changes">"改动"</string>
+    <string name="files_1_selected">"%1$s，已选中"</string>
+    <string name="files_switch_to_1">"切换到%1$s"</string>
+    <plurals name="files_1_lines"><item quantity="other">"%1$d 行"</item></plurals>
+    <string name="files_added">"新增"</string>
+    <string name="files_modified">"已改动"</string>
+    <string name="files_deleted">"已删除"</string>
+    <string name="files_file_too_large">"文件太大"</string>
+    <string name="files_1_exceeds_the_2_mb_preview_limit_open_it_on_the_mac_to_view">"%1$s，超过 2 MB 的只读预览上限。可以在 Mac 上打开查看。"</string>
+    <string name="files_preview_unavailable">"无法预览"</string>
+    <string name="files_this_is_a_binary_file_copy_its_path_or_show_it_in_finder">"这是二进制文件，可以复制路径，或在访达中显示。"</string>
+    <string name="files_loading_image">"正在读取图片…"</string>
+    <string name="files_could_not_read">"读取失败"</string>
+    <string name="files_reading_from_mac">"正在从 Mac 读取…"</string>
+    <string name="files_received_1">"已接收 %1$s"</string>
+    <string name="files_loading_changes">"正在读取改动…"</string>
+    <string name="files_no_changes">"没有改动"</string>
+    <string name="files_large_diff_showing_the_first_128_kb">"改动较大，只显示前 128 KB"</string>
+    <string name="files_large_diff">"改动较大"</string>
+    <string name="files_retry">"重试"</string>
+    <string name="files_quote_line_1">"引用第 %1$d 行"</string>
+    <string name="files_file_too_large_to_copy_here_copy_it_on_the_mac">"文件较大，请在 Mac 上复制"</string>
+    <string name="files_full_text_copied">"已复制全文"</string>
+    <string name="files_find_text">"查找文本"</string>
+    <string name="files_find_in_1">"在 %1$s 中查找"</string>
+    <string name="files_find_next">"查找下一个"</string>
+    <string name="files_close">"关闭"</string>
+    <string name="files_no_matches">"没有找到"</string>
+    <string name="files_project_files">"项目文件"</string>
+    <string name="files_search_file_names_across_the_project">"按文件名搜索整个项目"</string>
+    <string name="files_back_to_session">"返回会话"</string>
+    <string name="files_refresh">"刷新"</string>
+    <string name="files_search">"搜索"</string>
+    <string name="files_could_not_read_directory">"目录读取失败"</string>
+    <string name="files_search_failed">"搜索失败"</string>
+    <string name="files_all">"全部"</string>
+    <string name="files_turn_changes_1">"本轮改动 %1$d"</string>
+    <string name="files_turn_changes">"本轮改动"</string>
+    <string name="files_recent">"最近打开"</string>
+    <string name="files_files">"文件"</string>
+    <string name="files_back_to_1">"返回 %1$s"</string>
+    <string name="files_loading_directory">"正在读取目录…"</string>
+    <plurals name="files_read_only_dotfiles_hidden_1_entries"><item quantity="other">"只读 · 隐藏以 . 开头的项 · 共 %1$d 项"</item></plurals>
+    <string name="files_showing_the_first_200_entries">" · 只显示前 200 项"</string>
+    <string name="files_empty_folder">"空文件夹"</string>
+    <string name="files_loading">"正在读取…"</string>
+    <string name="files_folder">"文件夹 "</string>
+    <string name="files_file">"文件 "</string>
+    <string name="files_modified_82">"，已改动"</string>
+    <string name="files_added_83">"，新增"</string>
+    <string name="files_deleted_84">"，已删除"</string>
+    <string name="files_expanded">"，已展开"</string>
+    <string name="files_tap_to_expand">"，点按展开"</string>
+    <string name="files_tap_to_open_hold_for_more_actions">"，点按打开，长按更多操作"</string>
+    <string name="files_too_large">"过大"</string>
+    <string name="files_open_this_folder">"进入此文件夹"</string>
+    <string name="files_loading_turn_changes">"正在读取本轮改动…"</string>
+    <string name="files_no_file_changes_in_this_turn">"本轮没有文件改动"</string>
+    <string name="files_the_latest_reply_did_not_change_files_in_this_project">"最新一轮回复没有修改这个项目里的文件。"</string>
+    <plurals name="files_nthe_workspace_has_1_uncommitted_changes_see_marked_files_under_all"><item quantity="other">"\n工作区共有 %1$d 处未提交的改动，可在「全部」中查看带标记的文件。"</item></plurals>
+    <string name="files_files_changed_by_the_latest_reply_tap_to_view_diff">"最新一轮回复修改的文件 · 点按查看改动"</string>
+    <string name="files_no_recent_files">"还没有打开过文件"</string>
+    <string name="files_files_opened_from_all_or_search_appear_here">"在「全部」或搜索中打开的文件会出现在这里。"</string>
+    <string name="files_stored_only_on_this_phone_up_to_20_files">"只保存在这台手机上 · 最多 20 个"</string>
+    <string name="files_searching">"正在搜索…"</string>
+    <string name="files_no_file_names_contain_1">"没有文件名包含「%1$s」的文件。"</string>
+    <plurals name="files_1_results"><item quantity="other">"%1$d 个结果"</item></plurals>
+    <string name="files_showing_the_first_100_narrow_your_search">" · 只显示前 100 个，请输入更多文字"</string>
+    <string name="files_connect_to_the_mac_and_open_a_session_to_browse_project_files">"连接 Mac 并打开会话后，可浏览项目中的文件。"</string>
+    <string name="files_update_vibepier_on_the_mac_to_browse_project_files">"请更新 Mac 上的 VibePier 后浏览项目文件。"</string>
+    <string name="files_view_markdown_files">"查看 MD 文件…"</string>
+    <string name="files_connect_to_the_mac_and_open_a_session_to_view_files">"连接 Mac 并打开会话后可查看文件"</string>
+    <string name="files_update_vibepier_on_the_mac_to_view_this_file">"请更新 Mac 上的 VibePier 后查看此文件"</string>
+    <string name="files_quoted_1">"已引用 %1$s"</string>
+    <plurals name="files_project_files_1_files_changed_in_this_turn"><item quantity="other">"项目文件，本轮改动 %1$d 个文件"</item></plurals>
+    <plurals name="files_1_files_changed_in_this_turn_open_project_files"><item quantity="other">"本轮改动 %1$d 个文件，打开项目文件"</item></plurals>
+    <plurals name="files_1_files_changed_in_this_turn"><item quantity="other">"本轮改动 %1$d 个文件"</item></plurals>
+    <string name="files_view_changes_to_1">"查看 %1$s 的改动"</string>
+    <plurals name="files_view_all_1_files"><item quantity="other">"查看全部 %1$d 个文件"</item></plurals>
+    <string name="files_html_preview_unavailable">此设备暂时无法显示 HTML 预览，仍可切换到源码查看。</string>
+</resources>

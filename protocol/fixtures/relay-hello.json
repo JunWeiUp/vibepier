@@ -1,0 +1,29 @@
+[
+  {
+    "protocol": "vibepier-relay1",
+    "role": "host",
+    "room": "mac-1",
+    "timestamp": 1700000000,
+    "nonce": "00112233445566778899aabbccddeeff",
+    "secret": "0123456789abcdef0123456789abcdef",
+    "hmac": "1c59ed6c5c87c98c5d2455815e3401148e6bc56c3dc267f85e13bc5295797dad"
+  },
+  {
+    "protocol": "vibepier-relay2",
+    "role": "host",
+    "room": "mac-1",
+    "timestamp": 1700000000,
+    "nonce": "00112233445566778899aabbccddeeff",
+    "secret": "0123456789abcdef0123456789abcdef",
+    "hmac": "9b571e87d54dc78df1e33767fcae4e2ea5b2ca0649c63ea676d92d7eae91e569"
+  },
+  {
+    "protocol": "vibepier-relay1",
+    "role": "client",
+    "room": "mac-1",
+    "timestamp": 1700000000,
+    "nonce": "ffeeddccbbaa99887766554433221100",
+    "secret": "0123456789abcdef0123456789abcdef",
+    "hmac": "e5724e15164907aa88a99fa0b740827d50b2feaf629d8c6b37e76fbcc6de1f83"
+  }
+]

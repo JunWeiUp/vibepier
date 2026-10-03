@@ -1,0 +1,67 @@
+name: Android device checks
+on:
+  workflow_dispatch:
+    inputs:
+      api:
+        description: Android API to verify
+        type: choice
+        default: '35'
+        options: [all, '33', '35', '36']
+      suite:
+        description: Core smoke checks or the full compatibility suite
+        type: choice
+        default: smoke
+        options: [smoke, full]
+permissions:
+  contents: read
+concurrency:
+  group: android-device-${{ github.ref }}-${{ inputs.api }}-${{ inputs.suite }}
+  cancel-in-progress: false
+
+jobs:
+  emulator:
+    runs-on: ubuntu-24.04
+    timeout-minutes: ${{ inputs.suite == 'full' && 45 || 20 }}
+    strategy:
+      fail-fast: false
+      max-parallel: 2
+      matrix:
+        api: ${{ fromJSON(inputs.api == 'all' && '[33,35,36]' || format('[{0}]', inputs.api)) }}
+    steps:
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
+        with:
+          persist-credentials: false
+      - uses: actions/setup-java@b6effb05e454b25005698d916606bdc6ffcbf961 # v5
+        with:
+          distribution: temurin
+          java-version: '17'
+          cache: gradle
+          cache-dependency-path: |
+            apps/android/**/*.gradle.kts
+            apps/android/gradle/wrapper/gradle-wrapper.properties
+      - name: Reserve disk space for the Android system image
+        run: |
+          df -h "${RUNNER_TEMP:?}"
+          # This disposable job builds Kotlin only; neither toolchain is used.
+          sudo rm -rf /usr/share/dotnet /usr/local/lib/android/sdk/ndk
+          df -h "${RUNNER_TEMP:?}"
+      - name: Provision disposable SDK image and hardware acceleration
+        env:
+          API: ${{ matrix.api }}
+        run: |
+          test -e /dev/kvm
+          sudo chmod 666 /dev/kvm
+          "${ANDROID_HOME:?}/cmdline-tools/latest/bin/sdkmanager" 'platforms;android-35' 'build-tools;35.0.0' 'platform-tools' 'emulator' "system-images;android-${API};google_apis;x86_64"
+      - name: Build isolated review APKs
+        run: ./apps/android/gradlew -p apps/android :app:assembleDesignReview :app:assembleDesignReviewAndroidTest --console=plain
+      - name: Run real Android API checks
+        env:
+          API: ${{ matrix.api }}
+          SUITE: ${{ inputs.suite }}
+        run: python3 scripts/check/android-emulator.py --api "$API" --suite "$SUITE" --output "dist/emulator-${API}"
+      - uses: actions/upload-artifact@330a01c490aca151604b8cf639adc76d48f6c5d4 # v5
+        if: always()
+        with:
+          name: android-api-${{ matrix.api }}
+          path: dist/emulator-${{ matrix.api }}/
+          retention-days: 7

@@ -1,0 +1,5 @@
+<resources>
+    <color name="launcher_background">#FF0F1416</color>
+    <color name="window_background">#FF0F1416</color>
+    <color name="dialog_surface">#FF1C2427</color>
+</resources>

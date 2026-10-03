@@ -1,0 +1,121 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="attachment_name">Attachment</string>
+    <string name="attachment_too_large">Attachments must be 10 MB or smaller</string>
+    <string name="attachment_unreadable_selection">Could not read the selected file</string>
+    <string name="attachment_empty">The attachment is empty</string>
+    <string name="image_unreadable">Could not read the image</string>
+    <string name="attachment_unreadable">Could not read the attachment</string>
+    <string name="attachment_expired">The attachment file is no longer available</string>
+    <string name="attachment_upload_cancelled">Attachment upload cancelled</string>
+    <string name="image_loading">Loading image…</string>
+    <string name="composer_add_description">Add attachments and context</string>
+    <string name="approval_mode">Approval mode</string>
+    <string name="context_usage_description">View context usage for this session</string>
+    <string name="choose_model">Choose model</string>
+    <string name="image_open_description">Image %1$d. Tap to view full size.</string>
+    <string name="image_unavailable">Image unavailable</string>
+    <string name="image_title">Image</string>
+    <string name="close">Close</string>
+    <string name="reload">Reload</string>
+    <string name="image_large_loading">Loading full-size image…</string>
+    <string name="image_large_failed">Could not load the full-size image. Retry.</string>
+    <string name="earlier_content">↑ Earlier content</string>
+    <string name="continue_content">Read the next content</string>
+    <string name="content_loading">Loading content…</string>
+    <string name="retry_error">%1$s · Tap to retry</string>
+    <string name="continue_reading">Continue reading</string>
+    <string name="continue_output">Load more output</string>
+    <string name="thinking">Thinking</string>
+    <string name="file_changes">File changes</string>
+    <string name="tool_call">Tool call</string>
+    <string name="running">Running</string>
+    <string name="failed">Failed</string>
+    <string name="not_run">Not run</string>
+    <string name="collapse">Collapse</string>
+    <string name="expand_content">Expand content</string>
+    <string name="step_description">%1$s, %2$s, %3$s</string>
+    <string name="step_description_no_status">%1$s, %2$s</string>
+    <string name="connect_to_read">Connect to the Mac to read this content</string>
+    <string name="view_reference">View %1$s</string>
+    <string name="awaiting_output">Waiting for output…</string>
+    <string name="no_output">(No output)</string>
+    <string name="content_read_failed">Could not read the content</string>
+    <string name="you">You</string>
+    <string name="expand_message">Expand full message</string>
+    <string name="provider_working">%1$s is working…</string>
+    <string name="document_reading">Reading…</string>
+    <string name="document_close">Close Markdown file</string>
+    <string name="document_read_failed">Could not read the document. Retry.</string>
+    <string name="document_incomplete">The document response is incomplete. Reload it.</string>
+    <string name="document_receiving">Reading · Received %1$s</string>
+    <string name="document_preview">Preview</string>
+    <string name="document_source">Source</string>
+    <string name="document_kind">document</string>
+    <string name="document_previous_page">Previous page</string>
+    <string name="document_next_page">Next page</string>
+    <string name="document_show_more">Show more of the document</string>
+    <string name="document_empty">This Markdown file is empty</string>
+    <string name="document_reading_mac">Reading the document from the Mac…</string>
+    <string name="document_error_retained">%1$s · Previously read content is retained</string>
+    <string name="document_read_only">Read-only · %1$s</string>
+    <string name="retry">Retry</string>
+    <string name="document_copy_all">Copy all</string>
+    <string name="document_copy_large">This document is large. Copy the full text on the Mac.</string>
+    <string name="document_copied">Full text copied</string>
+    <string name="document_copy_failed">Could not write to the clipboard. Copy the text on the Mac.</string>
+    <string name="task_done">Completed</string>
+    <string name="task_not_done">Not completed</string>
+    <string name="markdown_quote">Quote: %1$s</string>
+    <string name="code">Code</string>
+    <string name="document_link_description">View file, %1$s, %2$s</string>
+    <string name="document_line_description">View file, %1$s, %2$s, line %3$d</string>
+    <string name="table_previous_columns">Previous columns</string>
+    <string name="table_columns_range">Columns: %1$d–%2$d / %3$d</string>
+    <string name="table_next_columns">Next columns</string>
+    <string name="table_previous_rows">Previous rows</string>
+    <string name="table_rows_range">Rows: %1$d–%2$d / %3$d</string>
+    <string name="table_next_rows">Next rows</string>
+    <string name="table_description">Table. Columns: %1$d; rows: %2$d. Scroll horizontally.</string>
+    <plurals name="expand_middle_segments">
+        <item quantity="one">Expand %1$d middle segment</item>
+        <item quantity="other">Expand %1$d middle segments</item>
+    </plurals>
+    <string name="group_file_read">Read files</string>
+    <string name="group_file_search">Search files</string>
+    <string name="group_web_search">Search the web</string>
+    <string name="group_web_fetch">Read web pages</string>
+    <string name="group_agent">Subtasks</string>
+    <string name="group_image_view">View images</string>
+    <string name="group_image_generation">Generate images</string>
+    <string name="group_attachment">Attachments</string>
+    <string name="group_action_count">%1$s · %2$d</string>
+    <plurals name="group_commands">
+        <item quantity="one">%1$d command</item>
+        <item quantity="other">%1$d commands</item>
+    </plurals>
+    <plurals name="group_edits">
+        <item quantity="one">%1$d file edit</item>
+        <item quantity="other">%1$d file edits</item>
+    </plurals>
+    <plurals name="group_thoughts">
+        <item quantity="one">%1$d thinking segment</item>
+        <item quantity="other">%1$d thinking segments</item>
+    </plurals>
+    <plurals name="group_notices">
+        <item quantity="one">%1$d notice</item>
+        <item quantity="other">%1$d notices</item>
+    </plurals>
+    <plurals name="group_named_calls">
+        <item quantity="one">%1$s · %2$d call</item>
+        <item quantity="other">%1$s · %2$d calls</item>
+    </plurals>
+    <plurals name="group_failed">
+        <item quantity="one">%1$d failed</item>
+        <item quantity="other">%1$d failed</item>
+    </plurals>
+    <plurals name="group_not_run">
+        <item quantity="one">%1$d not run</item>
+        <item quantity="other">%1$d not run</item>
+    </plurals>
+</resources>

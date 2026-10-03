@@ -1,0 +1,3630 @@
+{
+  "common.close": {
+    "en": "Close",
+    "zh-Hans": "关闭"
+  },
+  "task.counts": {
+    "en": "Running: {0} · Unviewed: {1}",
+    "zh-Hans": "{0} 运行 · {1} 未查看"
+  },
+  "mac.control_service_is_not_running": {
+    "en": "Control service is not running",
+    "zh-Hans": "按键服务未启动"
+  },
+  "mac.au05_device_settings": {
+    "en": "AU05 device settings",
+    "zh-Hans": "AU05 设备设置"
+  },
+  "mac.phone_remote": {
+    "en": "Phone remote",
+    "zh-Hans": "手机遥控"
+  },
+  "mac.key_bindings": {
+    "en": "Key bindings",
+    "zh-Hans": "按键绑定"
+  },
+  "mac.not_started": {
+    "en": "Not started",
+    "zh-Hans": "未启动"
+  },
+  "mac.not_configured": {
+    "en": "Not configured",
+    "zh-Hans": "未配置"
+  },
+  "mac.could_not_read_device_status_refresh_to_retry": {
+    "en": "Could not read device status. Refresh to retry.",
+    "zh-Hans": "设备状态解析失败，请重试刷新。"
+  },
+  "mac.the_device_did_not_respond": {
+    "en": "The device did not respond.",
+    "zh-Hans": "设备未响应"
+  },
+  "mac.could_not_read_device_settings_refresh_to_retry": {
+    "en": "Could not read device settings. Refresh to retry.",
+    "zh-Hans": "设备设置解析失败，请重试刷新。"
+  },
+  "mac.could_not_open_the_session": {
+    "en": "Could not open the session.",
+    "zh-Hans": "会话打开失败"
+  },
+  "mac.could_not_clear_unviewed_tasks": {
+    "en": "Could not clear unviewed tasks.",
+    "zh-Hans": "清除未查看失败"
+  },
+  "mac.accessibility_permission_required": {
+    "en": "Accessibility permission required",
+    "zh-Hans": "需要辅助功能授权"
+  },
+  "mac.low_battery": {
+    "en": "Low battery",
+    "zh-Hans": "电量低"
+  },
+  "mac.connected_phones_0": {
+    "en": "Connected phones: {0}",
+    "zh-Hans": "手机已连接 {0} 台"
+  },
+  "mac.no_phone_connected": {
+    "en": "No phone connected",
+    "zh-Hans": "手机未连接"
+  },
+  "mac.running_tasks_0": {
+    "en": "Running tasks: {0}",
+    "zh-Hans": "{0} 个任务运行中"
+  },
+  "mac.completed_tasks_not_yet_viewed_0": {
+    "en": "Completed tasks not yet viewed: {0}",
+    "zh-Hans": "{0} 个已完成任务未查看"
+  },
+  "mac.vibe_key_disconnected": {
+    "en": "Vibe Key disconnected",
+    "zh-Hans": "Vibe Key 未连接"
+  },
+  "mac.no_receiver_detected": {
+    "en": "No receiver detected",
+    "zh-Hans": "未检测到接收器"
+  },
+  "mac.0_phones_1": {
+    "en": "{0} · Phones: {1}",
+    "zh-Hans": "{0} · 手机 {1}"
+  },
+  "mac.phone_connected": {
+    "en": "Phone connected",
+    "zh-Hans": "手机已连接"
+  },
+  "mac.untitled_session": {
+    "en": "Untitled session",
+    "zh-Hans": "未命名会话"
+  },
+  "mac.running_with_an_unviewed_completion": {
+    "en": "Running, with an unviewed completion",
+    "zh-Hans": "运行中，有未查看完成"
+  },
+  "mac.running": {
+    "en": "Running",
+    "zh-Hans": "运行中"
+  },
+  "mac.completed_not_viewed": {
+    "en": "Completed, not viewed",
+    "zh-Hans": "完成，未查看"
+  },
+  "mac.viewed": {
+    "en": "Viewed",
+    "zh-Hans": "已查看"
+  },
+  "mac.task_sessions": {
+    "en": "Task sessions",
+    "zh-Hans": "任务会话"
+  },
+  "mac.mark_all_viewed": {
+    "en": "Mark all viewed",
+    "zh-Hans": "全部已查看"
+  },
+  "mac.clear_all_unviewed_indicators_in_this_menu_without_changing_the_prov": {
+    "en": "Clear all unviewed indicators in this menu without changing the providers’ own read states.",
+    "zh-Hans": "清除菜单栏上所有未查看的绿点，不改变 Codex、Claude、ZCode 自身的未读状态"
+  },
+  "mac.mark_all_0_unviewed_tasks_as_viewed": {
+    "en": "Mark all {0} unviewed tasks as viewed",
+    "zh-Hans": "将 {0} 个未查看任务全部标为已查看"
+  },
+  "mac.no_running_tasks_or_unviewed_completions": {
+    "en": "No running tasks or unviewed completions",
+    "zh-Hans": "暂无运行或未查看完成的任务"
+  },
+  "mac.task_sessions_appear_after_the_service_starts": {
+    "en": "Task sessions appear after the service starts.",
+    "zh-Hans": "服务启动后显示任务会话"
+  },
+  "mac.open_0_1": {
+    "en": "Open {0}: {1}",
+    "zh-Hans": "打开 {0}：{1}"
+  },
+  "mac.0_1_2_open_session": {
+    "en": "{0}, {1}, {2}. Open session.",
+    "zh-Hans": "{0}，{1}，{2}，打开会话"
+  },
+  "mac.phone_session_access": {
+    "en": "Phone session access",
+    "zh-Hans": "手机会话访问"
+  },
+  "mac.authorized_phones_can_view_and_reply_to_supported_codex_claude_code_": {
+    "en": "Authorized phones can view and reply to supported Codex, Claude Code and ZCode sessions and handle supported approvals. On first Bluetooth connection, approve the phone in the Mac dialog.",
+    "zh-Hans": "已授权手机可以查看和回复支持的 Codex、Claude Code 与 ZCode 会话，并处理支持的审批。首次蓝牙连接会自动在 Mac 弹窗，请在 Mac 确认。"
+  },
+  "mac.no_authorized_phones": {
+    "en": "No authorized phones",
+    "zh-Hans": "暂无已授权手机"
+  },
+  "mac.revoke_access": {
+    "en": "Revoke access",
+    "zh-Hans": "撤销访问"
+  },
+  "mac.revoking_access_stops_this_phone_s_sessions_voice_and_shortcut_contr": {
+    "en": "Revoking access stops this phone’s sessions, voice and shortcut controls. Authorize it again to restore access.",
+    "zh-Hans": "撤销后，此手机的会话、语音和快捷控制都会停止，恢复使用需重新授权。"
+  },
+  "mac.could_not_revoke_access": {
+    "en": "Could not revoke access",
+    "zh-Hans": "撤销失败"
+  },
+  "mac.ok": {
+    "en": "OK",
+    "zh-Hans": "好"
+  },
+  "mac.cloud_relay": {
+    "en": "Cloud relay",
+    "zh-Hans": "云中继"
+  },
+  "mac.the_relay_carries_encrypted_sessions_controls_and_settings_when_the_": {
+    "en": "The relay carries encrypted sessions, controls and settings when the phone is away from the Mac. Phone audio requires Wi-Fi, Bluetooth or a direct connection; relay-only connections use the Mac microphone.",
+    "zh-Hans": "手机远离 Mac 时，中继传递加密的会话、控制和配置。手机收音需要 Wi-Fi、蓝牙或直连；没有直连的云中继连接使用 Mac 麦克风。"
+  },
+  "mac.relay_url": {
+    "en": "Relay URL",
+    "zh-Hans": "中继地址"
+  },
+  "mac.room": {
+    "en": "Room",
+    "zh-Hans": "房间"
+  },
+  "mac.letters_numbers_or": {
+    "en": "Letters, numbers, - or _",
+    "zh-Hans": "字母、数字、- 或 _"
+  },
+  "mac.random": {
+    "en": "Random",
+    "zh-Hans": "随机"
+  },
+  "mac.secret": {
+    "en": "Secret",
+    "zh-Hans": "密钥"
+  },
+  "mac.match_etc_vibepier_relay_secret_on_the_server": {
+    "en": "Match /etc/vibepier-relay/secret on the server",
+    "zh-Hans": "与服务器 /etc/vibepier-relay/secret 一致"
+  },
+  "mac.leave_blank_to_keep_the_saved_secret": {
+    "en": "Leave blank to keep the saved secret",
+    "zh-Hans": "留空则保持已保存的密钥"
+  },
+  "mac.generate": {
+    "en": "Generate",
+    "zh-Hans": "生成"
+  },
+  "mac.new_secret_generated_set_the_same_secret_on_the_server_before_connec": {
+    "en": "New secret generated. Set the same secret on the server before connecting.",
+    "zh-Hans": "已生成新密钥，需同步写入服务器才能连接。"
+  },
+  "mac.use_alidns_https_recovery_if_phone_dns_fails": {
+    "en": "Use AliDNS HTTPS recovery if phone DNS fails",
+    "zh-Hans": "手机 DNS 失败时使用 AliDNS HTTPS 恢复"
+  },
+  "mac.optional_queries_alidns_for_the_relay_hostname_only_after_wss_system": {
+    "en": "Optional. Queries AliDNS for the relay hostname only after WSS system DNS or connection failure. Certificate verification stays enabled.",
+    "zh-Hans": "可选。仅在 WSS 的系统解析或连接失败时向 AliDNS 查询中继域名，证书验证始终开启。"
+  },
+  "mac.disabled": {
+    "en": "Disabled",
+    "zh-Hans": "未启用"
+  },
+  "mac.save_and_connect": {
+    "en": "Save and connect",
+    "zh-Hans": "保存并连接"
+  },
+  "mac.saved": {
+    "en": "Saved.",
+    "zh-Hans": "已保存。"
+  },
+  "mac.copy_phone_pairing_code": {
+    "en": "Copy phone pairing code",
+    "zh-Hans": "复制手机配对码"
+  },
+  "mac.save_the_relay_settings_first": {
+    "en": "Save the relay settings first.",
+    "zh-Hans": "请先保存中继设置。"
+  },
+  "mac.pairing_code_copied_including_its_secret_paste_it_into_connection_cl": {
+    "en": "Pairing code copied, including its secret. Paste it into Connection → Cloud relay on the phone.",
+    "zh-Hans": "配对码已复制（含密钥），在手机“连接方式 → 云中继”里粘贴。"
+  },
+  "mac.disable_relay": {
+    "en": "Disable relay",
+    "zh-Hans": "关闭中继"
+  },
+  "mac.disabled_2": {
+    "en": "Disabled.",
+    "zh-Hans": "已关闭。"
+  },
+  "mac.settings": {
+    "en": "Settings",
+    "zh-Hans": "设置"
+  },
+  "mac.running_normally": {
+    "en": "Running normally",
+    "zh-Hans": "运行正常"
+  },
+  "mac.permission_required": {
+    "en": "Permission required",
+    "zh-Hans": "需要授权"
+  },
+  "mac.service_not_running": {
+    "en": "Service not running",
+    "zh-Hans": "服务未启动"
+  },
+  "mac.with_voice_key": {
+    "en": "With voice key",
+    "zh-Hans": "随语音键"
+  },
+  "mac.off": {
+    "en": "Off",
+    "zh-Hans": "关闭"
+  },
+  "mac.always_on": {
+    "en": "Always on",
+    "zh-Hans": "始终开启"
+  },
+  "mac.off_2": {
+    "en": "Off",
+    "zh-Hans": "关"
+  },
+  "mac.steady": {
+    "en": "Steady",
+    "zh-Hans": "常亮"
+  },
+  "mac.working": {
+    "en": "Working",
+    "zh-Hans": "工作"
+  },
+  "mac.connected": {
+    "en": "Connected",
+    "zh-Hans": "已连接"
+  },
+  "mac.connected_firmware_0": {
+    "en": "Connected · Firmware {0}",
+    "zh-Hans": "已连接 · 固件 {0}"
+  },
+  "mac.heartbeat_0": {
+    "en": "Heartbeat: {0}",
+    "zh-Hans": "心跳 {0}"
+  },
+  "mac.light_0": {
+    "en": "Light: {0}",
+    "zh-Hans": "灯光 {0}"
+  },
+  "mac.noise_reduction_on": {
+    "en": "Noise reduction on",
+    "zh-Hans": "降噪 开"
+  },
+  "mac.noise_reduction_off": {
+    "en": "Noise reduction off",
+    "zh-Hans": "降噪 关"
+  },
+  "mac.open_au05_device_settings": {
+    "en": "Open AU05 device settings",
+    "zh-Hans": "打开 AU05 设备设置"
+  },
+  "mac.au05_0_open_device_settings": {
+    "en": "AU05, {0}. Open device settings.",
+    "zh-Hans": "AU05，{0}，打开设备设置"
+  },
+  "mac.bluetooth_confirmed_online": {
+    "en": "Bluetooth · Confirmed online",
+    "zh-Hans": "蓝牙 · 已确认在线"
+  },
+  "mac.open_vibepier_and_choose_wi_fi_or_bluetooth": {
+    "en": "Open VibePier and choose Wi-Fi or Bluetooth.",
+    "zh-Hans": "打开 VibePier，选择 Wi-Fi 或蓝牙"
+  },
+  "mac.phones_0": {
+    "en": "Phones: {0}",
+    "zh-Hans": "{0} 台"
+  },
+  "mac.disconnected": {
+    "en": "Disconnected",
+    "zh-Hans": "未连接"
+  },
+  "mac.open_phone_remote_settings": {
+    "en": "Open phone remote settings",
+    "zh-Hans": "打开手机遥控设置"
+  },
+  "mac.phone_remote_0_open_phone_remote_settings": {
+    "en": "Phone remote, {0}. Open phone remote settings.",
+    "zh-Hans": "手机遥控，{0}，打开手机遥控设置"
+  },
+  "mac.accessibility_permission_is_required_for_shortcuts": {
+    "en": "Accessibility permission is required for shortcuts.",
+    "zh-Hans": "需要辅助功能授权才能按下快捷键"
+  },
+  "mac.start_now_and_at_login": {
+    "en": "Start now and at login",
+    "zh-Hans": "开机自启并启动"
+  },
+  "mac.allow_shortcut_control": {
+    "en": "Allow shortcut control…",
+    "zh-Hans": "授权快捷键控制…"
+  },
+  "mac.au05_device": {
+    "en": "AU05 device…",
+    "zh-Hans": "AU05 设备…"
+  },
+  "mac.phone_remote_2": {
+    "en": "Phone remote…",
+    "zh-Hans": "手机遥控…"
+  },
+  "mac.session_access": {
+    "en": "Session access",
+    "zh-Hans": "会话访问"
+  },
+  "mac.au05_keys": {
+    "en": "AU05 keys…",
+    "zh-Hans": "AU05 按键…"
+  },
+  "mac.no_ai_agent_hooks_detected": {
+    "en": "No AI agent hooks detected",
+    "zh-Hans": "未检测到 AI 代理 hooks"
+  },
+  "mac.events_0": {
+    "en": "Events: {0}",
+    "zh-Hans": "事件：{0}"
+  },
+  "mac.install_hooks": {
+    "en": "Install hooks",
+    "zh-Hans": "安装 hooks"
+  },
+  "mac.uninstall_hooks": {
+    "en": "Uninstall hooks",
+    "zh-Hans": "卸载 hooks"
+  },
+  "mac.ai_agent_status_light": {
+    "en": "AI agent status light",
+    "zh-Hans": "AI 代理状态灯"
+  },
+  "mac.logs": {
+    "en": "Logs",
+    "zh-Hans": "日志"
+  },
+  "mac.config_folder": {
+    "en": "Config folder",
+    "zh-Hans": "配置文件夹"
+  },
+  "mac.more": {
+    "en": "More",
+    "zh-Hans": "更多"
+  },
+  "mac.refresh_device_status": {
+    "en": "Refresh device status",
+    "zh-Hans": "刷新设备状态"
+  },
+  "mac.reload_configuration": {
+    "en": "Reload configuration",
+    "zh-Hans": "重载配置"
+  },
+  "mac.disable_launch_at_login": {
+    "en": "Disable launch at login",
+    "zh-Hans": "关闭开机启动"
+  },
+  "mac.enable_launch_at_login": {
+    "en": "Enable launch at login",
+    "zh-Hans": "开启开机启动"
+  },
+  "mac.quit": {
+    "en": "Quit",
+    "zh-Hans": "退出"
+  },
+  "mac.each_control_accepts_1_4_keys_such_as_cmd_shift_4_return_fn_wheel_up": {
+    "en": "Each control accepts 1–4 keys, such as cmd+shift+4, return, fn, wheel-up or fixed:play-pause. Enter factory to restore its firmware default.",
+    "zh-Hans": "每个控制可绑定 1–4 个键的组合，例如 cmd+shift+4、return、fn、wheel-up、fixed:play-pause；输入 factory 恢复出厂功能。"
+  },
+  "mac.apply": {
+    "en": "Apply",
+    "zh-Hans": "应用"
+  },
+  "mac.unknown_error": {
+    "en": "Unknown error",
+    "zh-Hans": "未知错误"
+  },
+  "mac.could_not_set_0_1": {
+    "en": "Could not set {0}: {1}",
+    "zh-Hans": "设置 {0} 失败：{1}"
+  },
+  "mac.restore_all_firmware_defaults": {
+    "en": "Restore all firmware defaults",
+    "zh-Hans": "恢复全部出厂"
+  },
+  "mac.firmware_bindings_restored": {
+    "en": "Firmware bindings restored",
+    "zh-Hans": "已恢复出厂绑定"
+  },
+  "mac.hide_key_names": {
+    "en": "Hide key names",
+    "zh-Hans": "隐藏键名"
+  },
+  "mac.show_all_key_names": {
+    "en": "Show all key names",
+    "zh-Hans": "查看全部键名"
+  },
+  "mac.could_not_list_key_names_0": {
+    "en": "Could not list key names: {0}",
+    "zh-Hans": "无法获取键名列表：{0}"
+  },
+  "mac.rotate_left": {
+    "en": "Rotate left",
+    "zh-Hans": "左旋"
+  },
+  "mac.rotate_right": {
+    "en": "Rotate right",
+    "zh-Hans": "右旋"
+  },
+  "mac.cancel": {
+    "en": "Cancel",
+    "zh-Hans": "取消"
+  },
+  "mac.confirm": {
+    "en": "Confirm",
+    "zh-Hans": "确认"
+  },
+  "mac.voice": {
+    "en": "Voice",
+    "zh-Hans": "语音"
+  },
+  "mac.delete": {
+    "en": "Delete",
+    "zh-Hans": "删除"
+  },
+  "mac.general_profile": {
+    "en": "General profile",
+    "zh-Hans": "通用配置"
+  },
+  "mac.profile_scope": {
+    "en": "Profile scope",
+    "zh-Hans": "配置范围"
+  },
+  "mac.per_application": {
+    "en": "Per application",
+    "zh-Hans": "应用专属"
+  },
+  "mac.choose_application": {
+    "en": "Choose application…",
+    "zh-Hans": "选择应用…"
+  },
+  "mac.default_bindings_for_all_applications": {
+    "en": "Default bindings for all applications",
+    "zh-Hans": "所有应用默认使用这套按键"
+  },
+  "mac.the_phone_uses_these_bindings_when_this_application_is_active": {
+    "en": "The phone uses these bindings when this application is active.",
+    "zh-Hans": "切换到此应用时，手机自动使用以下按键"
+  },
+  "mac.hold_to_press_release_to_stop": {
+    "en": "Hold to press · Release to stop",
+    "zh-Hans": "按住触发 · 松开释放"
+  },
+  "mac.hold_to_repeat": {
+    "en": "Hold to repeat",
+    "zh-Hans": "支持长按连续触发"
+  },
+  "mac.tap_once_hold_to_repeat": {
+    "en": "Tap once · Hold to repeat",
+    "zh-Hans": "点按一步 · 按住连续"
+  },
+  "mac.tap_to_trigger": {
+    "en": "Tap to trigger",
+    "zh-Hans": "点击触发"
+  },
+  "mac.customized": {
+    "en": "Customized",
+    "zh-Hans": "已自定义"
+  },
+  "mac.default": {
+    "en": "Default",
+    "zh-Hans": "默认"
+  },
+  "mac.use_general_profile": {
+    "en": "Use general profile",
+    "zh-Hans": "沿用通用"
+  },
+  "mac.edit": {
+    "en": "Edit",
+    "zh-Hans": "编辑"
+  },
+  "mac.edit_0_shortcut": {
+    "en": "Edit {0} shortcut",
+    "zh-Hans": "编辑{0}快捷键"
+  },
+  "mac.phone_connected_changes_sync_automatically": {
+    "en": "Phone connected · Changes sync automatically",
+    "zh-Hans": "已连接手机 · 修改后自动同步"
+  },
+  "mac.saved_on_the_mac_syncs_when_the_phone_connects": {
+    "en": "Saved on the Mac · Syncs when the phone connects",
+    "zh-Hans": "配置保存在 Mac · 手机连接后自动同步"
+  },
+  "mac.restore_defaults": {
+    "en": "Restore defaults",
+    "zh-Hans": "恢复默认"
+  },
+  "mac.this_binding_was_changed_on_the_phone_close_and_reopen_the_editor": {
+    "en": "This binding was changed on the phone. Close and reopen the editor.",
+    "zh-Hans": "这项配置刚被手机修改，请关闭后重新编辑。"
+  },
+  "mac.could_not_save_0": {
+    "en": "Could not save: {0}",
+    "zh-Hans": "保存失败：{0}"
+  },
+  "mac.choose": {
+    "en": "Choose",
+    "zh-Hans": "选择"
+  },
+  "mac.0_shortcut": {
+    "en": "{0} shortcut",
+    "zh-Hans": "{0}快捷键"
+  },
+  "mac.for_example_cmd_ctrl_cmd_return_rcmd": {
+    "en": "For example: cmd+ctrl, cmd+return, rcmd",
+    "zh-Hans": "例如 cmd+ctrl、cmd+return、rcmd"
+  },
+  "mac.shortcut_combination": {
+    "en": "Shortcut combination",
+    "zh-Hans": "快捷键组合"
+  },
+  "mac.enter_valid_keys_first_a_combination_can_contain_up_to_4_keys": {
+    "en": "Enter valid keys first. A combination can contain up to 4 keys.",
+    "zh-Hans": "请先输入有效按键，组合最多 4 个键。"
+  },
+  "mac.common_keys": {
+    "en": "Common keys",
+    "zh-Hans": "常用按键"
+  },
+  "mac.choose_2": {
+    "en": "Choose…",
+    "zh-Hans": "选择…"
+  },
+  "mac.supports_single_keys_modifier_only_combinations_and_up_to_4_keys_the": {
+    "en": "Supports single keys, modifier-only combinations and up to 4 keys. The voice key stays held until released on the phone.",
+    "zh-Hans": "支持单个按键、仅修饰键组合和最多 4 个键。语音键会持续按住，直到手机松手。"
+  },
+  "mac.save": {
+    "en": "Save",
+    "zh-Hans": "保存"
+  },
+  "mac.phone_app_shortcuts": {
+    "en": "Phone app shortcuts",
+    "zh-Hans": "手机应用入口"
+  },
+  "mac.apps_0": {
+    "en": "Apps: {0}",
+    "zh-Hans": "{0} 个应用"
+  },
+  "mac.a_temporary_slot_on_the_phone_shows_the_active_app_when_it_is_not_al": {
+    "en": "A temporary slot on the phone shows the active app when it is not already pinned. These shortcuts keep their positions; the active app is highlighted, and tapping it again hides it. Swipe for more shortcuts.",
+    "zh-Hans": "手机左侧固定保留临时入口，未添加的当前应用显示在那里。下方应用的位置保持不变，当前项高亮，再点可隐藏；更多入口可左右滑动。"
+  },
+  "mac.add_application": {
+    "en": "Add application…",
+    "zh-Hans": "添加应用…"
+  },
+  "mac.changes_are_saved_automatically_and_synced_to_the_phone_over_an_auth": {
+    "en": "Changes are saved automatically and synced to the phone over an authorized connection.",
+    "zh-Hans": "修改后自动保存，并通过已授权的连接同步到手机。"
+  },
+  "mac.application_was_removed_choose_it_again": {
+    "en": "Application was removed. Choose it again.",
+    "zh-Hans": "应用已移除，请重新选择"
+  },
+  "mac.move_0_earlier": {
+    "en": "Move {0} earlier",
+    "zh-Hans": "向前移动 {0}"
+  },
+  "mac.move_0_later": {
+    "en": "Move {0} later",
+    "zh-Hans": "向后移动 {0}"
+  },
+  "mac.replace_application_0": {
+    "en": "Replace application {0}",
+    "zh-Hans": "更换第 {0} 个应用"
+  },
+  "mac.remove_0": {
+    "en": "Remove {0}",
+    "zh-Hans": "移除 {0}"
+  },
+  "mac.clear_slot": {
+    "en": "Clear slot",
+    "zh-Hans": "清空位置"
+  },
+  "mac.clear_slot_0": {
+    "en": "Clear slot {0}",
+    "zh-Hans": "清空第 {0} 个位置"
+  },
+  "mac.choose_application_0": {
+    "en": "Choose application {0}",
+    "zh-Hans": "选择第 {0} 个应用"
+  },
+  "mac.add_phone_app_shortcut": {
+    "en": "Add phone app shortcut",
+    "zh-Hans": "添加手机应用入口"
+  },
+  "mac.the_selected_app_has_no_valid_bundle_identifier_choose_another_app": {
+    "en": "The selected app has no valid bundle identifier. Choose another app.",
+    "zh-Hans": "所选应用没有有效的应用标识，请选择其他应用"
+  },
+  "mac.connection": {
+    "en": "Connection",
+    "zh-Hans": "连接"
+  },
+  "mac.app_shortcuts": {
+    "en": "App shortcuts",
+    "zh-Hans": "应用入口"
+  },
+  "mac.install_apk": {
+    "en": "Install APK",
+    "zh-Hans": "安装 APK"
+  },
+  "mac.bluetooth": {
+    "en": "Bluetooth",
+    "zh-Hans": "蓝牙"
+  },
+  "mac.relay": {
+    "en": "Relay",
+    "zh-Hans": "中继"
+  },
+  "mac.open_vibepier_on_the_phone_and_tap_its_connection_status_to_choose_w": {
+    "en": "Open VibePier on the phone and tap its connection status to choose Wi-Fi, Bluetooth or cloud relay. The Mac can offer all three transports at once.",
+    "zh-Hans": "手机打开 VibePier，点连接状态选择 Wi-Fi、蓝牙或云中继。Mac 可同时提供三种连接方式。"
+  },
+  "mac.listening_on_port_0_waiting_for_a_phone": {
+    "en": "Listening on port {0} · Waiting for a phone",
+    "zh-Hans": "监听端口 {0} · 等待手机"
+  },
+  "mac.off_3": {
+    "en": "Off",
+    "zh-Hans": "已关闭"
+  },
+  "mac.connected_phones_0_2": {
+    "en": "Connected phones: {0}",
+    "zh-Hans": "已连接 {0} 台"
+  },
+  "mac.not_configured_for_use_across_networks": {
+    "en": "Not configured · For use across networks",
+    "zh-Hans": "未配置 · 不在同一网络时使用"
+  },
+  "mac.the_voice_key_uses_the_mac_microphone_by_default_choose_the_phone_mi": {
+    "en": "The voice key uses the Mac microphone by default. Choose the phone microphone under Settings → Voice input on the phone. It is active only while held; releasing restores the Mac’s previous input.",
+    "zh-Hans": "语音键默认使用 Mac 麦克风；手机端「设置 → 语音键收音」可改为手机麦克风，仅按住时生效，松开恢复 Mac 原输入。"
+  },
+  "mac.install_apk_on_phone": {
+    "en": "Install APK on phone",
+    "zh-Hans": "向手机安装 APK"
+  },
+  "mac.open_vibepier_on_the_phone_the_first_bluetooth_connection_asks_for_a": {
+    "en": "Open VibePier on the phone. The first Bluetooth connection asks for approval on the Mac automatically. Authorized phones can receive over Wi-Fi, Bluetooth or cloud relay. Use Wi-Fi for large files; Bluetooth needs no network.",
+    "zh-Hans": "手机打开 VibePier，首次蓝牙连接会自动请求 Mac 确认。已授权手机可通过 Wi-Fi、蓝牙或云中继接收；蓝牙无需网络，大文件建议用 Wi-Fi。"
+  },
+  "mac.no_authorized_phones_connect_over_bluetooth_and_approve_the_phone_on": {
+    "en": "No authorized phones. Connect over Bluetooth and approve the phone on the Mac first.",
+    "zh-Hans": "暂无授权手机，请先通过蓝牙授权。"
+  },
+  "mac.receiving_phone": {
+    "en": "Receiving phone",
+    "zh-Hans": "接收手机"
+  },
+  "mac.choose_apk": {
+    "en": "Choose APK…",
+    "zh-Hans": "选择 APK…"
+  },
+  "mac.no_file_selected": {
+    "en": "No file selected",
+    "zh-Hans": "未选择文件"
+  },
+  "mac.accepts_one_complete_apk_up_to_512_mb_including_vibepier_updates_ins": {
+    "en": "Accepts one complete APK up to 512 MB, including VibePier updates. Installation requires confirmation on the phone. Existing apps require a matching signature and an allowed upgrade version.",
+    "zh-Hans": "支持单个 APK（≤512 MB），包含 VibePier 自身更新。手机上确认后安装；已有应用需签名相同且版本允许升级。"
+  },
+  "mac.preparing": {
+    "en": "Preparing…",
+    "zh-Hans": "准备中…"
+  },
+  "mac.send_to_phone": {
+    "en": "Send to phone",
+    "zh-Hans": "下发到手机"
+  },
+  "mac.cancel_transfer": {
+    "en": "Cancel transfer",
+    "zh-Hans": "取消下发"
+  },
+  "mac.cancelling_stops_further_transfer_once_the_system_installer_has_take": {
+    "en": "Cancelling stops further transfer. Once the system installer has taken over, cancel on the phone.",
+    "zh-Hans": "取消下发可停止后续传输；已经交给手机系统的安装需在手机取消。"
+  },
+  "mac.connection_and_audio": {
+    "en": "Connection and audio",
+    "zh-Hans": "连接与音频"
+  },
+  "mac.device_heartbeat": {
+    "en": "Device heartbeat",
+    "zh-Hans": "设备心跳"
+  },
+  "mac.always_on_by_default_experimental_on_demand_mode_may_lose_initial_sp": {
+    "en": "Always on by default; experimental on-demand mode may lose initial speech.",
+    "zh-Hans": "默认始终开启；实验按需可能丢失首次语音"
+  },
+  "mac.on_demand_experimental": {
+    "en": "On demand (experimental)",
+    "zh-Hans": "实验按需"
+  },
+  "mac.system_input": {
+    "en": "System input",
+    "zh-Hans": "系统输入"
+  },
+  "mac.hold_the_voice_key_to_use_au05_release_to_restore_the_previous_input": {
+    "en": "Hold the voice key to use AU05; release to restore the previous input.",
+    "zh-Hans": "按住语音键使用 AU05，松开恢复原输入"
+  },
+  "mac.open_microphone_permissions": {
+    "en": "Open microphone permissions",
+    "zh-Hans": "打开麦克风权限设置"
+  },
+  "mac.allow_audio_device_access": {
+    "en": "Allow audio device access",
+    "zh-Hans": "允许音频设备访问"
+  },
+  "mac.noise_reduction": {
+    "en": "Noise reduction",
+    "zh-Hans": "降噪"
+  },
+  "mac.standby_and_sleep": {
+    "en": "Standby and sleep",
+    "zh-Hans": "待机与休眠"
+  },
+  "mac.auto_standby": {
+    "en": "Auto standby",
+    "zh-Hans": "自动待机"
+  },
+  "mac.enter_standby_after_inactivity": {
+    "en": "Enter standby after inactivity",
+    "zh-Hans": "无操作后进入待机"
+  },
+  "mac.5_minutes": {
+    "en": "5 minutes",
+    "zh-Hans": "5 分钟"
+  },
+  "mac.30_minutes": {
+    "en": "30 minutes",
+    "zh-Hans": "30 分钟"
+  },
+  "mac.1_hour": {
+    "en": "1 hour",
+    "zh-Hans": "1 小时"
+  },
+  "mac.4_hours": {
+    "en": "4 hours",
+    "zh-Hans": "4 小时"
+  },
+  "mac.12_hours": {
+    "en": "12 hours",
+    "zh-Hans": "12 小时"
+  },
+  "mac.auto_sleep": {
+    "en": "Auto sleep",
+    "zh-Hans": "自动休眠"
+  },
+  "mac.power_off_after_standby_never_disables_automatic_power_off": {
+    "en": "Power off after standby; Never disables automatic power-off.",
+    "zh-Hans": "待机后关机；选「从不」则不自动关机"
+  },
+  "mac.never": {
+    "en": "Never",
+    "zh-Hans": "从不"
+  },
+  "mac.2_hours": {
+    "en": "2 hours",
+    "zh-Hans": "2 小时"
+  },
+  "mac.3_hours": {
+    "en": "3 hours",
+    "zh-Hans": "3 小时"
+  },
+  "mac.light_and_sound": {
+    "en": "Light and sound",
+    "zh-Hans": "灯光与声音"
+  },
+  "mac.light_mode": {
+    "en": "Light mode",
+    "zh-Hans": "灯光模式"
+  },
+  "mac.brightness": {
+    "en": "Brightness",
+    "zh-Hans": "亮度"
+  },
+  "mac.light_brightness": {
+    "en": "Light brightness",
+    "zh-Hans": "灯光亮度"
+  },
+  "mac.settings_are_written_to_the_device": {
+    "en": "Settings are written to the device.",
+    "zh-Hans": "设置直接写入设备"
+  },
+  "mac.connect_au05_to_change_device_settings": {
+    "en": "Connect AU05 to change device settings.",
+    "zh-Hans": "连接 AU05 后可调整设备设置"
+  },
+  "mac.on_demand_experimental_2": {
+    "en": "On demand (experimental)",
+    "zh-Hans": "按需（实验）"
+  },
+  "mac.firmware_version_not_read_yet": {
+    "en": "Firmware version not read yet",
+    "zh-Hans": "固件版本尚未读取"
+  },
+  "mac.firmware_0": {
+    "en": "Firmware {0}",
+    "zh-Hans": "固件 {0}"
+  },
+  "mac.fully_charged": {
+    "en": "Fully charged",
+    "zh-Hans": "已充满"
+  },
+  "mac.charging": {
+    "en": "Charging",
+    "zh-Hans": "充电中"
+  },
+  "mac.battery": {
+    "en": "Battery",
+    "zh-Hans": "电量"
+  },
+  "mac.heartbeat": {
+    "en": "Heartbeat",
+    "zh-Hans": "心跳"
+  },
+  "core.missing_task_session": {
+    "en": "Missing task session.",
+    "zh-Hans": "缺少任务会话"
+  },
+  "core.missing_unviewed_tasks": {
+    "en": "Missing unviewed tasks.",
+    "zh-Hans": "缺少未查看任务"
+  },
+  "core.invalid_local_zcode_request": {
+    "en": "Invalid local ZCode request.",
+    "zh-Hans": "无效 ZCode 本机请求"
+  },
+  "core.invalid_request": {
+    "en": "Invalid request.",
+    "zh-Hans": "无效请求"
+  },
+  "core.invalid_receipt": {
+    "en": "Invalid receipt.",
+    "zh-Hans": "无效回执"
+  },
+  "core.missing_session_id": {
+    "en": "Missing session ID.",
+    "zh-Hans": "缺少会话 ID"
+  },
+  "core.run_phone_install_list_then_specify_an_authorized_phone_id": {
+    "en": "Run phone-install --list, then specify an authorized phone ID.",
+    "zh-Hans": "请用 phone-install --list 查看并指定已授权手机 ID"
+  },
+  "core.provide_an_absolute_path_to_the_apk": {
+    "en": "Provide an absolute path to the APK.",
+    "zh-Hans": "请提供 APK 绝对路径"
+  },
+  "core.no_installation_task": {
+    "en": "No installation task.",
+    "zh-Hans": "暂无安装任务"
+  },
+  "core.migrate_the_relay_secret_to_keychain_before_saving_it_cannot_be_writ": {
+    "en": "Migrate the relay secret to Keychain before saving; it cannot be written to the ordinary configuration file.",
+    "zh-Hans": "中继密钥需要先迁移到钥匙串，不能写入普通配置文件"
+  },
+  "core.vibepier_or_the_vibepier_service_is_already_running_quit_the_existin": {
+    "en": "VibePier or the vibepier service is already running. Quit the existing instance first.",
+    "zh-Hans": "已有 VibePier 或 vibepier 服务运行，请先退出旧实例"
+  },
+  "core.missing_settings_archive_content": {
+    "en": "Missing settings archive content.",
+    "zh-Hans": "缺少设置文件内容"
+  },
+  "core.invalid_application_identifier": {
+    "en": "Invalid application identifier.",
+    "zh-Hans": "无效应用标识"
+  },
+  "core.invalid_application_slot": {
+    "en": "Invalid application slot.",
+    "zh-Hans": "无效应用位置"
+  },
+  "core.invalid_destination_slot": {
+    "en": "Invalid destination slot.",
+    "zh-Hans": "无效目标位置"
+  },
+  "core.unsupported_dns_recovery_setting": {
+    "en": "Unsupported DNS recovery setting.",
+    "zh-Hans": "不支持的 DNS 恢复设置"
+  },
+  "core.use_a_ws_s_relay_url_a_room_with_letters_numbers_or_and_a_secret_of_": {
+    "en": "Use a ws(s):// relay URL, a room with letters, numbers, - or _, and a secret of at least 32 characters.",
+    "zh-Hans": "中继地址需为 ws(s)://，房间仅限字母数字-_，密钥至少 32 位"
+  },
+  "core.cloud_relay_is_not_configured": {
+    "en": "Cloud relay is not configured.",
+    "zh-Hans": "未配置云中继"
+  },
+  "core.the_built_in_control_service_is_not_running": {
+    "en": "The built-in control service is not running.",
+    "zh-Hans": "内置按键服务未启动"
+  },
+  "core.missing_task_provider_or_session_id": {
+    "en": "Missing task provider or session ID.",
+    "zh-Hans": "缺少任务来源或会话 ID"
+  },
+  "core.could_not_open_the_task_session": {
+    "en": "Could not open the task session.",
+    "zh-Hans": "无法打开任务会话"
+  },
+  "core.could_not_clear_unviewed_tasks": {
+    "en": "Could not clear unviewed tasks.",
+    "zh-Hans": "无法清除未查看"
+  },
+  "core.missing_application_slot": {
+    "en": "Missing application slot.",
+    "zh-Hans": "缺少应用位置"
+  },
+  "core.could_not_save_application_settings": {
+    "en": "Could not save application settings.",
+    "zh-Hans": "无法保存应用配置"
+  },
+  "core.missing_application_settings": {
+    "en": "Missing application settings.",
+    "zh-Hans": "缺少应用配置"
+  },
+  "core.missing_heartbeat_enabled_state": {
+    "en": "Missing heartbeat enabled state.",
+    "zh-Hans": "缺少心跳开关状态"
+  },
+  "core.usage_relay_config_url_room_secret": {
+    "en": "Usage: relay-config <url> <room> [secret]",
+    "zh-Hans": "用法：relay-config <url> <room> [secret]"
+  },
+  "core.could_not_save_cloud_relay_settings": {
+    "en": "Could not save cloud relay settings.",
+    "zh-Hans": "无法保存云中继"
+  },
+  "core.missing_heartbeat_mode": {
+    "en": "Missing heartbeat mode.",
+    "zh-Hans": "缺少心跳模式"
+  },
+  "core.could_not_change_heartbeat_mode": {
+    "en": "Could not change heartbeat mode.",
+    "zh-Hans": "无法修改心跳模式"
+  },
+  "core.invalid_key": {
+    "en": "Invalid key.",
+    "zh-Hans": "无效按键"
+  },
+  "core.unsupported_panel_action": {
+    "en": "Unsupported panel action.",
+    "zh-Hans": "不支持的面板操作"
+  },
+  "core.the_export_file_already_exists_choose_a_new_filename": {
+    "en": "The export file already exists. Choose a new filename.",
+    "zh-Hans": "导出文件已存在，请选择新文件名"
+  },
+  "core.open_vibepier_on_this_mac_first": {
+    "en": "Open VibePier on this Mac first.",
+    "zh-Hans": "请先打开这台 Mac 上的 VibePier"
+  },
+  "core.the_settings_operation_failed": {
+    "en": "The settings operation failed.",
+    "zh-Hans": "设置操作失败"
+  },
+  "core.invalid_settings_export_receipt": {
+    "en": "Invalid settings export receipt.",
+    "zh-Hans": "设置导出回执无效"
+  },
+  "core.exported_shortcuts_device_settings_and_app_shortcuts_passwords_pairi": {
+    "en": "Exported shortcuts, device settings and app shortcuts. Passwords, pairing, relay credentials, scripts, paths and sessions were excluded.",
+    "zh-Hans": "已导出快捷键、设备设置和应用入口。未导出密码、配对、中继、脚本、路径或会话数据。"
+  },
+  "core.settings_archive_validated_no_configuration_was_changed": {
+    "en": "Settings archive validated. No configuration was changed.",
+    "zh-Hans": "设置文件验证通过；未修改配置。"
+  },
+  "core.settings_imported_bindings_will_sync_when_the_phone_connects": {
+    "en": "Settings imported. Bindings will sync when the phone connects.",
+    "zh-Hans": "设置已导入；手机连接后同步按键。"
+  },
+  "core.choose_one_operation": {
+    "en": "Choose one operation.",
+    "zh-Hans": "请选择一种操作"
+  },
+  "core.usage_phone_install_list": {
+    "en": "Usage: phone-install --list",
+    "zh-Hans": "用法：phone-install --list"
+  },
+  "core.usage_phone_install_status_cancel_device": {
+    "en": "Usage: phone-install --status|--cancel [device]",
+    "zh-Hans": "用法：phone-install --status|--cancel [device]"
+  },
+  "core.usage_phone_install_apk_device": {
+    "en": "Usage: phone-install <apk> [device]",
+    "zh-Hans": "用法：phone-install <apk> [device]"
+  },
+  "core.vibepier_is_not_running_or_apk_preparation_timed_out": {
+    "en": "VibePier is not running, or APK preparation timed out.",
+    "zh-Hans": "VibePier 未运行或准备 APK 超时"
+  },
+  "core.transfer_failed": {
+    "en": "Transfer failed.",
+    "zh-Hans": "下发失败"
+  },
+  "core.the_settings_archive_exceeds_256_kib": {
+    "en": "The settings archive exceeds 256 KiB.",
+    "zh-Hans": "设置文件超过 256 KiB"
+  },
+  "core.unsupported_settings_archive_version": {
+    "en": "Unsupported settings archive version.",
+    "zh-Hans": "不支持的设置文件版本"
+  },
+  "core.invalid_device_key_settings": {
+    "en": "Invalid device key settings.",
+    "zh-Hans": "无效的设备按键配置"
+  },
+  "core.invalid_desktop_shortcut_settings": {
+    "en": "Invalid desktop shortcut settings.",
+    "zh-Hans": "无效的桌面快捷键配置"
+  },
+  "core.invalid_heartbeat_mode": {
+    "en": "Invalid heartbeat mode.",
+    "zh-Hans": "无效的心跳模式"
+  },
+  "core.device_brightness_vibration_or_light_mode_is_out_of_range": {
+    "en": "Device brightness, vibration or light mode is out of range.",
+    "zh-Hans": "设备亮度、震动或灯光模式超出范围"
+  },
+  "core.too_many_app_shortcuts": {
+    "en": "Too many app shortcuts.",
+    "zh-Hans": "应用入口过多"
+  },
+  "core.could_not_save_phone_bindings_or_roll_back_the_main_configuration_ch": {
+    "en": "Could not save phone bindings or roll back the main configuration. Check file permissions before importing again.",
+    "zh-Hans": "手机按键保存失败且主配置回滚失败，请检查配置文件权限后重新导入"
+  },
+  "core.device_authorization_storage_is_invalid_resolve_it_on_the_mac": {
+    "en": "Device authorization storage is invalid. Resolve it on the Mac.",
+    "zh-Hans": "设备授权存储无效，请在 Mac 上处理"
+  },
+  "core.invalid_device_authorization": {
+    "en": "Invalid device authorization.",
+    "zh-Hans": "无效设备授权"
+  },
+  "core.could_not_read_device_authorization_from_keychain_0": {
+    "en": "Could not read device authorization from Keychain ({0}).",
+    "zh-Hans": "无法读取设备授权钥匙串（{0}）"
+  },
+  "core.could_not_save_device_authorization_to_keychain_0": {
+    "en": "Could not save device authorization to Keychain ({0}).",
+    "zh-Hans": "无法保存设备授权钥匙串（{0}）"
+  },
+  "core.unlock_failed_further_attempts_are_stopped_unlock_the_mac_manually_o": {
+    "en": "Unlock failed. Further attempts are stopped. Unlock the Mac manually or set the unlock password again.",
+    "zh-Hans": "解锁失败，已停止尝试。请在 Mac 上手动解锁，或重新设置解锁密码"
+  },
+  "core.the_previous_unlock_failed_further_attempts_are_stopped_set_the_unlo": {
+    "en": "The previous unlock failed. Further attempts are stopped. Set the unlock password again or unlock the Mac manually.",
+    "zh-Hans": "上次解锁未成功，已停止尝试。请重新设置解锁密码，或手动解锁 Mac"
+  },
+  "core.the_mac_is_performing_a_desktop_action_wait_before_locking_it": {
+    "en": "The Mac is performing a desktop action. Wait before locking it.",
+    "zh-Hans": "Mac 正在执行桌面操作，请稍后再锁屏"
+  },
+  "core.could_not_confirm_that_the_mac_locked_check_on_the_mac": {
+    "en": "Could not confirm that the Mac locked. Check on the Mac.",
+    "zh-Hans": "未能确认 Mac 已锁屏，请在 Mac 检查"
+  },
+  "core.the_mac_is_locked_configure_its_password_in_the_phone_s_session_menu": {
+    "en": "The Mac is locked. Configure its password in the phone’s session menu → Mac unlock setup, or unlock the Mac and retry.",
+    "zh-Hans": "Mac 已锁屏。可在手机会话列表右上角 ⋯ →「Mac 锁屏自动解锁」设置密码，或解锁 Mac 后重试"
+  },
+  "core.could_not_remove_the_unlock_password_0": {
+    "en": "Could not remove the unlock password ({0}).",
+    "zh-Hans": "无法删除解锁密码（{0}）"
+  },
+  "core.the_password_is_too_long": {
+    "en": "The password is too long.",
+    "zh-Hans": "密码过长"
+  },
+  "core.the_password_does_not_match_the_current_mac_user_0_it_was_not_saved": {
+    "en": "The password does not match the current Mac user ({0}). It was not saved.",
+    "zh-Hans": "密码与 Mac 当前用户（{0}）的登录密码不符，未保存"
+  },
+  "core.could_not_save_the_unlock_password_0": {
+    "en": "Could not save the unlock password ({0}).",
+    "zh-Hans": "无法保存解锁密码（{0}）"
+  },
+  "core.allow_accessibility_permission_for_vibepier_in_mac_system_settings_f": {
+    "en": "Allow Accessibility permission for VibePier in Mac System Settings first.",
+    "zh-Hans": "请先在 Mac 系统设置中允许 VibePier 的辅助功能权限"
+  },
+  "core.a_different_user_is_logged_in_on_the_mac_cannot_unlock_it": {
+    "en": "A different user is logged in on the Mac. Cannot unlock it.",
+    "zh-Hans": "Mac 当前登录的是其他用户，无法解锁"
+  },
+  "core.the_legacy_development_relay_settings_are_invalid_correct_the_url_ro": {
+    "en": "The legacy development relay settings are invalid. Correct the URL, room and secret first.",
+    "zh-Hans": "旧开发配置中的中继参数无效，请先修正地址、房间和密钥"
+  },
+  "core.could_not_remove_the_relay_secret_from_keychain_0": {
+    "en": "Could not remove the relay secret from Keychain ({0}).",
+    "zh-Hans": "无法删除中继钥匙串（{0}）"
+  },
+  "core.could_not_save_the_relay_secret_to_keychain_0": {
+    "en": "Could not save the relay secret to Keychain ({0}).",
+    "zh-Hans": "无法保存中继钥匙串（{0}）"
+  },
+  "control.invalid_device_key": {
+    "en": "Invalid device key.",
+    "zh-Hans": "无效设备密钥"
+  },
+  "control.encryption_failed": {
+    "en": "Encryption failed.",
+    "zh-Hans": "加密失败"
+  },
+  "control.authorize_this_phone_first": {
+    "en": "Authorize this phone first.",
+    "zh-Hans": "请先授权这台手机"
+  },
+  "control.revocation_was_not_saved_retry_0": {
+    "en": "Revocation was not saved. Retry: {0}",
+    "zh-Hans": "撤销未保存，请重试：{0}"
+  },
+  "control.allow_0_to_connect_to_this_mac": {
+    "en": "Allow {0} to connect to this Mac?",
+    "zh-Hans": "允许 {0} 连接这台 Mac？"
+  },
+  "control.this_phone_can_control_shortcuts_and_apps_use_voice_input_view_and_c": {
+    "en": "This phone can control shortcuts and apps, use voice input, view and continue AI sessions, and handle supported approvals and installation requests. Usage tracking and automatic unlocking require separate setup. Only allow the phone you are using. You can revoke access in VibePier at any time.",
+    "zh-Hans": "这台手机将能操作快捷键与应用、使用语音、查看和继续 AI 会话，以及在支持时处理审批和安装请求。使用统计和自动解锁需另行开启。请仅允许你正在操作的手机，可随时在 VibePier 中撤销授权。"
+  },
+  "control.allow_this_phone": {
+    "en": "Allow this phone",
+    "zh-Hans": "允许这台手机"
+  },
+  "control.deny": {
+    "en": "Deny",
+    "zh-Hans": "拒绝"
+  },
+  "control.receipt_storage_could_not_be_read_check_on_the_mac": {
+    "en": "Receipt storage could not be read. Check on the Mac.",
+    "zh-Hans": "回执存储无法读取，请在 Mac 检查"
+  },
+  "control.operation_id_conflict": {
+    "en": "Operation ID conflict.",
+    "zh-Hans": "操作 ID 冲突"
+  },
+  "control.receipt_storage_could_not_be_read_nothing_was_sent_check_on_the_mac": {
+    "en": "Receipt storage could not be read. Nothing was sent. Check on the Mac.",
+    "zh-Hans": "回执存储无法读取，本次未发送，请在 Mac 检查"
+  },
+  "control.checking_the_send_result_do_not_send_it_again": {
+    "en": "Checking the send result. Do not send it again.",
+    "zh-Hans": "正在核对发送结果，请勿重复发送"
+  },
+  "control.could_not_save_the_send_receipt_nothing_was_sent": {
+    "en": "Could not save the send receipt. Nothing was sent.",
+    "zh-Hans": "无法保存发送回执，本次未发送"
+  },
+  "control.unsupported_session_provider": {
+    "en": "Unsupported session provider.",
+    "zh-Hans": "不支持的会话来源"
+  },
+  "control.the_content_is_too_large_to_transfer_to_the_phone": {
+    "en": "The content is too large to transfer to the phone.",
+    "zh-Hans": "内容过大，无法传到手机"
+  },
+  "control.waiting_for_system_bluetooth_permission": {
+    "en": "Waiting for system Bluetooth permission",
+    "zh-Hans": "等待系统蓝牙授权"
+  },
+  "control.preparing_bluetooth": {
+    "en": "Preparing Bluetooth…",
+    "zh-Hans": "蓝牙准备中"
+  },
+  "control.allow_vibepier_to_use_bluetooth_in_system_settings": {
+    "en": "Allow VibePier to use Bluetooth in System Settings.",
+    "zh-Hans": "请在系统设置允许 VibePier 使用蓝牙"
+  },
+  "control.bluetooth_is_off_on_the_mac": {
+    "en": "Bluetooth is off on the Mac.",
+    "zh-Hans": "Mac 蓝牙未开启"
+  },
+  "control.this_mac_does_not_support_ble": {
+    "en": "This Mac does not support BLE.",
+    "zh-Hans": "此 Mac 不支持 BLE"
+  },
+  "control.bluetooth_service_failed_0": {
+    "en": "Bluetooth service failed: {0}",
+    "zh-Hans": "蓝牙服务失败：{0}"
+  },
+  "control.bluetooth_advertising_failed_0": {
+    "en": "Bluetooth advertising failed: {0}",
+    "zh-Hans": "蓝牙广播失败：{0}"
+  },
+  "control.ready_to_connect": {
+    "en": "Ready to connect",
+    "zh-Hans": "可连接"
+  },
+  "control.connecting_to_the_relay": {
+    "en": "Connecting to the relay…",
+    "zh-Hans": "正在连接中继"
+  },
+  "control.relay_connection_failed_0": {
+    "en": "Relay connection failed: {0}",
+    "zh-Hans": "中继连接失败：{0}"
+  },
+  "control.relay_disconnected_0": {
+    "en": "Relay disconnected: {0}",
+    "zh-Hans": "中继断开：{0}"
+  },
+  "control.0_retrying_in_1_s": {
+    "en": "{0} · Retrying in {1}s",
+    "zh-Hans": "{0}，{1} 秒后重连"
+  },
+  "control.the_relay_did_not_respond": {
+    "en": "The relay did not respond.",
+    "zh-Hans": "中继无响应"
+  },
+  "control.the_relay_secret_does_not_match": {
+    "en": "The relay secret does not match.",
+    "zh-Hans": "密钥不匹配"
+  },
+  "control.the_mac_clock_is_incorrect": {
+    "en": "The Mac clock is incorrect.",
+    "zh-Hans": "Mac 时间不准"
+  },
+  "control.repeated_handshake_rejected": {
+    "en": "Repeated handshake rejected.",
+    "zh-Hans": "重复握手"
+  },
+  "control.relay_rejected_the_connection_0": {
+    "en": "Relay rejected the connection ({0}).",
+    "zh-Hans": "中继拒绝（{0}）"
+  },
+  "control.phones_connected_via_relay_0": {
+    "en": "Phones connected via relay: {0}",
+    "zh-Hans": "{0} 台手机已通过中继连接"
+  },
+  "control.relay_connected_waiting_for_a_phone": {
+    "en": "Relay connected. Waiting for a phone…",
+    "zh-Hans": "中继已连接，等待手机"
+  },
+  "control.could_not_read_local_usage_records_the_original_file_was_kept_0": {
+    "en": "Could not read local usage records. The original file was kept: {0}",
+    "zh-Hans": "本地用时记录无法读取，未覆盖原文件：{0}"
+  },
+  "control.usage_records_were_not_saved_0": {
+    "en": "Usage records were not saved: {0}",
+    "zh-Hans": "用时记录未保存：{0}"
+  },
+  "control.could_not_read_local_usage_records": {
+    "en": "Could not read local usage records.",
+    "zh-Hans": "本地用时记录无法读取"
+  },
+  "control.the_mac_source_changed_reopen_the_usage_page": {
+    "en": "The Mac source changed. Reopen the usage page.",
+    "zh-Hans": "Mac 来源已变化，请重新打开用时页面"
+  },
+  "control.missing_usage_tracking_enabled_state": {
+    "en": "Missing usage tracking enabled state.",
+    "zh-Hans": "缺少记录开关"
+  },
+  "control.missing_usage_tracking_operation_version": {
+    "en": "Missing usage tracking operation version.",
+    "zh-Hans": "缺少用时记录操作版本"
+  },
+  "control.choose_a_date_within_the_last_90_days": {
+    "en": "Choose a date within the last 90 days.",
+    "zh-Hans": "请选择最近90天内的日期"
+  },
+  "control.waiting_for_the_phone_open_vibepier_on_it": {
+    "en": "Waiting for the phone. Open VibePier on it.",
+    "zh-Hans": "等待手机接收（请打开 VibePier）"
+  },
+  "control.choose_a_complete_apk_file_split_apks_and_xapk_are_not_supported": {
+    "en": "Choose a complete .apk file. Split APKs and XAPK are not supported.",
+    "zh-Hans": "请选择单个 .apk 文件（不支持 APK 分包或 XAPK）"
+  },
+  "control.the_apk_must_be_between_1_byte_and_512_mb": {
+    "en": "The APK must be between 1 byte and 512 MB.",
+    "zh-Hans": "APK 文件须为 1 字节至 512 MB"
+  },
+  "control.the_file_changed_while_being_copied_select_it_again": {
+    "en": "The file changed while being copied. Select it again.",
+    "zh-Hans": "文件在复制时发生变化，请重新选择"
+  },
+  "control.the_mac_cancelled_the_transfer": {
+    "en": "The Mac cancelled the transfer.",
+    "zh-Hans": "Mac 已取消下发"
+  },
+  "control.the_installation_task_was_cancelled_or_replaced_start_receiving_agai": {
+    "en": "The installation task was cancelled or replaced. Start receiving again.",
+    "zh-Hans": "安装任务已取消或被替换，请重新接收"
+  },
+  "control.the_installation_task_has_ended_send_the_apk_again": {
+    "en": "The installation task has ended. Send the APK again.",
+    "zh-Hans": "安装任务已结束，请重新下发"
+  },
+  "control.invalid_apk_chunk_offset": {
+    "en": "Invalid APK chunk offset.",
+    "zh-Hans": "APK 分块位置无效"
+  },
+  "control.could_not_read_the_apk_snapshot_send_it_again": {
+    "en": "Could not read the APK snapshot. Send it again.",
+    "zh-Hans": "APK 快照无法读取，请重新下发"
+  },
+  "control.transferring": {
+    "en": "Transferring…",
+    "zh-Hans": "正在传输"
+  },
+  "control.file_verified_waiting_for_install_confirmation_on_the_phone": {
+    "en": "File verified. Waiting for install confirmation on the phone.",
+    "zh-Hans": "文件校验通过，等待手机确认安装"
+  },
+  "control.allow_installation_from_this_source_on_the_phone": {
+    "en": "Allow installation from this source on the phone.",
+    "zh-Hans": "请在手机允许安装未知应用"
+  },
+  "control.installing_waiting_for_the_system_result": {
+    "en": "Installing. Waiting for the system result…",
+    "zh-Hans": "正在安装，等待系统结果"
+  },
+  "control.installation_succeeded": {
+    "en": "Installation succeeded",
+    "zh-Hans": "安装成功"
+  },
+  "control.cancelled_on_the_phone": {
+    "en": "Cancelled on the phone",
+    "zh-Hans": "手机已取消"
+  },
+  "control.installation_failed": {
+    "en": "Installation failed",
+    "zh-Hans": "安装失败"
+  },
+  "control.invalid_installation_state": {
+    "en": "Invalid installation state.",
+    "zh-Hans": "安装状态无效"
+  },
+  "control.unknown_apk_operation": {
+    "en": "Unknown APK operation.",
+    "zh-Hans": "未知 APK 操作"
+  },
+  "control.could_not_read_the_current_input_device": {
+    "en": "Could not read the current input device.",
+    "zh-Hans": "无法读取当前输入设备"
+  },
+  "control.could_not_switch_to_au05": {
+    "en": "Could not switch to AU05.",
+    "zh-Hans": "无法切换至 AU05"
+  },
+  "control.no_input_device_is_available_to_restore": {
+    "en": "No input device is available to restore.",
+    "zh-Hans": "没有可恢复的输入设备"
+  },
+  "control.could_not_restore_the_previous_input_device": {
+    "en": "Could not restore the previous input device.",
+    "zh-Hans": "无法恢复原输入设备"
+  },
+  "control.the_previous_microphone_has_not_been_restored_yet_retry_shortly": {
+    "en": "The previous microphone has not been restored yet. Retry shortly.",
+    "zh-Hans": "原麦克风尚未恢复，请稍后重试"
+  },
+  "control.could_not_read_the_mac_s_current_microphone": {
+    "en": "Could not read the Mac’s current microphone.",
+    "zh-Hans": "无法读取 Mac 当前麦克风"
+  },
+  "control.no_mac_microphone_is_available_to_restore": {
+    "en": "No Mac microphone is available to restore.",
+    "zh-Hans": "没有可恢复的 Mac 麦克风"
+  },
+  "control.could_not_temporarily_switch_to_the_phone_microphone": {
+    "en": "Could not temporarily switch to the phone microphone.",
+    "zh-Hans": "无法临时切换至手机麦克风"
+  },
+  "control.the_mac_audio_device_changed_press_and_hold_the_voice_key_again": {
+    "en": "The Mac audio device changed. Press and hold the voice key again.",
+    "zh-Hans": "Mac 音频设备已变化，请重新按住语音"
+  },
+  "control.this_voice_session_has_ended_press_and_hold_again": {
+    "en": "This voice session has ended. Press and hold again.",
+    "zh-Hans": "本次语音已结束，请重新按住"
+  },
+  "control.another_voice_session_is_active_end_it_first": {
+    "en": "Another voice session is active. End it first.",
+    "zh-Hans": "已有语音正在使用，请先结束"
+  },
+  "control.the_active_app_changed_press_and_hold_the_voice_key_again": {
+    "en": "The active app changed. Press and hold the voice key again.",
+    "zh-Hans": "当前应用已变化，请重新按住语音"
+  },
+  "control.blackhole_2ch_is_not_installed_install_the_audio_driver_on_the_mac_f": {
+    "en": "BlackHole 2ch is not installed. Install the audio driver on the Mac first.",
+    "zh-Hans": "Mac 尚未安装 BlackHole 2ch 音频驱动，请在 Mac 完成安装"
+  },
+  "control.could_not_create_phone_audio_output": {
+    "en": "Could not create phone audio output.",
+    "zh-Hans": "无法创建手机音频输出"
+  },
+  "control.could_not_connect_to_the_blackhole_audio_input": {
+    "en": "Could not connect to the BlackHole audio input.",
+    "zh-Hans": "无法连接 BlackHole 音频输入"
+  },
+  "control.phone_audio_routing_verification_failed": {
+    "en": "Phone audio routing verification failed.",
+    "zh-Hans": "手机音频路由校验失败"
+  },
+  "control.not_set": {
+    "en": "Not set",
+    "zh-Hans": "未设置"
+  },
+  "control.choose_an_application_to_add": {
+    "en": "Choose an application to add.",
+    "zh-Hans": "请选择要添加的应用"
+  },
+  "control.the_application_settings_changed_select_the_app_again": {
+    "en": "The application settings changed. Select the app again.",
+    "zh-Hans": "应用配置已变化，请重新选择"
+  },
+  "control.the_active_mac_app_changed_select_it_again": {
+    "en": "The active Mac app changed. Select it again.",
+    "zh-Hans": "Mac 当前应用已变化，请重新选择"
+  },
+  "control.the_mac_is_locked_unlock_it_before_hiding_the_app": {
+    "en": "The Mac is locked. Unlock it before hiding the app.",
+    "zh-Hans": "Mac 已锁屏，请解锁后再隐藏应用"
+  },
+  "control.the_application_is_opening_retry_shortly": {
+    "en": "The application is opening. Retry shortly.",
+    "zh-Hans": "应用正在打开，请稍后再试"
+  },
+  "control.could_not_hide_0": {
+    "en": "Could not hide {0}.",
+    "zh-Hans": "无法隐藏 {0}"
+  },
+  "control.application_not_found_0": {
+    "en": "Application not found: {0}",
+    "zh-Hans": "找不到应用：{0}"
+  },
+  "control.could_not_open_0_1": {
+    "en": "Could not open {0}: {1}",
+    "zh-Hans": "无法打开 {0}：{1}"
+  },
+  "control.you_can_import_up_to_256_phone_bindings": {
+    "en": "You can import up to 256 phone bindings.",
+    "zh-Hans": "最多导入 256 项手机按键配置"
+  },
+  "control.invalid_phone_binding_settings": {
+    "en": "Invalid phone binding settings.",
+    "zh-Hans": "无效的手机按键配置"
+  },
+  "control.merging_would_exceed_256_phone_bindings": {
+    "en": "Merging would exceed 256 phone bindings.",
+    "zh-Hans": "合并后超过 256 项手机按键配置"
+  },
+  "control.phone_binding_versions_are_exhausted": {
+    "en": "Phone binding versions are exhausted.",
+    "zh-Hans": "手机按键版本已用尽"
+  },
+  "control.phone_binding_count_or_version_is_out_of_range": {
+    "en": "Phone binding count or version is out of range.",
+    "zh-Hans": "手机按键配置数量或版本超出范围"
+  },
+  "control.unsupported_key": {
+    "en": "Unsupported key.",
+    "zh-Hans": "不支持的按键"
+  },
+  "control.right": {
+    "en": "Right ⌃",
+    "zh-Hans": "右⌃"
+  },
+  "control.right_2": {
+    "en": "Right ⇧",
+    "zh-Hans": "右⇧"
+  },
+  "control.right_3": {
+    "en": "Right ⌥",
+    "zh-Hans": "右⌥"
+  },
+  "control.right_4": {
+    "en": "Right ⌘",
+    "zh-Hans": "右⌘"
+  },
+  "control.return": {
+    "en": "Return",
+    "zh-Hans": "回车"
+  },
+  "control.space": {
+    "en": "Space",
+    "zh-Hans": "空格"
+  },
+  "control.wheel": {
+    "en": "Wheel ↑",
+    "zh-Hans": "滚轮 ↑"
+  },
+  "control.wheel_2": {
+    "en": "Wheel ↓",
+    "zh-Hans": "滚轮 ↓"
+  },
+  "control.unknown_modifier_key": {
+    "en": "Unknown modifier key.",
+    "zh-Hans": "未知修饰键"
+  },
+  "control.you_can_save_up_to_256_bindings": {
+    "en": "You can save up to 256 bindings.",
+    "zh-Hans": "最多保存 256 项按键配置"
+  },
+  "control.unknown_application": {
+    "en": "Unknown application",
+    "zh-Hans": "未知应用"
+  },
+  "control.unconfirmed_desktop_mutation": {
+    "en": "The desktop operation result is unconfirmed. Check before retrying: {0}",
+    "zh-Hans": "桌面操作结果尚未确认，请先核对再重试：{0}"
+  },
+  "session.the_image_no_longer_exists_or_cannot_be_read": {
+    "en": "The image no longer exists or cannot be read.",
+    "zh-Hans": "图片已不存在或无法读取"
+  },
+  "session.the_source_image_is_too_large_to_preview": {
+    "en": "The source image is too large to preview.",
+    "zh-Hans": "图片源文件过大，无法预览"
+  },
+  "session.the_image_is_too_large_to_transfer_to_the_phone": {
+    "en": "The image is too large to transfer to the phone.",
+    "zh-Hans": "图片过大，无法传到手机"
+  },
+  "session.the_native_session_no_longer_exists_or_could_not_be_verified_nothing": {
+    "en": "The native session no longer exists or could not be verified. Nothing was opened.",
+    "zh-Hans": "原生会话已不存在或无法确认，未打开"
+  },
+  "session.this_provider_has_no_configured_opener_that_verifies_the_native_sess": {
+    "en": "This provider has no configured opener that verifies the native session ID.",
+    "zh-Hans": "此来源尚未配置可确认原生 ID 的打开方式"
+  },
+  "session.unsupported_task_provider": {
+    "en": "Unsupported task provider.",
+    "zh-Hans": "不支持的任务来源"
+  },
+  "session.the_codex_desktop_app_was_not_found_or_the_session_is_invalid": {
+    "en": "The Codex desktop app was not found, or the session is invalid.",
+    "zh-Hans": "找不到 Codex 桌面端或会话无效"
+  },
+  "session.codex_did_not_accept_the_request_to_open_this_session": {
+    "en": "Codex did not accept the request to open this session.",
+    "zh-Hans": "Codex 未接受打开此会话"
+  },
+  "session.could_not_confirm_that_codex_opened_this_session_check_the_desktop_b": {
+    "en": "Could not confirm that Codex opened this session. Check the desktop before retrying.",
+    "zh-Hans": "未确认 Codex 已打开这条会话，请在桌面查看后重试"
+  },
+  "session.the_session_directory_is_unavailable_check_on_the_mac": {
+    "en": "The session directory is unavailable. Check on the Mac.",
+    "zh-Hans": "会话目录不可用，请在 Mac 上检查"
+  },
+  "session.the_session_directory_no_longer_exists_check_on_the_mac": {
+    "en": "The session directory no longer exists. Check on the Mac.",
+    "zh-Hans": "会话目录已不存在，请在 Mac 上检查"
+  },
+  "session.invalid_file_path": {
+    "en": "Invalid file path.",
+    "zh-Hans": "无效文件路径"
+  },
+  "session.the_file_does_not_exist_or_cannot_be_read": {
+    "en": "The file does not exist or cannot be read.",
+    "zh-Hans": "文件不存在或不可读取"
+  },
+  "session.the_file_is_outside_this_session_s_project_and_is_not_referenced_by_": {
+    "en": "The file is outside this session’s project and is not referenced by the session.",
+    "zh-Hans": "文件超出当前会话项目范围，且未被此会话引用"
+  },
+  "session.could_not_verify_the_file_location_retry": {
+    "en": "Could not verify the file location. Retry.",
+    "zh-Hans": "无法确认文件位置，请重试"
+  },
+  "session.could_not_read_the_session_directory": {
+    "en": "Could not read the session directory.",
+    "zh-Hans": "会话目录无法读取"
+  },
+  "session.the_session_directory_changed_reopen_the_file": {
+    "en": "The session directory changed. Reopen the file.",
+    "zh-Hans": "会话目录已变化，请重新打开"
+  },
+  "session.the_file_is_missing_unreadable_or_has_moved": {
+    "en": "The file is missing, unreadable or has moved.",
+    "zh-Hans": "文件不存在、不可读取或位置已变化"
+  },
+  "session.the_file_location_changed_reopen_it": {
+    "en": "The file location changed. Reopen it.",
+    "zh-Hans": "文件位置已变化，请重新打开"
+  },
+  "session.only_regular_files_are_supported": {
+    "en": "Only regular files are supported.",
+    "zh-Hans": "只支持普通文件"
+  },
+  "session.the_file_exceeds_the_preview_size_limit": {
+    "en": "The file exceeds the preview size limit.",
+    "zh-Hans": "文件超过预览大小限制"
+  },
+  "session.could_not_read_the_file_retry": {
+    "en": "Could not read the file. Retry.",
+    "zh-Hans": "文件读取失败，请重试"
+  },
+  "session.the_file_is_being_updated_retry": {
+    "en": "The file is being updated. Retry.",
+    "zh-Hans": "文件正在更新，请重试"
+  },
+  "session.only_md_and_markdown_files_are_supported": {
+    "en": "Only .md and .markdown files are supported.",
+    "zh-Hans": "只支持 .md 和 .markdown 文件"
+  },
+  "session.invalid_markdown_page_offset": {
+    "en": "Invalid Markdown page offset.",
+    "zh-Hans": "无效 Markdown 分页位置"
+  },
+  "session.the_file_preview_expired_or_belongs_to_another_session_reopen_it": {
+    "en": "The file preview expired or belongs to another session. Reopen it.",
+    "zh-Hans": "文件预览已过期或不属于当前会话，请重新打开"
+  },
+  "session.further_pages_require_the_file_version_reopen_the_file": {
+    "en": "Further pages require the file version. Reopen the file.",
+    "zh-Hans": "后续分页需要文件版本，请重新打开"
+  },
+  "session.this_markdown_file_is_not_valid_utf_8_text": {
+    "en": "This Markdown file is not valid UTF-8 text.",
+    "zh-Hans": "此 Markdown 文件不是有效 UTF-8 文本"
+  },
+  "session.could_not_browse_this_directory": {
+    "en": "Could not browse this directory.",
+    "zh-Hans": "无法浏览此目录"
+  },
+  "session.session_image_previews_support_local_files_only": {
+    "en": "Session image previews support local files only.",
+    "zh-Hans": "会话仅支持本地图片预览"
+  },
+  "session.receipt_storage_is_full_retry_later": {
+    "en": "Operation receipt storage is full. New actions are paused to preserve earlier receipts.",
+    "zh-Hans": "操作回执存储已满，已暂停新操作以保留已有回执。"
+  },
+  "session.the_original_operation_receipt_does_not_exist": {
+    "en": "The original operation receipt does not exist.",
+    "zh-Hans": "原操作回执不存在"
+  },
+  "session.the_attachment_is_missing_or_belongs_to_another_session": {
+    "en": "The attachment is missing or belongs to another session.",
+    "zh-Hans": "附件不存在或不属于当前会话"
+  },
+  "session.attachments_must_be_between_1_byte_and_10_mb_and_have_a_valid_name": {
+    "en": "Attachments must be between 1 byte and 10 MB and have a valid name.",
+    "zh-Hans": "附件必须为 1 字节至 10 MB，且名称有效"
+  },
+  "session.invalid_attachment_name": {
+    "en": "Invalid attachment name.",
+    "zh-Hans": "无效附件名称"
+  },
+  "session.attachment_id_conflict": {
+    "en": "Attachment ID conflict.",
+    "zh-Hans": "附件 ID 冲突"
+  },
+  "session.too_many_incomplete_attachments_remove_them_or_finish_uploading_firs": {
+    "en": "Too many incomplete attachments. Remove them or finish uploading first.",
+    "zh-Hans": "未完成附件过多，请先移除或完成上传"
+  },
+  "session.could_not_create_the_attachment": {
+    "en": "Could not create the attachment.",
+    "zh-Hans": "无法创建附件"
+  },
+  "session.invalid_attachment_chunk": {
+    "en": "Invalid attachment chunk.",
+    "zh-Hans": "无效附件分片"
+  },
+  "session.attachment_chunks_are_missing_upload_it_again": {
+    "en": "Attachment chunks are missing. Upload it again.",
+    "zh-Hans": "附件分片缺失，请重新上传"
+  },
+  "session.attachment_chunk_content_conflicts": {
+    "en": "Attachment chunk content conflicts.",
+    "zh-Hans": "附件分片内容冲突"
+  },
+  "session.attachment_verification_failed_upload_it_again": {
+    "en": "Attachment verification failed. Upload it again.",
+    "zh-Hans": "附件校验失败，请重新上传"
+  },
+  "session.the_image_format_cannot_be_read": {
+    "en": "The image format cannot be read.",
+    "zh-Hans": "图片格式无法读取"
+  },
+  "session.invalid_attachment_id": {
+    "en": "Invalid attachment ID.",
+    "zh-Hans": "无效附件 ID"
+  },
+  "session.only_files_between_1_byte_and_10_mb_are_supported": {
+    "en": "Only files between 1 byte and 10 MB are supported.",
+    "zh-Hans": "仅支持 1 字节至 10 MB 的文件"
+  },
+  "session.up_to_6_distinct_attachments_are_supported": {
+    "en": "Up to 6 distinct attachments are supported.",
+    "zh-Hans": "最多支持 6 个不同附件"
+  },
+  "session.the_attachment_is_incomplete_or_no_longer_available": {
+    "en": "The attachment is incomplete or no longer available.",
+    "zh-Hans": "附件尚未完成或已失效"
+  },
+  "session.user_attached_file_0_local_path_on_the_mac_1": {
+    "en": "User-attached file: {0}\nLocal path on the Mac: {1}",
+    "zh-Hans": "用户附加文件：{0}\nMac 本地路径：{1}"
+  },
+  "session.could_not_preview_this_attachment": {
+    "en": "Could not preview this attachment.",
+    "zh-Hans": "无法预览此附件"
+  },
+  "session.only_files_inside_the_current_session_s_project_are_allowed": {
+    "en": "Only files inside the current session’s project are allowed.",
+    "zh-Hans": "只允许当前会话项目内的文件"
+  },
+  "session.the_file_is_outside_the_current_session_s_project": {
+    "en": "The file is outside the current session’s project.",
+    "zh-Hans": "文件超出当前会话项目范围"
+  },
+  "session.error": {
+    "en": "Error",
+    "zh-Hans": "出错"
+  },
+  "session.thinking": {
+    "en": "Thinking",
+    "zh-Hans": "思考"
+  },
+  "session.plan": {
+    "en": "Plan",
+    "zh-Hans": "计划"
+  },
+  "session.files_0": {
+    "en": "Files: {0}",
+    "zh-Hans": "{0} 个文件"
+  },
+  "session.arguments": {
+    "en": "Arguments:\n",
+    "zh-Hans": "参数：\n"
+  },
+  "session.error_2": {
+    "en": "\n\nError:\n",
+    "zh-Hans": "\n\n错误：\n"
+  },
+  "session.result": {
+    "en": "\n\nResult:\n",
+    "zh-Hans": "\n\n结果：\n"
+  },
+  "session.images_0": {
+    "en": "[Images: {0}]",
+    "zh-Hans": "[{0} 张图片]"
+  },
+  "session.tool": {
+    "en": "Tool",
+    "zh-Hans": "工具"
+  },
+  "session.subagent": {
+    "en": "Subagent · ",
+    "zh-Hans": "子代理 · "
+  },
+  "session.search_the_web": {
+    "en": "Search the web",
+    "zh-Hans": "搜索网页"
+  },
+  "session.view_image": {
+    "en": "View image",
+    "zh-Hans": "查看图片"
+  },
+  "session.generate_image": {
+    "en": "Generate image",
+    "zh-Hans": "生成图片"
+  },
+  "session.context_compacted": {
+    "en": "Context compacted",
+    "zh-Hans": "上下文已压缩"
+  },
+  "session.code_review_started": {
+    "en": "Code review started",
+    "zh-Hans": "开始代码审查"
+  },
+  "session.code_review_finished": {
+    "en": "Code review finished",
+    "zh-Hans": "代码审查结束"
+  },
+  "session.run_command": {
+    "en": "Run command",
+    "zh-Hans": "执行命令"
+  },
+  "session.edit_files": {
+    "en": "Edit files",
+    "zh-Hans": "修改文件"
+  },
+  "session.request_permission": {
+    "en": "Request permission",
+    "zh-Hans": "请求权限"
+  },
+  "session.handle_this_on_the_mac": {
+    "en": "Handle this on the Mac.",
+    "zh-Hans": "需要在 Mac 处理"
+  },
+  "session.the_request_is_too_long_read_the_complete_content_and_handle_it_on_t": {
+    "en": "The request is too long. Read the complete content and handle it on the Mac.",
+    "zh-Hans": "请求内容过长，请在 Mac 查看完整内容并处理。"
+  },
+  "session.not_provided": {
+    "en": "Not provided",
+    "zh-Hans": "未提供"
+  },
+  "session.remaining_0_tokens_latest_request_input_1_cached_2_output_3_reasonin": {
+    "en": "Remaining: {0} tokens\n\nLatest request\nInput: {1} (cached: {2})\nOutput: {3} (reasoning: {4})\n\nUsage comes from the desktop’s latest request and may not be current while a task is running.",
+    "zh-Hans": "剩余：{0} tokens\n\n最近请求统计\n输入：{1}（其中缓存：{2}）\n输出：{3}（其中推理：{4}）\n\n用量来自桌面最近一次请求；运行中可能尚未更新。"
+  },
+  "session.the_session_update_format_is_incompatible": {
+    "en": "The session update format is incompatible.",
+    "zh-Hans": "会话更新格式不兼容"
+  },
+  "session.invalid_session_patch": {
+    "en": "Invalid session patch.",
+    "zh-Hans": "无效会话补丁"
+  },
+  "session.the_session_patch_is_outdated": {
+    "en": "The session patch is outdated.",
+    "zh-Hans": "会话补丁已过期"
+  },
+  "session.the_session_patch_is_out_of_bounds": {
+    "en": "The session patch is out of bounds.",
+    "zh-Hans": "会话补丁超出范围"
+  },
+  "session.unsupported_session_update_format": {
+    "en": "Unsupported session update format.",
+    "zh-Hans": "不支持的会话更新格式"
+  },
+  "session.codex_disconnected_open_codex_on_the_mac_and_retry": {
+    "en": "Codex disconnected. Open Codex on the Mac and retry.",
+    "zh-Hans": "Codex 已断开，请打开 Mac 上的 Codex 后重试"
+  },
+  "session.receipt_timed_out": {
+    "en": "Receipt timed out.",
+    "zh-Hans": "回执超时"
+  },
+  "session.disconnected": {
+    "en": "Disconnected.",
+    "zh-Hans": "连接已断开"
+  },
+  "session.unknown": {
+    "en": "Unknown",
+    "zh-Hans": "未知"
+  },
+  "session.codex_desktop_build_0_is_not_supported_yet_update_vibepier_and_retry": {
+    "en": "Codex desktop build {0} is not supported yet. Update VibePier and retry.",
+    "zh-Hans": "Codex 桌面构建 {0} 尚未适配，请更新 VibePier 后重试"
+  },
+  "session.the_first_message_must_not_be_empty_or_exceed_32_kb": {
+    "en": "The first message must not be empty or exceed 32 KB.",
+    "zh-Hans": "第一条消息不能为空，且不能超过 32 KB"
+  },
+  "session.the_project_directory_no_longer_exists_0": {
+    "en": "The project directory no longer exists: {0}",
+    "zh-Hans": "项目目录已不存在：{0}"
+  },
+  "session.could_not_open_codex": {
+    "en": "Could not open Codex.",
+    "zh-Hans": "无法打开 Codex"
+  },
+  "session.codex_did_not_create_a_new_session_check_its_composer_on_the_mac_bef": {
+    "en": "Codex did not create a new session. Check its composer on the Mac before sending manually.",
+    "zh-Hans": "Codex 未创建新会话，请在 Mac 上检查输入框后手动发送"
+  },
+  "session.the_session_view_changed": {
+    "en": "The session view changed.",
+    "zh-Hans": "会话页面已切换"
+  },
+  "session.invalid_session": {
+    "en": "Invalid session.",
+    "zh-Hans": "无效会话"
+  },
+  "session.attachment_storage_is_unavailable": {
+    "en": "Attachment storage is unavailable.",
+    "zh-Hans": "附件存储不可用"
+  },
+  "session.the_session_view_is_closed": {
+    "en": "The session view is closed.",
+    "zh-Hans": "会话页面已关闭"
+  },
+  "session.the_session_is_not_ready_reopen_it": {
+    "en": "The session is not ready. Reopen it.",
+    "zh-Hans": "会话尚未就绪，请重新打开"
+  },
+  "session.the_desktop_has_not_provided_context_usage_yet_check_after_the_first": {
+    "en": "The desktop has not provided context usage yet. Check after the first reply.",
+    "zh-Hans": "桌面尚未提供上下文用量；首次回复后请再查看"
+  },
+  "session.choose_an_application": {
+    "en": "Choose an application.",
+    "zh-Hans": "请选择应用"
+  },
+  "session.attachment_storage_is_unavailable_check_on_the_mac": {
+    "en": "Attachment storage is unavailable. Check on the Mac.",
+    "zh-Hans": "附件存储不可用，请在 Mac 检查"
+  },
+  "session.unsupported_attachment_operation": {
+    "en": "Unsupported attachment operation.",
+    "zh-Hans": "不支持的附件操作"
+  },
+  "session.update_the_phone_app_before_loading_earlier_messages": {
+    "en": "Update the phone app before loading earlier messages.",
+    "zh-Hans": "请更新手机端后再加载更早的消息"
+  },
+  "session.the_session_changed_reopen_it": {
+    "en": "The session changed. Reopen it.",
+    "zh-Hans": "会话已更新，请重新打开"
+  },
+  "session.the_approval_changed_or_expired_refresh_it": {
+    "en": "The approval changed or expired. Refresh it.",
+    "zh-Hans": "审批已更新或失效，请刷新"
+  },
+  "session.the_message_changed_refresh_it": {
+    "en": "The message changed. Refresh it.",
+    "zh-Hans": "消息已更新，请刷新"
+  },
+  "session.the_image_changed_refresh_it": {
+    "en": "The image changed. Refresh it.",
+    "zh-Hans": "图片已更新，请刷新"
+  },
+  "session.the_codex_version_changed_sending_is_disabled": {
+    "en": "The Codex version changed. Sending is disabled.",
+    "zh-Hans": "Codex 版本已变化，已停用发送"
+  },
+  "session.codex_did_not_apply_this_setting_refresh_and_retry": {
+    "en": "Codex did not apply this setting. Refresh and retry.",
+    "zh-Hans": "Codex 未应用此设置，请刷新后重试"
+  },
+  "session.there_is_no_running_task_in_this_session": {
+    "en": "There is no running task in this session.",
+    "zh-Hans": "当前会话没有正在运行的任务"
+  },
+  "session.the_running_task_changed_the_new_task_was_not_stopped": {
+    "en": "The running task changed. The new task was not stopped.",
+    "zh-Hans": "运行任务已变化，未停止新的任务"
+  },
+  "session.the_reply_must_not_be_empty_or_exceed_32_kb": {
+    "en": "The reply must not be empty or exceed 32 KB.",
+    "zh-Hans": "回复不能为空，且不能超过 32 KB"
+  },
+  "session.this_message_was_already_sent_and_cannot_be_deleted": {
+    "en": "This message was already sent and cannot be deleted.",
+    "zh-Hans": "此消息已经发送，无法删除"
+  },
+  "session.invalid_queued_message": {
+    "en": "Invalid queued message.",
+    "zh-Hans": "无效待发送消息"
+  },
+  "session.this_message_is_being_sent_and_cannot_be_deleted": {
+    "en": "This message is being sent and cannot be deleted.",
+    "zh-Hans": "此消息正在发送，无法删除"
+  },
+  "session.this_message_was_sent_or_removed_refresh_the_queue": {
+    "en": "This message was sent or removed. Refresh the queue.",
+    "zh-Hans": "此消息已经发送或移除，请刷新"
+  },
+  "session.the_approval_expired_or_must_be_handled_on_the_mac_refresh_it": {
+    "en": "The approval expired or must be handled on the Mac. Refresh it.",
+    "zh-Hans": "审批已失效或需在 Mac 处理，请刷新"
+  },
+  "session.choose_allow_once_or_deny": {
+    "en": "Choose Allow once or Deny.",
+    "zh-Hans": "请选择允许此次或拒绝"
+  },
+  "session.unsupported_session_operation": {
+    "en": "Unsupported session operation.",
+    "zh-Hans": "不支持的会话操作"
+  },
+  "session.the_session_has_not_loaded_yet": {
+    "en": "The session has not loaded yet.",
+    "zh-Hans": "会话尚未加载"
+  },
+  "session.open_this_session_on_the_mac_then_retry": {
+    "en": "Open this session on the Mac, then retry.",
+    "zh-Hans": "请在 Mac 打开此会话，再点重试"
+  },
+  "session.the_desktop_did_not_confirm_the_send_queue": {
+    "en": "The desktop did not confirm the send queue.",
+    "zh-Hans": "桌面未确认待发送队列"
+  },
+  "session.invalid_update": {
+    "en": "Invalid update.",
+    "zh-Hans": "无效更新"
+  },
+  "session.the_selected_application_is_not_running": {
+    "en": "The selected application is not running.",
+    "zh-Hans": "所选应用没有运行"
+  },
+  "session.allow_screen_recording_for_vibepier_in_the_mac_system_prompt_then_ad": {
+    "en": "Allow screen recording for VibePier in the Mac system prompt, then add the app screenshot again.",
+    "zh-Hans": "请在 Mac 系统提示中允许 VibePier 录制屏幕，再重新添加应用截图"
+  },
+  "session.the_selected_application_has_no_visible_window": {
+    "en": "The selected application has no visible window.",
+    "zh-Hans": "所选应用没有可见窗口"
+  },
+  "session.could_not_capture_the_application_window": {
+    "en": "Could not capture the application window.",
+    "zh-Hans": "无法生成应用截图"
+  },
+  "session.application_screenshot_capture_timed_out_retry": {
+    "en": "Application screenshot capture timed out. Retry.",
+    "zh-Hans": "应用截图超时，请重试"
+  },
+  "session.open_codex_on_the_mac_first": {
+    "en": "Open Codex on the Mac first.",
+    "zh-Hans": "请先打开 Mac 上的 Codex"
+  },
+  "session.could_not_connect_to_codex": {
+    "en": "Could not connect to Codex.",
+    "zh-Hans": "无法连接 Codex"
+  },
+  "session.the_codex_socket_path_is_too_long": {
+    "en": "The Codex socket path is too long.",
+    "zh-Hans": "Codex 地址过长"
+  },
+  "session.codex_is_not_running_open_it_on_the_mac": {
+    "en": "Codex is not running. Open it on the Mac.",
+    "zh-Hans": "Codex 未运行，请在 Mac 打开"
+  },
+  "session.the_current_codex_interface_is_incompatible": {
+    "en": "The current Codex interface is incompatible.",
+    "zh-Hans": "当前 Codex 接口不兼容"
+  },
+  "session.the_codex_receipt_timed_out_the_send_result_needs_verification": {
+    "en": "The Codex receipt timed out. The send result needs verification.",
+    "zh-Hans": "Codex 回执超时，发送结果待核对"
+  },
+  "session.codex_disconnected": {
+    "en": "Codex disconnected.",
+    "zh-Hans": "Codex 连接已断开"
+  },
+  "session.could_not_read_the_desktop_send_queue": {
+    "en": "Could not read the desktop send queue.",
+    "zh-Hans": "无法读取桌面待发送队列"
+  },
+  "session.the_desktop_send_queue_format_changed": {
+    "en": "The desktop send queue format changed.",
+    "zh-Hans": "桌面待发送队列格式已变化"
+  },
+  "session.this_message_is_being_sent_or_its_result_is_unconfirmed_check_again_": {
+    "en": "This message is being sent or its result is unconfirmed. Check again shortly.",
+    "zh-Hans": "此消息正在发送或结果待确认，请稍后核对"
+  },
+  "session.attachment": {
+    "en": "Attachment",
+    "zh-Hans": "附件"
+  },
+  "session.the_codex_session_index_version_is_incompatible": {
+    "en": "The Codex session index version is incompatible.",
+    "zh-Hans": "Codex 会话索引版本不兼容"
+  },
+  "session.could_not_read_codex_sessions_0": {
+    "en": "Could not read Codex sessions: {0}",
+    "zh-Hans": "暂时无法读取 Codex 会话：{0}"
+  },
+  "session.could_not_read_codex_sessions_retry": {
+    "en": "Could not read Codex sessions. Retry.",
+    "zh-Hans": "读取 Codex 会话失败，请重试"
+  },
+  "session.no_local_codex_sessions_found_open_codex_first": {
+    "en": "No local Codex sessions found. Open Codex first.",
+    "zh-Hans": "未找到本机 Codex 会话，请先打开 Codex"
+  },
+  "session.the_mac_model_list_is_unavailable_open_the_model_menu_in_codex_and_r": {
+    "en": "The Mac model list is unavailable. Open the model menu in Codex and retry.",
+    "zh-Hans": "Mac 模型列表暂不可用，请在 Codex 中打开模型菜单后重试"
+  },
+  "session.this_model_is_not_in_the_mac_s_available_model_list": {
+    "en": "This model is not in the Mac’s available model list.",
+    "zh-Hans": "此模型不在 Mac 可用列表中"
+  },
+  "session.this_model_does_not_support_the_selected_reasoning_effort": {
+    "en": "This model does not support the selected reasoning effort.",
+    "zh-Hans": "此模型不支持所选推理强度"
+  },
+  "session.full_access_requires_explicit_confirmation": {
+    "en": "Full access requires explicit confirmation.",
+    "zh-Hans": "完全访问需要明确确认"
+  },
+  "session.unsupported_approval_mode": {
+    "en": "Unsupported approval mode.",
+    "zh-Hans": "不支持的审批模式"
+  },
+  "session.no_session_settings_to_update": {
+    "en": "No session settings to update.",
+    "zh-Hans": "没有可更新的会话设置"
+  },
+  "session.answer_codex_s_questions": {
+    "en": "Answer Codex’s questions",
+    "zh-Hans": "回答 Codex 的问题"
+  },
+  "session.choose_an_option_or_enter_an_answer_then_submit": {
+    "en": "Choose an option or enter an answer, then submit.",
+    "zh-Hans": "请选择选项或填写答案，再点击提交。"
+  },
+  "session.answer_these_questions_on_the_mac": {
+    "en": "Answer these questions on the Mac.",
+    "zh-Hans": "请在 Mac 处理此问答。"
+  },
+  "session.enter_an_answer_up_to_32_kb": {
+    "en": "Enter an answer (up to 32 KB).",
+    "zh-Hans": "请填写答案（最多 32 KB）"
+  },
+  "session.the_questions_changed_review_them_again": {
+    "en": "The questions changed. Review them again.",
+    "zh-Hans": "问题已更新，请重新查看"
+  },
+  "session.choose_one_of_the_provided_options": {
+    "en": "Choose one of the provided options.",
+    "zh-Hans": "请选择问题提供的选项"
+  },
+  "session.answer_at_least_one_question": {
+    "en": "Answer at least one question.",
+    "zh-Hans": "请至少回答一个问题"
+  },
+  "session.answer_all_questions_before_submitting": {
+    "en": "Answer all questions before submitting.",
+    "zh-Hans": "请回答全部问题后提交"
+  },
+  "session.unsupported_question_type": {
+    "en": "Unsupported question type.",
+    "zh-Hans": "不支持的问答类型"
+  },
+  "cli.expected_boolean": {
+    "en": "expected on or off, got '{0}'",
+    "zh-Hans": "应输入 on 或 off，收到的是“{0}”"
+  },
+  "cli.expected_number": {
+    "en": "expected a number, got '{0}'",
+    "zh-Hans": "应输入有效范围内的数字，收到的是“{0}”"
+  },
+  "cli.handshake_failed": {
+    "en": "the dongle did not answer the auth handshake",
+    "zh-Hans": "接收器未回应认证握手"
+  },
+  "cli.dongle_missing": {
+    "en": "no Vibe Key dongle found (USB {0})",
+    "zh-Hans": "未找到 Vibe Key 接收器（USB {0}）"
+  },
+  "cli.set_usage": {
+    "en": "usage: vibepier set <setting> <value>",
+    "zh-Hans": "用法：vibepier set <setting> <value>"
+  },
+  "cli.missing_value": {
+    "en": "missing value for '{0}'",
+    "zh-Hans": "缺少“{0}”的值"
+  },
+  "cli.brightness_range": {
+    "en": "brightness goes from 0 to 20",
+    "zh-Hans": "亮度范围为 0–20"
+  },
+  "cli.led_index_range": {
+    "en": "LED index goes from 0 to 3",
+    "zh-Hans": "LED 编号范围为 0–3"
+  },
+  "cli.led_field": {
+    "en": "LED field must be one of: {0}",
+    "zh-Hans": "LED 字段必须是以下之一：{0}"
+  },
+  "cli.unknown_setting": {
+    "en": "unknown setting '{0}'. Run 'vibepier help' for the list.",
+    "zh-Hans": "未知设置“{0}”。运行 vibepier help 查看列表。"
+  },
+  "cli.bind_usage": {
+    "en": "usage: vibepier bind <talk|confirm|cancel|knob-press|knob-left|knob-right> <binding>",
+    "zh-Hans": "用法：vibepier bind <talk|confirm|cancel|knob-press|knob-left|knob-right> <binding>"
+  },
+  "cli.invalid_hex": {
+    "en": "invalid hex '{0}'",
+    "zh-Hans": "无效的十六进制值“{0}”"
+  },
+  "cli.serial_unreadable": {
+    "en": "could not read the dongle serial number",
+    "zh-Hans": "无法读取接收器序列号"
+  },
+  "cli.firmware_update_usage": {
+    "en": "usage: vibepier firmware update --target <device|dongle> --file <image> --yes",
+    "zh-Hans": "用法：vibepier firmware update --target <device|dongle> --file <image> --yes"
+  },
+  "cli.missing_image": {
+    "en": "missing --file <image>",
+    "zh-Hans": "缺少 --file <image>"
+  },
+  "cli.firmware_usage": {
+    "en": "usage: vibepier firmware check | update --target <device|dongle> --file <image> --yes",
+    "zh-Hans": "用法：vibepier firmware check | update --target <device|dongle> --file <image> --yes"
+  },
+  "cli.unknown_agent": {
+    "en": "unknown agent '{0}'. Known: {1}",
+    "zh-Hans": "未知代理“{0}”。可用代理：{1}"
+  },
+  "cli.config_needs_agent": {
+    "en": "--config needs --agent",
+    "zh-Hans": "--config 必须与 --agent 一起使用"
+  },
+  "cli.hooks_usage": {
+    "en": "usage: vibepier hooks install|uninstall|status",
+    "zh-Hans": "用法：vibepier hooks install|uninstall|status"
+  },
+  "cli.config_exists": {
+    "en": "{0} already exists. Add --force to overwrite it.",
+    "zh-Hans": "{0} 已存在。添加 --force 可覆盖该文件。"
+  },
+  "cli.config_unreadable": {
+    "en": "could not read {0}: {1}",
+    "zh-Hans": "无法读取 {0}：{1}"
+  },
+  "cli.config_usage": {
+    "en": "usage: vibepier config init|show|path",
+    "zh-Hans": "用法：vibepier config init|show|path"
+  },
+  "cli.test_usage": {
+    "en": "usage: vibepier test leds|vibration [--seconds <n>]",
+    "zh-Hans": "用法：vibepier test leds|vibration [--seconds <n>]"
+  },
+  "cli.reboot_usage": {
+    "en": "usage: vibepier reboot <device|dongle>",
+    "zh-Hans": "用法：vibepier reboot <device|dongle>"
+  },
+  "cli.start_app": {
+    "en": "Start VibePier on this Mac first",
+    "zh-Hans": "请先在这台 Mac 上启动 VibePier"
+  },
+  "cli.relay_failed": {
+    "en": "Relay configuration failed",
+    "zh-Hans": "中继配置失败"
+  },
+  "cli.daemon_unavailable": {
+    "en": "the daemon is not running (no socket at {0})",
+    "zh-Hans": "服务未运行（未找到套接字 {0}）"
+  },
+  "cli.unknown_command": {
+    "en": "unknown command '{0}'. Run 'vibepier help'.",
+    "zh-Hans": "未知命令“{0}”。运行 vibepier help 查看帮助。"
+  },
+  "cli.help": {
+    "en": "vibepier: Mac controls, phone connections and Ulanzi Vibe Key (AU05) driver\n\nDevice information\n  vibepier info [--json]                 Show dongle, mic, battery and settings\n  vibepier monitor                       Print key presses, battery and link events\n  vibepier battery                       Show the mic battery\n\nSettings\n  vibepier settings [--json]             Show all device settings\n  vibepier set sleep <off|1h|2h|3h|4h|seconds>\n  vibepier set vibration <on|off|0-255>\n  vibepier set denoise <on|off>\n  vibepier set light-mode <off|on|work>\n  vibepier set brightness <0-20>\n  vibepier set led <0-3> <type|time|breathe-level|breathe-brightness|brightness> <value>\n  vibepier set hooks-mode <on|off>\n  vibepier set standby-time <seconds>\n  vibepier set audio-button-mode <n>\n  vibepier set mic <on|off>\n\nButtons (stored in the Vibe Key firmware; they work without vibepier running)\n  vibepier buttons [--json]              Show what each control sends\n  vibepier bind <control> <binding>      Controls: talk, confirm, cancel, knob-press,\n                                      knob-left, knob-right\n                                      Bindings: a hotkey such as \"cmd+shift+4\",\n                                      \"fixed:<media key>\", or \"factory\"\n  vibepier reset-buttons                 Restore the factory functions\n  vibepier keys                          List key names and media keys\n\nConfiguration and daemon\n  vibepier config init|show|path         Manage ~/Library/Application Support/vibepier/config.json\n  vibepier preferences export <file>     Export portable settings without credentials\n  vibepier preferences import <file> [--dry-run]\n                                      Validate/merge settings into the running Mac app\n  vibepier apply                         Push the configuration file to the device\n  vibepier daemon [--verbose]            Run in the foreground\n  vibepier service install|uninstall|status\n                                      Run the daemon at login with launchd\n  vibepier status                        Ask the running daemon for its state\n  vibepier reload                        Tell the daemon to reload its configuration\n  vibepier relay status|disable          Show or disable the configured cloud relay\n  vibepier relay configure --url <wss-url> --room <room> --secret-file <path>\n                                      [--dns-recovery system|alidns]\n                                      Save credentials in the running Mac app's Keychain\n  vibepier android-update <apk>          Register the available Android update\n  vibepier phone-install --list           List authorized APK recipients\n  vibepier phone-install <apk> [device]    Send an APK without ADB\n  vibepier phone-install --status [device]\n  vibepier phone-install --cancel [device]\n\nAI agent hooks (LED status from Claude Code, Codex, Gemini CLI, Cursor, Copilot CLI)\n  vibepier hooks install [--agent <id>] [--config <file>] [--dry-run]\n  vibepier hooks uninstall [--agent <id>] [--config <file>] [--dry-run]\n  vibepier hooks status\n  vibepier hook --agent <id> --event <name>   Called by the agent (reads JSON on stdin)\n\nMaintenance\n  vibepier reboot <device|dongle>\n  vibepier firmware check                Ask Ulanzi's update server (sends the dongle serial)\n  vibepier firmware update --target <device|dongle> --file <image> --yes\n  vibepier raw <hex bytes> [--wait <ms>] Send one AU05 USB frame and print replies\n  vibepier test leds|vibration           Cycle LED work types or try the motor, then restore\n\nGlobal options\n  --verbose                           Log every frame\n  --pid <hex>                         Use another product ID (default 00DD)",
+    "zh-Hans": "vibepier：Mac 控制、手机连接与 Ulanzi Vibe Key（AU05）驱动\n\n设备信息\n  vibepier info [--json]                 显示接收器、麦克风、电量与设置\n  vibepier monitor                       输出按键、电量与连接事件\n  vibepier battery                       显示麦克风电量\n\n设置\n  vibepier settings [--json]             显示全部设备设置\n  vibepier set sleep <off|1h|2h|3h|4h|seconds>\n  vibepier set vibration <on|off|0-255>\n  vibepier set denoise <on|off>\n  vibepier set light-mode <off|on|work>\n  vibepier set brightness <0-20>\n  vibepier set led <0-3> <type|time|breathe-level|breathe-brightness|brightness> <value>\n  vibepier set hooks-mode <on|off>\n  vibepier set standby-time <seconds>\n  vibepier set audio-button-mode <n>\n  vibepier set mic <on|off>\n\n按键（保存在 Vibe Key 固件中，无需运行 vibepier 也能生效）\n  vibepier buttons [--json]              显示每个按键发送的内容\n  vibepier bind <control> <binding>      按键：talk, confirm, cancel, knob-press,\n                                      knob-left, knob-right\n                                      绑定：快捷键（如 \"cmd+shift+4\"）、\n                                      \"fixed:<media key>\" 或 \"factory\"\n  vibepier reset-buttons                 恢复出厂按键功能\n  vibepier keys                          列出普通按键与媒体键名称\n\n配置与后台服务\n  vibepier config init|show|path         管理 ~/Library/Application Support/vibepier/config.json\n  vibepier preferences export <file>     导出可迁移设置，不包含凭据\n  vibepier preferences import <file> [--dry-run]\n                                      校验设置并合并到正在运行的 Mac 应用\n  vibepier apply                         将配置文件应用到设备\n  vibepier daemon [--verbose]            以前台进程运行\n  vibepier service install|uninstall|status\n                                      通过 launchd 在登录时运行后台服务\n  vibepier status                        查询正在运行的后台服务状态\n  vibepier reload                        通知后台服务重新加载配置\n  vibepier relay status|disable          查看或关闭已配置的云中继\n  vibepier relay configure --url <wss-url> --room <room> --secret-file <path>\n                                      [--dns-recovery system|alidns]\n                                      将凭据保存在正在运行的 Mac 应用钥匙串中\n  vibepier android-update <apk>          登记可用的 Android 更新\n  vibepier phone-install --list           列出已授权的 APK 接收设备\n  vibepier phone-install <apk> [device]    无需 ADB 即可发送 APK\n  vibepier phone-install --status [device]\n  vibepier phone-install --cancel [device]\n\nAI 代理钩子（显示 Claude Code、Codex、Gemini CLI、Cursor、Copilot CLI 的 LED 状态）\n  vibepier hooks install [--agent <id>] [--config <file>] [--dry-run]\n  vibepier hooks uninstall [--agent <id>] [--config <file>] [--dry-run]\n  vibepier hooks status\n  vibepier hook --agent <id> --event <name>   由代理调用（从标准输入读取 JSON）\n\n维护\n  vibepier reboot <device|dongle>\n  vibepier firmware check                查询 Ulanzi 更新服务器（会发送接收器序列号）\n  vibepier firmware update --target <device|dongle> --file <image> --yes\n  vibepier raw <hex bytes> [--wait <ms>] 发送一帧 AU05 USB 数据并输出回复\n  vibepier test leds|vibration           循环测试 LED 模式或振动马达，然后恢复\n\n全局选项\n  --verbose                           记录每帧数据\n  --pid <hex>                         使用其他产品 ID（默认 00DD）"
+  },
+  "cli.firmware_confirmation": {
+    "en": "this writes new firmware to the {0}. The protocol was reverse engineered and\nhas not been tested against a real update. An interrupted or wrong image can leave the\n{0} unusable. Keep the dongle plugged in and the mic charged. Add --yes to continue.",
+    "zh-Hans": "这会向 {0} 写入新固件。此协议由逆向工程获得，尚未通过真实固件更新验证。\n更新中断或固件错误可能导致 {0} 无法使用。请保持接收器连接，并确保麦克风有足够电量。\n添加 --yes 以继续。"
+  },
+  "cli.duration_range": {
+    "en": "Duration must fit in 0–4294967295 seconds: {0}",
+    "zh-Hans": "时长须在 0–4294967295 秒范围内：{0}"
+  },
+  "cli.invalid_delay": {
+    "en": "{0} requires a finite, non-negative duration within the supported range",
+    "zh-Hans": "{0} 需要有限、非负且在支持范围内的时长"
+  },
+  "cli.invalid_relay": {
+    "en": "Invalid relay endpoint, room or secret file",
+    "zh-Hans": "中继地址、房间或密钥文件无效"
+  },
+  "provider.claude_desktop_composer_not_found_nothing_was_sent": {
+    "en": "Claude desktop composer not found; nothing was sent",
+    "zh-Hans": "找不到 Claude 桌面端输入框，未发送"
+  },
+  "provider.claude_desktop_has_an_unsent_draft_resolve_it_on_the_mac_first_nothing_was_s": {
+    "en": "Claude desktop has an unsent draft. Resolve it on the Mac first; nothing was sent",
+    "zh-Hans": "Claude 桌面端输入框里有未发送的草稿，请先在 Mac 上处理，未发送"
+  },
+  "provider.claude_desktop_is_not_in_the_foreground_nothing_was_sent": {
+    "en": "Claude desktop is not in the foreground; nothing was sent",
+    "zh-Hans": "Claude 桌面端未处于前台，未发送"
+  },
+  "provider.could_not_fill_the_claude_desktop_composer_nothing_was_sent": {
+    "en": "Could not fill the Claude desktop composer; nothing was sent",
+    "zh-Hans": "未能把内容填入 Claude 桌面端输入框，未发送"
+  },
+  "provider.claude_desktop_lost_focus_the_content_remains_in_the_composer_unsent": {
+    "en": "Claude desktop lost focus. The content remains in the composer, unsent",
+    "zh-Hans": "Claude 桌面端失去焦点，内容留在输入框中未发送"
+  },
+  "provider.content_was_entered_on_the_desktop_but_sending_is_unconfirmed_check_on_the_m": {
+    "en": "Content was entered on the desktop, but sending is unconfirmed. Check on the Mac",
+    "zh-Hans": "内容已填入桌面端，但未确认已发送，请在 Mac 上检查"
+  },
+  "provider.could_not_operate_the_claude_desktop_model_control": {
+    "en": "Could not operate the Claude desktop model control",
+    "zh-Hans": "无法操作 Claude 桌面端模型控件"
+  },
+  "provider.claude_desktop_model_menu_not_found": {
+    "en": "Claude desktop model menu not found",
+    "zh-Hans": "找不到 Claude 桌面端模型菜单"
+  },
+  "provider.could_not_read_the_models_available_in_claude_desktop": {
+    "en": "Could not read the models available in Claude desktop",
+    "zh-Hans": "无法读取 Claude 桌面端可用模型"
+  },
+  "provider.the_selected_model_is_no_longer_available_on_the_desktop_reopen_the_model_me": {
+    "en": "The selected model is no longer available on the desktop. Reopen the model menu",
+    "zh-Hans": "桌面端已不支持所选模型，请重新打开模型菜单"
+  },
+  "provider.claude_desktop_model_change_is_unconfirmed": {
+    "en": "Claude desktop model change is unconfirmed",
+    "zh-Hans": "未确认 Claude 桌面端模型切换成功"
+  },
+  "provider.the_desktop_supports_low_medium_and_high_reasoning_effort": {
+    "en": "The desktop supports low, medium and high reasoning effort",
+    "zh-Hans": "桌面端支持低、中、高推理强度"
+  },
+  "provider.the_current_desktop_model_has_no_reasoning_effort_control": {
+    "en": "The current desktop model has no reasoning effort control",
+    "zh-Hans": "当前桌面模型没有推理强度控件"
+  },
+  "provider.claude_desktop_reasoning_effort_slider_not_found": {
+    "en": "Claude desktop reasoning effort slider not found",
+    "zh-Hans": "找不到 Claude 桌面端推理强度滑块"
+  },
+  "provider.the_reasoning_effort_control_changed_the_change_was_stopped": {
+    "en": "The reasoning effort control changed; the change was stopped",
+    "zh-Hans": "推理强度控件已变化，未继续切换"
+  },
+  "provider.could_not_change_claude_desktop_reasoning_effort": {
+    "en": "Could not change Claude desktop reasoning effort",
+    "zh-Hans": "无法切换 Claude 桌面端推理强度"
+  },
+  "provider.claude_desktop_reasoning_effort_change_is_unconfirmed": {
+    "en": "Claude desktop reasoning effort change is unconfirmed",
+    "zh-Hans": "未确认 Claude 桌面端推理强度切换成功"
+  },
+  "provider.this_permission_mode_is_not_supported": {
+    "en": "This permission mode is not supported",
+    "zh-Hans": "不支持此权限模式"
+  },
+  "provider.claude_desktop_permission_mode_menu_not_found": {
+    "en": "Claude desktop permission mode menu not found",
+    "zh-Hans": "找不到 Claude 桌面端权限模式菜单"
+  },
+  "provider.the_selected_permission_mode_is_unavailable_on_the_desktop": {
+    "en": "The selected permission mode is unavailable on the desktop",
+    "zh-Hans": "桌面端没有所选权限模式"
+  },
+  "provider.permission_mode_change_is_unconfirmed_if_claude_shows_a_confirmation_handle_": {
+    "en": "Permission mode change is unconfirmed. If Claude shows a confirmation, handle it on the Mac before retrying",
+    "zh-Hans": "未确认权限模式切换成功；若 Claude 弹出确认，请在 Mac 处理后重试"
+  },
+  "provider.context_usage_is_unavailable_for_the_current_desktop_session": {
+    "en": "Context usage is unavailable for the current desktop session",
+    "zh-Hans": "当前桌面会话没有上下文用量信息"
+  },
+  "provider.claude_desktop_approval_button_not_found_handle_the_request_on_the_mac": {
+    "en": "Claude desktop approval button not found. Handle the request on the Mac",
+    "zh-Hans": "找不到 Claude 桌面端的审批按钮，请在 Mac 处理"
+  },
+  "provider.multiple_approvals_are_visible_on_the_desktop_handle_them_on_the_mac": {
+    "en": "Multiple approvals are visible on the desktop. Handle them on the Mac",
+    "zh-Hans": "桌面端同时显示多个审批，请在 Mac 处理"
+  },
+  "provider.claude_desktop_changed_sessions_the_approval_was_not_submitted": {
+    "en": "Claude desktop changed sessions; the approval was not submitted",
+    "zh-Hans": "Claude 桌面端已切换会话，未提交审批"
+  },
+  "provider.claude_desktop_changed_sessions_the_approval_is_unconfirmed_check_on_the_mac": {
+    "en": "Claude desktop changed sessions; the approval is unconfirmed. Check on the Mac",
+    "zh-Hans": "Claude 桌面端已切换会话，未确认审批生效，请在 Mac 核对"
+  },
+  "provider.the_desktop_approval_button_was_pressed_but_the_result_is_unconfirmed_check_": {
+    "en": "The desktop approval button was pressed, but the result is unconfirmed. Check on the Mac",
+    "zh-Hans": "已点击桌面端审批按钮，但未确认生效，请在 Mac 核对"
+  },
+  "provider.claude_desktop_option_button_not_found_answer_on_the_mac": {
+    "en": "Claude desktop option button not found. Answer on the Mac",
+    "zh-Hans": "找不到 Claude 桌面端的选项按钮，请在 Mac 处理"
+  },
+  "provider.multiple_desktop_options_have_the_same_label_answer_on_the_mac": {
+    "en": "Multiple desktop options have the same label. Answer on the Mac",
+    "zh-Hans": "桌面端同时显示多个同名选项，请在 Mac 处理"
+  },
+  "provider.claude_desktop_changed_sessions_the_answer_was_not_submitted": {
+    "en": "Claude desktop changed sessions; the answer was not submitted",
+    "zh-Hans": "Claude 桌面端已切换会话，未提交回答"
+  },
+  "provider.claude_desktop_changed_sessions_the_answer_is_unconfirmed_check_on_the_mac": {
+    "en": "Claude desktop changed sessions; the answer is unconfirmed. Check on the Mac",
+    "zh-Hans": "Claude 桌面端已切换会话，未确认回答生效，请在 Mac 核对"
+  },
+  "provider.the_desktop_option_button_was_pressed_but_the_result_is_unconfirmed_check_on": {
+    "en": "The desktop option button was pressed, but the result is unconfirmed. Check on the Mac",
+    "zh-Hans": "已点击桌面端选项按钮，但未确认生效，请在 Mac 核对"
+  },
+  "provider.claude_desktop_is_not_in_the_foreground_no_stop_action_was_sent": {
+    "en": "Claude desktop is not in the foreground; no stop action was sent",
+    "zh-Hans": "Claude 桌面端未处于前台，未停止"
+  },
+  "provider.vibepier_needs_accessibility_permission_to_send_to_claude_desktop": {
+    "en": "VibePier needs Accessibility permission to send to Claude desktop",
+    "zh-Hans": "VibePier 需要辅助功能权限才能向 Claude 桌面端发送"
+  },
+  "provider.invalid_desktop_session": {
+    "en": "Invalid desktop session",
+    "zh-Hans": "无效的桌面会话"
+  },
+  "provider.claude_desktop_is_not_running": {
+    "en": "Claude desktop is not running",
+    "zh-Hans": "Claude 桌面端未运行"
+  },
+  "provider.could_not_bring_claude_desktop_to_the_foreground_no_action_was_taken": {
+    "en": "Could not bring Claude desktop to the foreground; no action was taken",
+    "zh-Hans": "无法把 Claude 桌面端切到前台，未执行"
+  },
+  "provider.could_not_verify_that_claude_desktop_opened_this_session_no_action_was_taken": {
+    "en": "Could not verify that Claude desktop opened this session; no action was taken",
+    "zh-Hans": "无法确认 Claude 桌面端已切到这个会话，未执行"
+  },
+  "provider.invalid_claude_code_session": {
+    "en": "Invalid Claude Code session",
+    "zh-Hans": "无效 Claude Code 会话"
+  },
+  "provider.this_claude_code_session_is_still_owned_by_a_terminal_view_it_in_that_termin": {
+    "en": "This Claude Code session is still owned by a terminal. View it in that terminal",
+    "zh-Hans": "这条 Claude Code 会话仍由终端占用，请在原终端查看"
+  },
+  "provider.invalid_session": {
+    "en": "Invalid session",
+    "zh-Hans": "无效的会话"
+  },
+  "provider.claude_desktop_could_not_import_this_session_the_project_may_not_be_trusted_": {
+    "en": "Claude desktop could not import this session. The project may not be trusted; check Claude desktop on the Mac",
+    "zh-Hans": "Claude 桌面端未能导入这个会话（项目可能未受信任），请在 Mac 上打开 Claude 桌面端检查"
+  },
+  "provider.claude_desktop_window_not_found_no_action_was_taken": {
+    "en": "Claude desktop window not found; no action was taken",
+    "zh-Hans": "找不到 Claude 桌面端窗口，未执行"
+  },
+  "provider.the_desktop_title_for_this_session_was_not_found_open_it_on_the_mac_before_r": {
+    "en": "The desktop title for this session was not found. Open it on the Mac before retrying",
+    "zh-Hans": "找不到这个会话在桌面端的标题，请在 Mac 打开它后重试"
+  },
+  "provider.session_0_was_not_found_in_the_claude_desktop_sidebar_open_it_on_the_mac_bef": {
+    "en": "Session “{0}” was not found in the Claude desktop sidebar. Open it on the Mac before retrying",
+    "zh-Hans": "Claude 桌面端侧栏里找不到会话“{0}”，请在 Mac 打开它后重试"
+  },
+  "provider.claude_desktop_has_multiple_sessions_named_0_open_the_intended_session_on_th": {
+    "en": "Claude desktop has multiple sessions named “{0}”. Open the intended session on the Mac before retrying",
+    "zh-Hans": "Claude 桌面端有多个同名会话“{0}”，请在 Mac 打开它后重试"
+  },
+  "provider.claude_desktop_left_the_foreground_no_action_was_taken": {
+    "en": "Claude desktop left the foreground; no action was taken",
+    "zh-Hans": "Claude 桌面端失去前台，未执行"
+  },
+  "provider.approve_plan": {
+    "en": "Approve plan",
+    "zh-Hans": "批准计划"
+  },
+  "provider.allow_once": {
+    "en": "Allow once",
+    "zh-Hans": "允许此次"
+  },
+  "provider.reject_plan": {
+    "en": "Reject plan",
+    "zh-Hans": "拒绝计划"
+  },
+  "provider.read_file": {
+    "en": "Read file",
+    "zh-Hans": "读取文件"
+  },
+  "provider.access_network": {
+    "en": "Access network",
+    "zh-Hans": "访问网络"
+  },
+  "provider.answer_question": {
+    "en": "Answer question",
+    "zh-Hans": "回答问题"
+  },
+  "provider.confirm_plan": {
+    "en": "Confirm plan",
+    "zh-Hans": "确认计划"
+  },
+  "provider.use_tool": {
+    "en": "Use tool ",
+    "zh-Hans": "使用工具 "
+  },
+  "provider.use": {
+    "en": "Use ",
+    "zh-Hans": "使用 "
+  },
+  "provider.tool": {
+    "en": "Tool: ",
+    "zh-Hans": "工具："
+  },
+  "provider.working_directory": {
+    "en": "Working directory: ",
+    "zh-Hans": "工作目录："
+  },
+  "provider.command": {
+    "en": "Command:\n",
+    "zh-Hans": "命令：\n"
+  },
+  "provider.description": {
+    "en": "Description: ",
+    "zh-Hans": "说明："
+  },
+  "provider.file": {
+    "en": "File: ",
+    "zh-Hans": "文件："
+  },
+  "provider.before": {
+    "en": "Before:\n",
+    "zh-Hans": "替换前：\n"
+  },
+  "provider.after": {
+    "en": "After:\n",
+    "zh-Hans": "替换后：\n"
+  },
+  "provider.scope_all_matches": {
+    "en": "Scope: all matches",
+    "zh-Hans": "范围：全部匹配"
+  },
+  "provider.content": {
+    "en": "Content:\n",
+    "zh-Hans": "内容：\n"
+  },
+  "provider.plan": {
+    "en": "Plan:\n",
+    "zh-Hans": "计划：\n"
+  },
+  "provider.approve_matches_desktop_accept_and_keeps_the_current_permission_mode_reject_": {
+    "en": "Approve matches desktop “Accept” and keeps the current permission mode; reject matches “Reject”. To revise the plan, reply in the conversation with your changes, as with “Revise…”.",
+    "zh-Hans": "批准：等同桌面端“Accept”，保持当前权限模式；拒绝：等同“Reject”。要修改计划，直接在会话里回复修改意见（等同“Revise…”）。"
+  },
+  "provider.question": {
+    "en": "Question: ",
+    "zh-Hans": "问题："
+  },
+  "provider.options": {
+    "en": "Options:\n",
+    "zh-Hans": "选项：\n"
+  },
+  "provider.applies_once_like_desktop_allow_once_no_lasting_permission_is_saved": {
+    "en": "Applies once, like desktop “Allow once”; no lasting permission is saved.",
+    "zh-Hans": "作用范围：仅本次（等同桌面端“Allow once”），不保存长期授权。"
+  },
+  "provider.interrupted_by_you": {
+    "en": "Interrupted by you",
+    "zh-Hans": "已被你中断"
+  },
+  "provider.error": {
+    "en": "Error:\n",
+    "zh-Hans": "错误：\n"
+  },
+  "provider.result": {
+    "en": "Result:\n",
+    "zh-Hans": "结果：\n"
+  },
+  "provider.content_2": {
+    "en": "Content",
+    "zh-Hans": "内容"
+  },
+  "provider.to_do": {
+    "en": "To-do",
+    "zh-Hans": "待办"
+  },
+  "provider.read": {
+    "en": "Read ",
+    "zh-Hans": "读取 "
+  },
+  "provider.search": {
+    "en": "Search ",
+    "zh-Hans": "搜索 "
+  },
+  "provider.find": {
+    "en": "Find ",
+    "zh-Hans": "查找 "
+  },
+  "provider.visit": {
+    "en": "Visit ",
+    "zh-Hans": "访问 "
+  },
+  "provider.search_web": {
+    "en": "Search web ",
+    "zh-Hans": "搜索网页 "
+  },
+  "provider.subtask": {
+    "en": "Subtask · ",
+    "zh-Hans": "子任务 · "
+  },
+  "provider.default_model": {
+    "en": "Default model",
+    "zh-Hans": "默认模型"
+  },
+  "provider.use_claude_code_settings": {
+    "en": "Use Claude Code settings",
+    "zh-Hans": "沿用 Claude Code 设置"
+  },
+  "provider.this_claude_code_session_was_not_found": {
+    "en": "This Claude Code session was not found",
+    "zh-Hans": "未找到此 Claude Code 会话"
+  },
+  "provider.not_a_known_claude_code_project": {
+    "en": "Not a known Claude Code project",
+    "zh-Hans": "不是已知的 Claude Code 项目"
+  },
+  "provider.claude_code_could_not_create_a_new_session": {
+    "en": "Claude Code could not create a new session",
+    "zh-Hans": "Claude Code 未能创建新会话"
+  },
+  "provider.uses_the_models_currently_available_in_claude_desktop_for_this_session_only": {
+    "en": "Uses the models currently available in Claude desktop, for this session only.",
+    "zh-Hans": "使用 Claude 桌面端当前可用模型菜单，仅对此会话生效。"
+  },
+  "provider.applies_to_subsequent_claude_code_requests_sent_from_the_phone": {
+    "en": "Applies to subsequent Claude Code requests sent from the phone.",
+    "zh-Hans": "用于后续从手机发出的 Claude Code 请求。"
+  },
+  "provider.the_session_is_not_open_in_claude_desktop_so_accurate_context_usage_is_unava": {
+    "en": "The session is not open in Claude desktop, so accurate context usage is unavailable",
+    "zh-Hans": "会话未在 Claude 桌面端打开，无法读取准确上下文用量"
+  },
+  "provider.the_approval_was_resolved_or_changed_refresh_to_continue": {
+    "en": "The approval was resolved or changed. Refresh to continue",
+    "zh-Hans": "审批已处理或已变化，请刷新"
+  },
+  "provider.invalid_settings_request": {
+    "en": "Invalid settings request",
+    "zh-Hans": "无效设置请求"
+  },
+  "provider.no_settings_to_change": {
+    "en": "No settings to change",
+    "zh-Hans": "没有要切换的设置"
+  },
+  "provider.unsupported_permission_mode": {
+    "en": "Unsupported permission mode",
+    "zh-Hans": "不支持的权限模式"
+  },
+  "provider.bypassing_permissions_requires_explicit_confirmation": {
+    "en": "Bypassing permissions requires explicit confirmation",
+    "zh-Hans": "跳过权限需要明确确认"
+  },
+  "provider.reopen_the_model_menu_and_select_a_model_available_on_the_desktop": {
+    "en": "Reopen the model menu and select a model available on the desktop",
+    "zh-Hans": "请重新打开模型菜单，选择桌面端可用模型"
+  },
+  "provider.this_desktop_model_does_not_support_the_selected_reasoning_effort": {
+    "en": "This desktop model does not support the selected reasoning effort",
+    "zh-Hans": "此桌面模型不支持所选推理强度"
+  },
+  "provider.this_model_is_not_supported": {
+    "en": "This model is not supported",
+    "zh-Hans": "不支持此模型"
+  },
+  "provider.could_not_save_session_settings": {
+    "en": "Could not save session settings",
+    "zh-Hans": "无法保存会话设置"
+  },
+  "provider.claude_code_is_working_wait_for_it_to_finish_or_stop_it_first": {
+    "en": "Claude Code is working. Wait for it to finish or stop it first",
+    "zh-Hans": "Claude Code 正在处理，请等待完成或先停止"
+  },
+  "provider.this_session_is_running_in_claude_code_in_a_mac_terminal_continue_there_to_a": {
+    "en": "This session is running in Claude Code in a Mac terminal. Continue there to avoid forking the session",
+    "zh-Hans": "此会话正在 Mac 终端的 Claude Code 中运行，为避免会话分叉，请在 Mac 上继续"
+  },
+  "provider.invalid_approval_request": {
+    "en": "Invalid approval request",
+    "zh-Hans": "无效审批请求"
+  },
+  "provider.the_session_is_not_open_in_claude_desktop_handle_it_on_the_mac": {
+    "en": "The session is not open in Claude desktop. Handle it on the Mac",
+    "zh-Hans": "会话未在 Claude 桌面端打开，请在 Mac 处理"
+  },
+  "provider.this_request_must_be_handled_on_the_mac": {
+    "en": "This request must be handled on the Mac",
+    "zh-Hans": "此请求需要在 Mac 上处理"
+  },
+  "provider.multiple_desktop_approvals_are_pending_handle_them_on_the_mac": {
+    "en": "Multiple desktop approvals are pending. Handle them on the Mac",
+    "zh-Hans": "桌面端同时有多个审批，请在 Mac 处理"
+  },
+  "provider.select_a_valid_option": {
+    "en": "Select a valid option",
+    "zh-Hans": "请选择一个有效选项"
+  },
+  "provider.desktop_model": {
+    "en": "Desktop model",
+    "zh-Hans": "桌面端模型"
+  },
+  "provider.default_currently_0": {
+    "en": "Default (currently {0})",
+    "zh-Hans": "默认（当前 {0}）"
+  },
+  "provider.the_claude_command_was_not_found_install_claude_code_on_the_mac_first": {
+    "en": "The claude command was not found. Install Claude Code on the Mac first",
+    "zh-Hans": "未找到 claude 命令，请先在 Mac 安装 Claude Code"
+  },
+  "provider.the_session_directory_no_longer_exists_0": {
+    "en": "The session directory no longer exists: {0}",
+    "zh-Hans": "会话目录已不存在：{0}"
+  },
+  "provider.run_failed": {
+    "en": "Run failed",
+    "zh-Hans": "运行失败"
+  },
+  "provider.current_task_stopped": {
+    "en": "Current task stopped",
+    "zh-Hans": "已停止当前任务"
+  },
+  "provider.claude_code_failed": {
+    "en": "Claude Code failed: ",
+    "zh-Hans": "Claude Code 运行失败："
+  },
+  "provider.claude_code_exited_0": {
+    "en": "Claude Code exited ({0})",
+    "zh-Hans": "Claude Code 退出（{0}）"
+  },
+  "provider.update_to_do_list": {
+    "en": "Update to-do list",
+    "zh-Hans": "更新待办"
+  },
+  "provider.edit_file": {
+    "en": "Edit file",
+    "zh-Hans": "编辑文件"
+  },
+  "provider.model_changed": {
+    "en": "Model changed",
+    "zh-Hans": "模型已切换"
+  },
+  "provider.session_update": {
+    "en": "Session update",
+    "zh-Hans": "会话更新"
+  },
+  "provider.no_local_zcode_sessions_found_open_zcode_first": {
+    "en": "No local ZCode sessions found. Open ZCode first",
+    "zh-Hans": "未找到本机 ZCode 会话，请先打开 ZCode"
+  },
+  "provider.the_zcode_desktop_task_index_is_temporarily_unreadable": {
+    "en": "The ZCode desktop task index is temporarily unreadable",
+    "zh-Hans": "ZCode 桌面任务索引暂不可读"
+  },
+  "provider.the_local_zcode_session_index_version_is_incompatible": {
+    "en": "The local ZCode session index version is incompatible",
+    "zh-Hans": "ZCode 本机会话索引版本不兼容"
+  },
+  "provider.could_not_read_the_zcode_session_try_again_later": {
+    "en": "Could not read the ZCode session. Try again later",
+    "zh-Hans": "读取 ZCode 会话失败，请稍后重试"
+  },
+  "provider.this_zcode_desktop_session_was_not_found": {
+    "en": "This ZCode desktop session was not found",
+    "zh-Hans": "未找到此 ZCode 桌面会话"
+  },
+  "provider.the_session_changed_refresh_before_retrying": {
+    "en": "The session changed. Refresh before retrying",
+    "zh-Hans": "会话已变化，请刷新后重试"
+  },
+  "provider.the_message_changed_refresh_to_continue": {
+    "en": "The message changed. Refresh to continue",
+    "zh-Hans": "消息已变化，请刷新"
+  },
+  "provider.full_access_lets_zcode_reduce_confirmations_for_file_changes_and_command_exe": {
+    "en": "Full access lets ZCode reduce confirmations for file changes and command execution.",
+    "zh-Hans": "完全访问允许 ZCode 减少文件修改与命令执行确认。"
+  },
+  "provider.open_zcode_desktop_and_grant_vibepier_accessibility_permission_first": {
+    "en": "Open ZCode desktop and grant VibePier Accessibility permission first",
+    "zh-Hans": "请先打开 ZCode 桌面端，并授予 VibePier 辅助功能权限"
+  },
+  "provider.this_feature_is_not_yet_connected_to_native_zcode_desktop_sessions": {
+    "en": "This feature is not yet connected to native ZCode desktop sessions",
+    "zh-Hans": "此功能暂未接入 ZCode 原生桌面会话"
+  },
+  "provider.the_zcode_session_project_changed_no_action_was_taken": {
+    "en": "The ZCode session project changed; no action was taken",
+    "zh-Hans": "ZCode 会话项目已变化，未执行"
+  },
+  "provider.the_running_zcode_turn_changed_no_stop_action_was_sent": {
+    "en": "The running ZCode turn changed; no stop action was sent",
+    "zh-Hans": "ZCode 运行回合已变化，未停止"
+  },
+  "provider.this_zcode_session_has_no_task_that_can_currently_be_stopped": {
+    "en": "This ZCode session has no task that can currently be stopped",
+    "zh-Hans": "ZCode 这个会话当前没有可停止的任务"
+  },
+  "provider.stop_was_pressed_but_the_native_task_has_not_been_confirmed_as_ended": {
+    "en": "Stop was pressed, but the native task has not been confirmed as ended",
+    "zh-Hans": "已点击停止，尚未确认原生任务结束"
+  },
+  "provider.the_message_is_empty_or_too_long": {
+    "en": "The message is empty or too long",
+    "zh-Hans": "消息为空或过长"
+  },
+  "provider.zcode_desktop_attachments_are_not_yet_supported_nothing_was_sent": {
+    "en": "ZCode desktop attachments are not yet supported; nothing was sent",
+    "zh-Hans": "ZCode 桌面附件暂未接入，未发送"
+  },
+  "provider.zcode_is_running_or_its_composer_is_not_ready_retry_when_it_is_ready": {
+    "en": "ZCode is running or its composer is not ready. Retry when it is ready",
+    "zh-Hans": "ZCode 正在运行或输入框未就绪，请完成后重试"
+  },
+  "provider.zcode_desktop_has_an_existing_draft_nothing_was_sent": {
+    "en": "ZCode desktop has an existing draft; nothing was sent",
+    "zh-Hans": "ZCode 桌面输入框已有草稿，未发送"
+  },
+  "provider.zcode_desktop_input_state_changed_nothing_was_sent": {
+    "en": "ZCode desktop input state changed; nothing was sent",
+    "zh-Hans": "ZCode 桌面输入状态已变化，未发送"
+  },
+  "provider.zcode_lost_focus_the_content_remains_in_the_desktop_draft": {
+    "en": "ZCode lost focus. The content remains in the desktop draft",
+    "zh-Hans": "ZCode 失去焦点，内容留在桌面草稿中"
+  },
+  "provider.the_native_zcode_send_button_and_draft_could_not_be_verified_the_content_rem": {
+    "en": "The native ZCode Send button and draft could not be verified. The content remains on the desktop",
+    "zh-Hans": "未确认 ZCode 原生发送按钮与草稿，内容留在桌面"
+  },
+  "provider.open_a_local_project_in_the_native_zcode_agent_before_retrying_session_creat": {
+    "en": "Open a local project in the native ZCode Agent before retrying session creation",
+    "zh-Hans": "请打开 ZCode 原生 Agent 的本地项目后重试新建"
+  },
+  "provider.attachments_for_new_zcode_sessions_are_not_yet_supported": {
+    "en": "Attachments for new ZCode sessions are not yet supported",
+    "zh-Hans": "ZCode 新建附件暂未接入"
+  },
+  "provider.could_not_activate_zcode_no_new_session_was_created": {
+    "en": "Could not activate ZCode; no new session was created",
+    "zh-Hans": "无法激活 ZCode，未新建"
+  },
+  "provider.the_zcode_navigation_dialog_is_still_open_no_new_session_was_created": {
+    "en": "The ZCode navigation dialog is still open; no new session was created",
+    "zh-Hans": "ZCode 当前导航对话框尚未关闭，未新建"
+  },
+  "provider.zcode_desktop_has_an_existing_draft_no_new_session_was_created": {
+    "en": "ZCode desktop has an existing draft; no new session was created",
+    "zh-Hans": "ZCode 当前桌面已有草稿，未新建"
+  },
+  "provider.could_not_verify_an_empty_draft_for_the_new_native_zcode_task_nothing_was_se": {
+    "en": "Could not verify an empty draft for the new native ZCode task; nothing was sent",
+    "zh-Hans": "未确认 ZCode 原生新任务是空草稿，未发送"
+  },
+  "provider.the_full_path_does_not_uniquely_identify_a_native_zcode_workspace_nothing_wa": {
+    "en": "The full path does not uniquely identify a native ZCode workspace; nothing was sent",
+    "zh-Hans": "ZCode 原生工作区无法唯一绑定该完整路径，未发送"
+  },
+  "provider.the_project_selector_for_the_new_zcode_task_could_not_be_verified_nothing_wa": {
+    "en": "The project selector for the new ZCode task could not be verified; nothing was sent",
+    "zh-Hans": "ZCode 新任务没有可确认的项目选择器，未发送"
+  },
+  "provider.zcode_project_search_not_found_nothing_was_sent": {
+    "en": "ZCode project search not found; nothing was sent",
+    "zh-Hans": "找不到 ZCode 项目搜索，未发送"
+  },
+  "provider.zcode_project_search_or_native_path_mapping_is_not_stable_nothing_was_sent": {
+    "en": "ZCode project search or native path mapping is not stable; nothing was sent",
+    "zh-Hans": "ZCode 项目查询或原生路径映射未稳定，未发送"
+  },
+  "provider.the_project_path_for_the_new_zcode_task_does_not_match_nothing_was_sent": {
+    "en": "The project path for the new ZCode task does not match; nothing was sent",
+    "zh-Hans": "ZCode 新任务项目路径不匹配，未发送"
+  },
+  "provider.native_settings_for_the_new_zcode_task_are_unconfirmed_nothing_was_sent": {
+    "en": "Native settings for the new ZCode task are unconfirmed; nothing was sent",
+    "zh-Hans": "ZCode 新任务原生配置未确认，未发送"
+  },
+  "provider.the_new_zcode_task_state_changed_the_content_remains_in_the_desktop_draft": {
+    "en": "The new ZCode task state changed. The content remains in the desktop draft",
+    "zh-Hans": "ZCode 新任务状态已变化，内容留在桌面草稿"
+  },
+  "provider.open_zcode_and_grant_vibepier_accessibility_permission_first": {
+    "en": "Open ZCode and grant VibePier Accessibility permission first",
+    "zh-Hans": "请先打开 ZCode，并授予 VibePier 辅助功能权限"
+  },
+  "provider.could_not_activate_zcode_no_action_was_taken": {
+    "en": "Could not activate ZCode; no action was taken",
+    "zh-Hans": "无法激活 ZCode，未执行"
+  },
+  "provider.the_zcode_navigation_view_is_still_open_check_on_the_mac": {
+    "en": "The ZCode navigation view is still open. Check on the Mac",
+    "zh-Hans": "ZCode 当前导航界面未关闭，请在 Mac 核对"
+  },
+  "provider.zcode_has_multiple_editing_areas_or_its_input_is_not_ready_no_action_was_tak": {
+    "en": "ZCode has multiple editing areas or its input is not ready; no action was taken",
+    "zh-Hans": "ZCode 当前有多个编辑区域或输入未就绪，未执行"
+  },
+  "provider.the_session_has_no_identifiable_desktop_title_open_it_on_the_mac_before_retr": {
+    "en": "The session has no identifiable desktop title. Open it on the Mac before retrying",
+    "zh-Hans": "会话没有可定位的桌面标题，请在 Mac 打开它后重试"
+  },
+  "provider.zcode_task_search_not_found_open_this_session_on_the_mac_before_retrying": {
+    "en": "ZCode task search not found. Open this session on the Mac before retrying",
+    "zh-Hans": "找不到 ZCode 任务搜索，请在 Mac 打开此会话后重试"
+  },
+  "provider.the_desktop_search_result_is_not_unique_open_this_session_on_the_mac_before_": {
+    "en": "The desktop search result is not unique. Open this session on the Mac before retrying",
+    "zh-Hans": "桌面搜索结果不唯一，请在 Mac 打开此会话后重试"
+  },
+  "provider.the_zcode_session_did_not_finish_opening_no_action_was_taken": {
+    "en": "The ZCode session did not finish opening; no action was taken",
+    "zh-Hans": "ZCode 会话未完成打开，未执行"
+  },
+  "provider.the_current_native_zcode_session_id_does_not_match_no_action_was_taken": {
+    "en": "The current native ZCode session ID does not match; no action was taken",
+    "zh-Hans": "ZCode 当前原生会话 ID 不匹配，未执行"
+  },
+  "provider.the_native_zcode_session_id_menu_was_not_found": {
+    "en": "The native ZCode session ID menu was not found",
+    "zh-Hans": "找不到 ZCode 会话的原生 ID 菜单"
+  },
+  "provider.this_zcode_version_has_no_verifiable_native_session_id_no_action_was_taken": {
+    "en": "This ZCode version has no verifiable native session ID; no action was taken",
+    "zh-Hans": "此 ZCode 版本没有可验证的原生会话 ID，未执行"
+  },
+  "provider.zcode_did_not_return_a_native_session_id_no_action_was_taken": {
+    "en": "ZCode did not return a native session ID; no action was taken",
+    "zh-Hans": "ZCode 未返回原生会话 ID，未执行"
+  },
+  "provider.the_native_zcode_session_menu_is_still_open_no_action_was_taken": {
+    "en": "The native ZCode session menu is still open; no action was taken",
+    "zh-Hans": "ZCode 原生会话菜单尚未关闭，未执行"
+  },
+  "provider.model": {
+    "en": "model",
+    "zh-Hans": "模型"
+  },
+  "provider.permission_mode": {
+    "en": "permission mode",
+    "zh-Hans": "权限模式"
+  },
+  "provider.reasoning_effort": {
+    "en": "reasoning effort",
+    "zh-Hans": "推理强度"
+  },
+  "provider.the_native_zcode_0_menu_is_not_ready_try_again": {
+    "en": "The native ZCode {0} menu is not ready. Try again",
+    "zh-Hans": "ZCode 原生{0}菜单未就绪，请重试"
+  },
+  "provider.the_native_zcode_0_menu_has_no_readable_options_1": {
+    "en": "The native ZCode {0} menu has no readable options ({1})",
+    "zh-Hans": "ZCode 原生{0}菜单没有可读取的选项（{1}）"
+  },
+  "provider.option_0": {
+    "en": "Option {0}",
+    "zh-Hans": "选项 {0}"
+  },
+  "provider.the_native_zcode_0_menu_is_still_open_try_again": {
+    "en": "The native ZCode {0} menu is still open. Try again",
+    "zh-Hans": "ZCode 原生{0}菜单尚未关闭，请重试"
+  },
+  "provider.confirm_zcode_full_access_mode_first": {
+    "en": "Confirm ZCode full access mode first",
+    "zh-Hans": "请先确认 ZCode 完全访问模式"
+  },
+  "provider.reopen_the_zcode_model_and_permission_options_first": {
+    "en": "Reopen the ZCode model and permission options first",
+    "zh-Hans": "请先重新打开 ZCode 的模型与权限选项"
+  },
+  "provider.native_zcode_options_changed_no_selection_was_made": {
+    "en": "Native ZCode options changed; no selection was made",
+    "zh-Hans": "ZCode 原生选项已变化，未切换"
+  },
+  "provider.the_zcode_option_change_did_not_finish": {
+    "en": "The ZCode option change did not finish",
+    "zh-Hans": "ZCode 选项未完成切换"
+  },
+  "provider.the_zcode_control_changed": {
+    "en": "The ZCode control changed",
+    "zh-Hans": "ZCode 控件已变化"
+  },
+  "provider.the_native_zcode_option_change_is_unconfirmed_check_on_the_mac": {
+    "en": "The native ZCode option change is unconfirmed. Check on the Mac",
+    "zh-Hans": "未确认 ZCode 原生选项生效，请在 Mac 核对"
+  },
+  "provider.the_zcode_search_field_changed_nothing_was_entered": {
+    "en": "The ZCode search field changed; nothing was entered",
+    "zh-Hans": "ZCode 搜索输入框已变化，未输入"
+  },
+  "provider.the_zcode_search_field_lost_focus_input_was_stopped": {
+    "en": "The ZCode search field lost focus; input was stopped",
+    "zh-Hans": "ZCode 搜索输入框失去焦点，未继续输入"
+  },
+  "provider.the_zcode_input_field_changed_or_lost_focus_nothing_was_entered": {
+    "en": "The ZCode input field changed or lost focus; nothing was entered",
+    "zh-Hans": "ZCode 输入框已变化或失去焦点，未输入"
+  },
+  "provider.actual_input_focus_in_zcode_could_not_be_verified_nothing_was_entered": {
+    "en": "Actual input focus in ZCode could not be verified; nothing was entered",
+    "zh-Hans": "未确认 ZCode 输入框获得真实焦点，未输入"
+  },
+  "provider.zcode_desktop_has_an_existing_draft_nothing_was_entered": {
+    "en": "ZCode desktop has an existing draft; nothing was entered",
+    "zh-Hans": "ZCode 桌面输入框已有草稿，未输入"
+  },
+  "provider.could_not_prepare_zcode_input_nothing_was_entered": {
+    "en": "Could not prepare ZCode input; nothing was entered",
+    "zh-Hans": "无法准备 ZCode 输入内容，未输入"
+  },
+  "provider.zcode_input_focus_changed_nothing_was_entered": {
+    "en": "ZCode input focus changed; nothing was entered",
+    "zh-Hans": "ZCode 输入焦点已变化，未输入"
+  },
+  "provider.zcode_input_focus_changed_nothing_was_pasted": {
+    "en": "ZCode input focus changed; nothing was pasted",
+    "zh-Hans": "ZCode 输入焦点已变化，未粘贴"
+  },
+  "provider.the_content_could_not_be_verified_in_the_current_zcode_composer_nothing_was_": {
+    "en": "The content could not be verified in the current ZCode composer; nothing was sent",
+    "zh-Hans": "未确认内容进入 ZCode 当前输入框，未发送"
+  },
+  "provider.the_zcode_control_is_not_ready_or_lost_focus_no_action_was_taken": {
+    "en": "The ZCode control is not ready or lost focus; no action was taken",
+    "zh-Hans": "ZCode 控件未就绪或失去焦点，未执行"
+  },
+  "provider.the_zcode_control_is_not_ready_or_lost_focus_no_click_was_sent": {
+    "en": "The ZCode control is not ready or lost focus; no click was sent",
+    "zh-Hans": "ZCode 控件未就绪或失去焦点，未点击"
+  },
+  "provider.could_not_click_the_native_zcode_control": {
+    "en": "Could not click the native ZCode control",
+    "zh-Hans": "无法点击 ZCode 原生控件"
+  },
+  "provider.the_zcode_control_is_not_visible": {
+    "en": "The ZCode control is not visible",
+    "zh-Hans": "ZCode 控件不可见"
+  },
+  "provider.the_zcode_control_moved_no_click_was_sent": {
+    "en": "The ZCode control moved; no click was sent",
+    "zh-Hans": "ZCode 控件位置已变化，未点击"
+  },
+  "provider.zcode_left_the_foreground_no_further_click_was_sent": {
+    "en": "ZCode left the foreground; no further click was sent",
+    "zh-Hans": "ZCode 失去前台，未继续点击"
+  },
+  "provider.could_not_create_a_zcode_click_event": {
+    "en": "Could not create a ZCode click event",
+    "zh-Hans": "无法生成 ZCode 点击事件"
+  },
+  "provider.actual_input_focus_after_the_zcode_click_could_not_be_verified_nothing_was_e": {
+    "en": "Actual input focus after the ZCode click could not be verified; nothing was entered",
+    "zh-Hans": "未确认 ZCode 点击后的真实输入焦点，未输入"
+  },
+  "provider.native_zcode_history_is_available_the_original_desktop_session_on_the_mac_mu": {
+    "en": "Native ZCode history is available. The original desktop session on the Mac must be verified before sending.",
+    "zh-Hans": "可查看 ZCode 原生历史；发送前需验证 Mac 上的原桌面会话。"
+  },
+  "provider.create_the_session_in_zcode_on_the_mac": {
+    "en": "Create the session in ZCode on the Mac",
+    "zh-Hans": "请在 Mac 的 ZCode 中新建会话"
+  },
+  "provider.invalid_zcode_session": {
+    "en": "Invalid ZCode session",
+    "zh-Hans": "无效 ZCode 会话"
+  },
+  "provider.zcode_does_not_yet_provide_verifiable_context_capacity_view_it_on_the_mac": {
+    "en": "ZCode does not yet provide verifiable context capacity. View it on the Mac",
+    "zh-Hans": "ZCode 尚未提供可验证的上下文容量，请在 Mac 中查看"
+  },
+  "provider.this_operation_has_not_been_verified_in_the_original_zcode_desktop_session_h": {
+    "en": "This operation has not been verified in the original ZCode desktop session. Handle it on the Mac",
+    "zh-Hans": "此操作尚未在 ZCode 原桌面会话验证，请在 Mac 上处理"
+  },
+  "provider.zcode_currently_supports_text_replies_up_to_32_kb": {
+    "en": "ZCode currently supports text replies up to 32 KB",
+    "zh-Hans": "ZCode 暂支持 32 KB 以内的文本回复"
+  },
+  "provider.zcode_is_working_or_the_session_is_not_yet_verified_wait_until_it_is_ready": {
+    "en": "ZCode is working or the session is not yet verified. Wait until it is ready",
+    "zh-Hans": "ZCode 正在处理或会话尚未验证，请等待完成"
+  },
+  "provider.zcode_does_not_support_this_phone_operation": {
+    "en": "ZCode does not support this phone operation",
+    "zh-Hans": "ZCode 不支持此手机操作"
+  },
+  "provider.invalid_image": {
+    "en": "Invalid image",
+    "zh-Hans": "无效图片"
+  },
+  "provider.the_image_changed_refresh_to_continue": {
+    "en": "The image changed. Refresh to continue",
+    "zh-Hans": "图片已变化，请刷新"
+  },
+  "hardware.unknown_key": {
+    "en": "unknown key name '{0}'. Run 'vibepier keys' to list the names.",
+    "zh-Hans": "未知按键名称“{0}”。运行 vibepier keys 查看可用名称。"
+  },
+  "hardware.too_many_keys": {
+    "en": "a button holds at most 4 keys, and this hotkey has {0}",
+    "zh-Hans": "一个按钮最多包含 4 个按键，此快捷键包含 {0} 个"
+  },
+  "hardware.empty_hotkey": {
+    "en": "the hotkey is empty",
+    "zh-Hans": "快捷键为空"
+  },
+  "hardware.not_connected": {
+    "en": "the Vibe Key dongle is not connected",
+    "zh-Hans": "Vibe Key 接收器未连接"
+  },
+  "hardware.session_timeout": {
+    "en": "no reply to {0} (is the Vibe Key switched on?)",
+    "zh-Hans": "{0} 未收到回复（Vibe Key 是否已开机？）"
+  },
+  "hardware.session_not_ready": {
+    "en": "the dongle did not complete the auth handshake",
+    "zh-Hans": "接收器未完成认证握手"
+  },
+  "hardware.session_cancelled": {
+    "en": "the request was cancelled because the dongle disconnected",
+    "zh-Hans": "接收器已断开连接，请求已取消"
+  },
+  "hardware.unexpected_reply": {
+    "en": "unexpected reply to {0}: {1}",
+    "zh-Hans": "{0} 收到了意外回复：{1}"
+  },
+  "hardware.write_rejected": {
+    "en": "the device rejected {0}: {1}",
+    "zh-Hans": "设备拒绝了 {0}：{1}"
+  },
+  "hardware.mic_offline": {
+    "en": "the dongle reports that the microphone is not linked. Switch the Vibe Key on.",
+    "zh-Hans": "接收器报告麦克风未连接。请打开 Vibe Key。"
+  },
+  "hardware.image_too_small": {
+    "en": "the image is {0} bytes. The vendor library rejects images under 10240 bytes.",
+    "zh-Hans": "固件镜像为 {0} 字节。厂商库不接受小于 10240 字节的镜像。"
+  },
+  "hardware.wrong_target": {
+    "en": "the image header targets type {0}, which is not valid for the {1}",
+    "zh-Hans": "固件头指定的目标类型为 {0}，不适用于 {1}"
+  },
+  "hardware.image_truncated": {
+    "en": "the header declares {0} payload bytes, but the file holds {1}",
+    "zh-Hans": "固件头声明载荷为 {0} 字节，但文件仅含 {1} 字节"
+  },
+  "hardware.update_timeout": {
+    "en": "the update stalled at '{0}'",
+    "zh-Hans": "更新在“{0}”步骤超时"
+  },
+  "hardware.program_failed": {
+    "en": "the device failed to program frame {0}",
+    "zh-Hans": "设备写入第 {0} 帧失败"
+  },
+  "hardware.update_failed": {
+    "en": "the device reported update result {0}",
+    "zh-Hans": "设备报告更新结果 {0}"
+  },
+  "hardware.connecting": {
+    "en": "connecting",
+    "zh-Hans": "正在连接"
+  },
+  "hardware.frame_transfer": {
+    "en": "frame {0} transfer",
+    "zh-Hans": "传输第 {0} 帧"
+  },
+  "hardware.program_frame": {
+    "en": "program frame {0}",
+    "zh-Hans": "写入第 {0} 帧"
+  },
+  "hardware.frame_progress": {
+    "en": "frame {0}/{1}",
+    "zh-Hans": "第 {0}/{1} 帧"
+  },
+  "hardware.verifying": {
+    "en": "verifying",
+    "zh-Hans": "正在校验"
+  },
+  "hardware.done": {
+    "en": "done",
+    "zh-Hans": "完成"
+  },
+  "hardware.connect_step": {
+    "en": "connect",
+    "zh-Hans": "连接"
+  },
+  "hardware.receive_packages_step": {
+    "en": "receive package count",
+    "zh-Hans": "接收包计数"
+  },
+  "hardware.checksum_step": {
+    "en": "check sum",
+    "zh-Hans": "校验和"
+  },
+  "hardware.finish_step": {
+    "en": "finish",
+    "zh-Hans": "结束"
+  },
+  "hardware.set_report_failed": {
+    "en": "IOHIDDeviceSetReport failed (0x{0})",
+    "zh-Hans": "IOHIDDeviceSetReport 失败（0x{0}）"
+  },
+  "hardware.open_failed": {
+    "en": "IOHIDDeviceOpen failed (0x{0})",
+    "zh-Hans": "IOHIDDeviceOpen 失败（0x{0}）"
+  },
+  "cli.service_bootstrap_failed": {
+    "en": "launchctl bootstrap exited with status {0}",
+    "zh-Hans": "launchctl bootstrap 退出，状态码为 {0}"
+  },
+  "cli.key_names": {
+    "en": "Key names (combine with '+', at most 4 keys, modifiers first):",
+    "zh-Hans": "按键名称（用 + 组合，最多 4 个按键，修饰键在前）："
+  },
+  "cli.fixed_functions": {
+    "en": "\nFixed functions (use as fixed:<name>):",
+    "zh-Hans": "\n固定功能（使用 fixed:<name>）："
+  },
+  "cli.monitoring": {
+    "en": "monitoring. Press Ctrl-C to stop.",
+    "zh-Hans": "正在监听。按 Ctrl-C 停止。"
+  },
+  "cli.update_finished": {
+    "en": "update finished. Rebooting the {0}.",
+    "zh-Hans": "更新完成。正在重启 {0}。"
+  },
+  "cli.hook_skipped": {
+    "en": "{0}: skipped ({1})",
+    "zh-Hans": "{0}：已跳过（{1}）"
+  },
+  "cli.hook_installed": {
+    "en": "{0}: {1}  added {2}, updated {3}{4}",
+    "zh-Hans": "{0}：{1}  新增 {2}，更新 {3}{4}"
+  },
+  "cli.hook_removed": {
+    "en": "{0}: {1}  removed {2}{3}",
+    "zh-Hans": "{0}：{1}  移除 {2}{3}"
+  },
+  "cli.dry_run": {
+    "en": "  (dry run)",
+    "zh-Hans": "  （仅预览）"
+  },
+  "cli.enable_hooks": {
+    "en": "Run 'vibepier set hooks-mode on' (or set settings.hooksMode in the config) so the device shows agent state.",
+    "zh-Hans": "运行 vibepier set hooks-mode on（或在配置中设置 settings.hooksMode），使设备显示代理状态。"
+  },
+  "cli.config_written": {
+    "en": "wrote {0}",
+    "zh-Hans": "已写入 {0}"
+  },
+  "cli.test_lights": {
+    "en": "light mode {0}. Watch the Vibe Key.",
+    "zh-Hans": "灯光模式 {0}。请观察 Vibe Key。"
+  },
+  "cli.test_led": {
+    "en": "led {0} type {1}",
+    "zh-Hans": "LED {0}，类型 {1}"
+  },
+  "cli.restored": {
+    "en": "restored",
+    "zh-Hans": "已恢复"
+  },
+  "cli.test_motor": {
+    "en": "motor strength 255",
+    "zh-Hans": "振动强度 255"
+  },
+  "cli.test_pulse": {
+    "en": "vibration pulse 500 ms at 255",
+    "zh-Hans": "以强度 255 振动 500 毫秒"
+  },
+  "cli.motor_restored": {
+    "en": "restored motor strength {0}",
+    "zh-Hans": "已恢复振动强度 {0}"
+  },
+  "cli.configuration_applied": {
+    "en": "configuration applied",
+    "zh-Hans": "配置已应用"
+  },
+  "cli.service_installed": {
+    "en": "installed {0}. Logs: {1}",
+    "zh-Hans": "已安装 {0}。日志：{1}"
+  },
+  "cli.service_removed": {
+    "en": "removed {0}",
+    "zh-Hans": "已移除 {0}"
+  },
+  "cli.service_loaded": {
+    "en": "loaded ({0})",
+    "zh-Hans": "已加载（{0}）"
+  },
+  "cli.service_not_loaded": {
+    "en": "not loaded",
+    "zh-Hans": "未加载"
+  },
+  "cli.hook_missing_directory": {
+    "en": "config directory not found",
+    "zh-Hans": "未找到配置目录"
+  },
+  "cli.hook_missing_config": {
+    "en": "no config file",
+    "zh-Hans": "没有配置文件"
+  },
+  "cli.hook_invalid_config": {
+    "en": "{0} is not a JSON object",
+    "zh-Hans": "{0} 不是 JSON 对象"
+  },
+  "cli.herdr_missing": {
+    "en": "herdr is not installed (looked in PATH, /opt/homebrew/bin, /usr/local/bin, ~/.cargo/bin)",
+    "zh-Hans": "未安装 herdr（已检查 PATH、/opt/homebrew/bin、/usr/local/bin、~/.cargo/bin）"
+  },
+  "cli.preferences_usage": {
+    "en": "usage: vibepier preferences export <file> | import <file> [--dry-run]",
+    "zh-Hans": "用法：vibepier preferences export <file> | import <file> [--dry-run]"
+  },
+  "cli.udp_socket_failed": {
+    "en": "remote: socket failed ({0})",
+    "zh-Hans": "远程连接：创建套接字失败（{0}）"
+  },
+  "cli.udp_bind_failed": {
+    "en": "remote: cannot bind UDP port {0} ({1})",
+    "zh-Hans": "远程连接：无法绑定 UDP 端口 {0}（{1}）"
+  },
+  "core.heartbeat_mode": {
+    "en": "mode must be auto/on/off",
+    "zh-Hans": "mode 必须是 auto/on/off"
+  },
+  "core.heartbeat_enabled": {
+    "en": "missing enabled flag",
+    "zh-Hans": "缺少 enabled 标志"
+  },
+  "core.heartbeat_probe_range": {
+    "en": "interval must be 0/1/2/5; seconds must be 1...90",
+    "zh-Hans": "interval 必须是 0/1/2/5；seconds 必须在 1–90 范围内"
+  },
+  "core.heartbeat_probe_running": {
+    "en": "probe already running",
+    "zh-Hans": "诊断探针已在运行"
+  },
+  "core.missing_agent_state": {
+    "en": "missing state",
+    "zh-Hans": "缺少 state"
+  },
+  "core.unknown_local_command": {
+    "en": "unknown command",
+    "zh-Hans": "未知命令"
+  },
+  "core.key_permission": {
+    "en": "macOS has not granted Accessibility access to vibepier. Allow it in System Settings > Privacy & Security > Accessibility.",
+    "zh-Hans": "macOS 尚未授予 VibePier 辅助功能权限。请在系统设置 → 隐私与安全性 → 辅助功能中允许。"
+  },
+  "core.unmapped_key": {
+    "en": "HID usage 0x{0} has no macOS key code",
+    "zh-Hans": "HID 用法 0x{0} 没有对应的 macOS 键码"
+  },
+  "provider.zcode_unrecognized_permission_choices": {
+    "en": "This ZCode permission menu contains unrecognized or ambiguous modes. Change permissions on the Mac.",
+    "zh-Hans": "此 ZCode 权限菜单包含无法识别或不明确的模式，请在 Mac 上修改权限。"
+  },
+  "provider.claude_approval_not_current": {
+    "en": "The approval changed or its button cannot be verified. Nothing was submitted; check on the Mac.",
+    "zh-Hans": "审批已变化或无法确认按钮，尚未提交，请在 Mac 上核对。"
+  },
+  "provider.claude_stop_unconfirmed": {
+    "en": "The stop action was sent, but the original Claude turn has not been confirmed as stopped. Check on the Mac.",
+    "zh-Hans": "已发送停止操作，但尚未确认原 Claude 回合结束，请在 Mac 上核对。"
+  },
+  "provider.claude_send_receipt_missing": {
+    "en": "The native Claude message receipt is unavailable. Check on the Mac before sending again.",
+    "zh-Hans": "无法确认 Claude 原生消息回执，再次发送前请在 Mac 上核对。"
+  },
+  "session.codex_creation_busy": {
+    "en": "Another Codex session is being created. Wait for its result before starting another.",
+    "zh-Hans": "另一个 Codex 会话正在创建，请等待结果后再新建。"
+  },
+  "session.codex_creation_project_unverified": {
+    "en": "Cannot uniquely verify this Codex project and its working directory. Use a saved local project with one root and a unique name.",
+    "zh-Hans": "无法唯一确认 Codex 项目及工作目录。请使用已保存、名称唯一且只有一个根目录的本地项目。"
+  },
+  "session.codex_creation_composer_unverified": {
+    "en": "The Codex composer or selected project changed. Nothing will be submitted again automatically.",
+    "zh-Hans": "Codex 输入框或所选项目已变化，不会自动再次提交。"
+  },
+  "session.codex_creation_unconfirmed": {
+    "en": "Could not confirm a new Codex session with the original message. Check its composer and session list on the Mac; do not send it again.",
+    "zh-Hans": "尚未确认包含原始消息的新 Codex 会话。请在 Mac 检查输入框和会话列表，不要重复发送。"
+  },
+  "session.codex_creation_build_unverified": {
+    "en": "Creating sessions is not verified for this Codex desktop build. Create the session on the Mac first.",
+    "zh-Hans": "尚未验证此 Codex 桌面构建的新建流程。请先在 Mac 上创建会话。"
+  },
+  "control.requests_busy": {
+    "en": "The Mac is still handling earlier requests. Wait for their results, then try again.",
+    "zh-Hans": "Mac 仍在处理此前请求，请等待结果后重试。"
+  },
+  "control.receipt_result_save_failed": {
+    "en": "The action result could not be saved. Its status remains unconfirmed; check the Mac before sending again.",
+    "zh-Hans": "无法保存操作结果，当前仍按未确认处理。再次发送前请先在 Mac 核对。"
+  },
+  "provider.desktop_input_changed": {
+    "en": "The desktop control or input focus changed. Check the Mac before trying again.",
+    "zh-Hans": "桌面控件或输入焦点已变化，请先在 Mac 上确认后再操作。"
+  },
+  "provider.desktop_clipboard_unavailable": {
+    "en": "The clipboard changed or could not be safely preserved. Copy a small text item and try again.",
+    "zh-Hans": "剪贴板已变化或无法完整保留，请复制一小段文本后重试。"
+  },
+  "provider.zcode_receipt_baseline_unavailable": {
+    "en": "The native ZCode session baseline is incomplete or exceeds the supported limit. Create the task on the Mac.",
+    "zh-Hans": "ZCode 原生会话基线不完整或超出支持上限，请在 Mac 上新建任务。"
+  },
+  "provider.receipt_capacity": {
+    "en": "The provider receipt cache is full. Resolve outstanding operations on the Mac before trying again.",
+    "zh-Hans": "服务商操作回执缓存已满，请先在 Mac 上确认未完成的操作后再试。"
+  },
+  "provider.claude_output_limit": {
+    "en": "Claude output exceeded the supported limit. Check the original session on the Mac; the operation was not resent.",
+    "zh-Hans": "Claude 输出超出支持上限，请在 Mac 上检查原会话；操作未重新发送。"
+  },
+  "provider.claude_output_unconfirmed": {
+    "en": "Claude exited without a complete, verifiable output result. Check the original session on the Mac.",
+    "zh-Hans": "Claude 退出时未取得完整、可核验的输出结果，请在 Mac 上检查原会话。"
+  },
+  "usage.codex_missing": {
+    "en": "Install or open Codex on the Mac to view account usage.",
+    "zh-Hans": "请先在 Mac 上安装或打开 Codex，再查看账户用量。"
+  },
+  "usage.unavailable": {
+    "en": "Codex account usage is unavailable. Check the signed-in account on the Mac, then refresh.",
+    "zh-Hans": "暂时无法读取 Codex 账户用量，请在 Mac 上确认已登录后刷新。"
+  },
+  "usage.timeout": {
+    "en": "Codex did not reply in time. Refresh usage; do not submit another reset while its result is unknown.",
+    "zh-Hans": "Codex 回复超时。可刷新用量；重置结果未知时请勿再次兑换。"
+  },
+  "usage.account_changed": {
+    "en": "The Codex account changed or confirmation is missing. Refresh and confirm the selected card again.",
+    "zh-Hans": "Codex 账户已变化或缺少确认，请刷新后重新确认所选卡片。"
+  },
+  "usage.not_eligible": {
+    "en": "A five-hour or weekly Codex window must have 10% or less remaining before using a reset.",
+    "zh-Hans": "Codex 五小时或每周额度剩余不超过 10% 时才可使用重置卡。"
+  },
+  "usage.no_credit": {
+    "en": "No gifted reset cards are currently available.",
+    "zh-Hans": "目前没有可用的赠送重置卡。"
+  },
+  "usage.card_changed": {
+    "en": "This reset card is no longer available. Refresh the card list.",
+    "zh-Hans": "这张重置卡已不可用，请刷新卡片列表。"
+  },
+  "session.image_preview_unavailable": {
+    "en": "Image preview is unavailable. You can continue reading the conversation; retry the image later.",
+    "zh-Hans": "图片预览暂不可用，可以继续查看会话，稍后再试这张图片。"
+  },
+  "control.application_selection_invalid": {
+    "en": "Choose an installed Mac application and a valid shortcut slot.",
+    "zh-Hans": "请选择 Mac 已安装的应用和有效的快捷栏位置。"
+  },
+  "control.application_selection_changed": {
+    "en": "The application shortcuts changed. Refresh the list and choose again.",
+    "zh-Hans": "应用快捷栏已发生变化，请刷新列表后重新选择。"
+  },
+  "control.application_selection_unavailable": {
+    "en": "The Mac application list is unavailable. Refresh to check whether your selection was saved.",
+    "zh-Hans": "暂时无法读取 Mac 应用，请刷新以确认所选配置是否已保存。"
+  },
+  "provider.claude_process_capacity": {
+    "en": "Claude background runs are at capacity (4 per phone, 8 total). Wait for a running turn to finish; nothing new was started.",
+    "zh-Hans": "Claude 后台任务已达上限（每台手机 4 个、共 8 个）。请等待现有任务完成；本次没有启动新任务。"
+  },
+  "session.file_access_unavailable": {
+    "en": "File access is taking too long. Check the folder permission prompt on the Mac, then retry. Other session actions remain available.",
+    "zh-Hans": "文件访问超时，请在 Mac 检查文件夹访问权限提示后重试。其他会话操作仍可使用。"
+  },
+  "session.codex_creation_settings_unverified": {
+    "en": "The new native Codex session does not match the requested model or approval settings. No first message was sent.",
+    "zh-Hans": "新 Codex 会话的模型或审批设置与所选配置不一致，首条消息尚未发送。"
+  },
+  "session.provider_queue_busy": {
+    "en": "This app is taking too long to handle earlier requests. This request was not started. Try another session app or retry after it recovers.",
+    "zh-Hans": "当前应用处理此前请求过慢，本次请求尚未执行。可以切换其他应用的会话，或等它恢复后重试。"
+  },
+  "session.desktop_busy": {
+    "en": "Another desktop action is still running. This action was not started; try again after it finishes.",
+    "zh-Hans": "另一个桌面操作仍在执行，本次操作尚未开始，请稍后重试。"
+  },
+  "files.this_image_type_cannot_be_previewed": {
+    "en": "This image type cannot be previewed",
+    "zh-Hans": "不是可预览的图片"
+  },
+  "files.unknown_file_operation": {
+    "en": "Unknown file operation",
+    "zh-Hans": "未知文件操作"
+  },
+  "files.the_file_is_outside_this_session_workspace": {
+    "en": "The file is outside this session workspace",
+    "zh-Hans": "文件超出当前会话项目范围"
+  },
+  "files.only_regular_files_are_supported": {
+    "en": "Only regular files are supported",
+    "zh-Hans": "只支持普通文件"
+  },
+  "files.the_file_does_not_exist_or_cannot_be_read": {
+    "en": "The file does not exist or cannot be read",
+    "zh-Hans": "文件不存在或不可读取"
+  },
+  "files.only_regular_files_can_be_opened_use_show_in_finder_instead": {
+    "en": "Only regular files can be opened; use Show in Finder instead",
+    "zh-Hans": "只能打开普通文件，可改为在访达中显示"
+  },
+  "files.this_file_is_executable_use_show_in_finder": {
+    "en": "This file is executable; use Show in Finder",
+    "zh-Hans": "这是可执行文件，为安全起见只能在访达中显示"
+  },
+  "files.opening_this_file_type_could_run_code_use_show_in_finder": {
+    "en": "Opening this file type could run code; use Show in Finder",
+    "zh-Hans": "此类文件打开时可能运行程序，为安全起见只能在访达中显示"
+  },
+  "files.no_application_on_the_mac_can_open_this_file": {
+    "en": "No application on the Mac can open this file",
+    "zh-Hans": "Mac 上没有能打开此文件的应用"
+  },
+  "files.the_default_application_may_execute_this_file_use_show_in_finder": {
+    "en": "The default application may execute this file; use Show in Finder",
+    "zh-Hans": "此文件默认由会运行它的应用打开，为安全起见只能在访达中显示"
+  },
+  "files.git_is_not_available_on_the_mac": {
+    "en": "Git is not available on the Mac",
+    "zh-Hans": "Mac 上没有可用的 git"
+  },
+  "files.could_not_read_git_data": {
+    "en": "Could not read Git data",
+    "zh-Hans": "git 读取失败"
+  },
+  "provider.claude_rate_limited": {
+    "en": "Claude returned an account rate limit (HTTP 429). The session was created, but this reply was delayed. Check the provider limit and the native session before retrying; creating another session will not remove the limit.",
+    "zh-Hans": "Claude 返回账户速率限制（HTTP 429）。会话已创建，但本轮回复受阻。请检查服务商限额和原生会话状态后再决定是否重试；重复新建不会解除限流。"
+  },
+  "provider.claude_api_unavailable": {
+    "en": "Claude recorded an API request error during this turn. Check the native session and provider status before retrying.",
+    "zh-Hans": "Claude 在本轮记录了 API 请求错误。请检查原生会话和服务商状态后再决定是否重试。"
+  },
+  "updates.invalid_metadata": {
+    "en": "Invalid APK version metadata or digest. Keep the APK and its .apk.json file together.",
+    "zh-Hans": "APK 版本信息或摘要无效，请将 APK 和对应的 .apk.json 文件放在一起。"
+  },
+  "updates.increment_version": {
+    "en": "Increase the Android version code before registering a changed APK. Downgrades are refused.",
+    "zh-Hans": "APK 内容变化后须先递增 Android 构建号；不能登记更低版本。"
+  },
+  "updates.no_release": {
+    "en": "No Android update is registered on this Mac.",
+    "zh-Hans": "此 Mac 尚未登记 Android 更新。"
+  },
+  "updates.cli_usage": {
+    "en": "Usage: vibepier android-update <apk> (requires adjacent .apk.json)",
+    "zh-Hans": "用法：vibepier android-update <apk>（需同目录 .apk.json）"
+  },
+  "updates.installed": {
+    "en": "Phone version: {0}",
+    "zh-Hans": "手机已安装版本：{0}"
+  },
+  "updates.available": {
+    "en": "Available APK: {0}",
+    "zh-Hans": "可用 APK 版本：{0}"
+  },
+  "updates.register": {
+    "en": "Register as latest update",
+    "zh-Hans": "登记为最新更新"
+  },
+  "updates.send_latest": {
+    "en": "Send latest update",
+    "zh-Hans": "发送最新更新"
+  }
+}
