@@ -185,13 +185,16 @@ final class SessionPacketInboxTests: XCTestCase {
         ])
         let sealed = try SessionEnvelope.seal(clear, key: key, device: first, packet: packet, direction: "phone")
         let bytes = Array(sealed.base64EncodedString().utf8)
-        let frames = try stride(from: 0, to: bytes.count, by: 512).map { offset in
-            try JSONSerialization.data(withJSONObject: [
+        let partCount = (bytes.count + 511) / 512
+        let frames: [Data] = try stride(from: 0, to: bytes.count, by: 512).map { offset -> Data in
+            let end = min(offset + 512, bytes.count)
+            let fragment = String(decoding: bytes[offset..<end], as: UTF8.self)
+            let frame: [String: Any] = [
                 "type": "vibepier-session1", "sender": first, "device": first,
-                "packet": packet, "part": offset / 512, "parts": (bytes.count + 511) / 512, "fragmentChars": 512,
-                "upload": upload,
-                "data": String(decoding: bytes[offset..<min(offset + 512, bytes.count)], as: UTF8.self),
-            ])
+                "packet": packet, "part": offset / 512, "parts": partCount, "fragmentChars": 512,
+                "upload": upload, "data": fragment,
+            ]
+            return try JSONSerialization.data(withJSONObject: frame)
         }
         var inbox = inbox()
         for frame in frames.dropFirst() {
