@@ -7,6 +7,11 @@ stage="$root/dist/staging/VibePier.app"
 version=$(cat "$root/VERSION")
 build=$(cat "$root/VERSION_CODE")
 
+if ! command -v go >/dev/null 2>&1; then
+    echo "Go is required to build the bundled VibePierFileServer; install Go 1.22 or newer." >&2
+    exit 1
+fi
+
 swift build --package-path "$macos" -c release --arch arm64 --product VibePierApp
 swift build --package-path "$macos" -c release --arch arm64 --product vibepier
 bin=$(swift build --package-path "$macos" -c release --arch arm64 --show-bin-path)

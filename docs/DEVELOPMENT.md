@@ -6,7 +6,7 @@ Clone the entire repository: macOS, Android and Go tests share files under `prot
 
 - macOS 14+ and Xcode with Swift 6 for the Mac app and CLI.
 - JDK 17 and Android SDK platform/build-tools 35 for the Android project. Gradle wrapper versions are committed.
-- Go 1.22+ for the relay. The module has no external runtime dependency.
+- Go 1.22+ for the relay and the file helper bundled with the Mac app/CLI. The module has no external runtime dependency. Mac CI explicitly installs Go 1.27 before building the helper.
 - Python 3.9+ for repository/Markdown/fixture checks.
 - Optional local checks: `actionlint` and Gitleaks 8.30.1, matching the pinned CI scanner.
 
@@ -172,7 +172,7 @@ The secret-scanner allowlist covers only exact public test-key values in named f
 
 普通构建与测试不能安装应用、发送真实会话消息或修改桌面/音频状态。真机更新需单独执行并核对每台设备及安装回执；同一手机 USB/Wi-Fi ADB 去重。未完成真实验收的内容不要用编译成功或模拟器样本代替。
 
-洁净构建使用完整的新克隆及独立 Swift/Gradle/Go 目录，不导入个人配置、服务商数据或正式签名凭据。上方命令会生成未签名 release APK 和使用临时调试密钥的 debug/review APK，均不能当作正式真机更新。受限网络可为单次构建配置代理，不提交个人代理地址或绕过 TLS 校验。CI 明确选择 `macos-15` / Xcode 16.4，并检查 Go 1.22 与 1.27；最终公开仓库的克隆、远端 CI 和真机验收仍需分别完成。
+洁净构建使用完整的新克隆及独立 Swift/Gradle/Go 目录，不导入个人配置、服务商数据或正式签名凭据。上方命令会生成未签名 release APK 和使用临时调试密钥的 debug/review APK，均不能当作正式真机更新。受限网络可为单次构建配置代理，不提交个人代理地址或绕过 TLS 校验。CI 明确选择 `macos-15` / Xcode 16.4，并检查 Go 1.22 与 1.27；Mac 打包也需要 Go 来构建文件助手，CI 显式安装 Go 1.27；最终公开仓库的克隆、远端 CI 和真机验收仍需分别完成。
 
 Codex 回执测试使用临时 Unix socket 运行真实客户端，覆盖断线、超时、错误实例/方法/请求 ID 和无效确认；通用回执测试验证未知状态在重启后保留、会话匹配、传输上限和锁屏结果。锁屏控制器测试注入系统动作，不操作真实 Mac 屏幕。
 
