@@ -9,6 +9,7 @@ import (
 	"io"
 	"net"
 	"sync"
+	"sync/atomic"
 	"time"
 	"unicode/utf8"
 )
@@ -34,6 +35,19 @@ type conn struct {
 	peerID   string
 	order    uint64
 	ready    bool // protected by relay.mu
+	budget   *bufferBudget
+	reason   atomic.Uint32
+	onClose  func(closeReason)
+}
+
+var errSlowPeer = errors.New("slow-peer")
+var errCapacity = errors.New("capacity")
+
+func (c *conn) releaseFrame(f frame) {
+	c.queueMu.Lock()
+	c.queued -= len(f.payload)
+	c.queueMu.Unlock()
+	c.budget.release(len(f.payload))
 }
 
 func (c *conn) startWriter() {
@@ -41,20 +55,31 @@ func (c *conn) startWriter() {
 		c.outbound = make(chan frame, maxQueuedFrames)
 		c.done = make(chan struct{})
 		go func() {
+			defer func() {
+				for {
+					select {
+					case f := <-c.outbound:
+						c.releaseFrame(f)
+						if f.result != nil {
+							f.result <- net.ErrClosed
+						}
+					default:
+						return
+					}
+				}
+			}()
 			for {
 				select {
 				case <-c.done:
 					return
 				case f := <-c.outbound:
-					c.queueMu.Lock()
-					c.queued -= len(f.payload)
-					c.queueMu.Unlock()
 					err := c.writeFrame(f.opcode, f.payload)
+					c.releaseFrame(f)
 					if f.result != nil {
 						f.result <- err
 					}
 					if err != nil {
-						c.close()
+						c.closeWith(closeWrite)
 						return
 					}
 				}
@@ -73,20 +98,25 @@ func (c *conn) push(f frame) error {
 	default:
 	}
 	if c.queued+len(f.payload) > maxQueued {
-		return errors.New("slow-peer")
+		return errSlowPeer
+	}
+	if !c.budget.acquire(len(f.payload)) {
+		return errCapacity
 	}
 	select {
 	case c.outbound <- f:
 		c.queued += len(f.payload)
 		return nil
 	default:
-		return errors.New("slow-peer")
+		c.budget.release(len(f.payload))
+		return errSlowPeer
 	}
 }
 
 func (c *conn) send(opcode byte, payload []byte) error {
 	f := frame{opcode: opcode, payload: payload, result: make(chan error, 1)}
 	if err := c.push(f); err != nil {
+		c.closeWith(queueCloseReason(err))
 		return err
 	}
 	select {
@@ -120,16 +150,36 @@ func (c *conn) text(s string) error { return c.send(1, []byte(s)) }
 // A slow phone cannot block forwarding to the other phones. Its bounded writer
 // queue preserves frame order and forces a reconnect instead of dropping replies.
 func (c *conn) relayText(s string) {
-	if c.push(frame{opcode: 1, payload: []byte(s)}) != nil {
-		c.close()
+	if err := c.push(frame{opcode: 1, payload: []byte(s)}); err != nil {
+		c.closeWith(queueCloseReason(err))
 	}
 }
 
+func queueCloseReason(err error) closeReason {
+	if errors.Is(err, errCapacity) {
+		return closeCapacity
+	}
+	if errors.Is(err, errSlowPeer) {
+		return closeSlowPeer
+	}
+	return closeNormal
+}
+
 func (c *conn) close() {
+	c.closeWith(closeNormal)
+}
+
+func (c *conn) closeWith(reason closeReason) {
 	c.once.Do(func() {
 		c.startWriter()
+		c.reason.Store(uint32(reason))
+		c.queueMu.Lock()
 		close(c.done)
+		c.queueMu.Unlock()
 		_ = c.raw.Close()
+		if c.onClose != nil {
+			c.onClose(reason)
+		}
 	})
 }
 

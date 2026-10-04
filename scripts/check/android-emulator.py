@@ -29,6 +29,7 @@ def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument('--api', type=int, choices=(33, 35, 36), required=True)
     parser.add_argument('--suite', choices=('smoke', 'full'), default='smoke')
+    parser.add_argument('--extra-probes', default='', help='Comma-separated probes relevant to the candidate change.')
     parser.add_argument('--output', type=Path, required=True)
     args = parser.parse_args()
     if os.environ.get('GITHUB_ACTIONS') != 'true' or os.environ.get('RUNNER_OS') != 'Linux':
@@ -115,7 +116,10 @@ def main():
                   'protocol-negotiation', 'session-response', 'codex', 'providers', 'new-session-receipts', 'new-session-composer',
                   'screen-controls', 'codex-usage', 'application-picker', 'composer', 'codex-panel', 'markdown', 'tool-groups',
                   'conversation-images', 'controls-localization', 'controls', 'dock', 'app-usage',
-                  'background-connection', 'microphone', 'apk']
+                  'background-connection', 'microphone', 'apk', 'audit-runtime', 'audit-conversation', 'session-blocker']
+        extra = [name for name in args.extra_probes.split(',') if name]
+        if any(name not in probes for name in extra):
+            raise RuntimeError('Unknown candidate probe')
         cases = [('en', name, 'normal') for name in probes]
         if args.api >= 33:
             cases += [('zh-CN', name, 'normal') for name in
@@ -125,7 +129,8 @@ def main():
             cases = [('en', name, 'normal') for name in
                      ['relay-framing', 'protocol-negotiation', 'session-response', 'codex',
                       'new-session-composer', 'new-session-receipts']]
-            cases += [('zh-CN', 'new-session-composer', 'small-large-type')]
+            cases += [('zh-CN', 'new-session-composer', 'normal')]
+        cases += [('en', name, 'normal') for name in extra if ('en', name, 'normal') not in cases]
         report['plannedCases'] = len(cases)
         report['complete'] = False
         for locale, name, layout in cases:

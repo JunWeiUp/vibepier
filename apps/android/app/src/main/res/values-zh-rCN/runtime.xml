@@ -118,4 +118,5 @@
     <string name="client_request_too_large">请求内容过大，请缩短内容后重试。</string>
     <string name="client_request_id_conflict">操作编号已用于其他请求，原请求已保留。</string>
     <string name="client_receipt_storage_full">未确认请求已占满回执空间，请先在 Mac 核对其结果，再发送新请求。</string>
+    <string name="apk_transfer_speed">\n%1$d KiB/s · 预计剩余 %2$d 秒</string>
 </resources>

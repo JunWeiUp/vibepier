@@ -9,7 +9,7 @@ import UniformTypeIdentifiers
 /// (never the /usr/bin shim, which would prompt to install the command-line tools).
 enum SessionProjectFiles {
     static let operations: Set<String> = [
-        "fileChanges", "readFile", "readImageFile", "fileDiff", "searchFiles", "openFile",
+        "fileChanges", "readFile", "readImageFile", "readVideoFile", "fileDiff", "searchFiles", "openFile",
     ]
     static let imageExtensions: Set<String> = [
         "png", "jpg", "jpeg", "gif", "webp", "heic", "heif", "bmp", "tif", "tiff",
@@ -32,6 +32,7 @@ enum SessionProjectFiles {
             value = try readFile(
                 request, cwd: cwd, root: root, reader: reader, device: device, thread: thread,
                 expectedGeneration: expectedGeneration)
+        case "readVideoFile": value = try SessionVideoFiles.read(request, root: root)
         case "readImageFile":
             let url = try file(request, root: root)
             guard imageExtensions.contains(url.pathExtension.lowercased()) else {

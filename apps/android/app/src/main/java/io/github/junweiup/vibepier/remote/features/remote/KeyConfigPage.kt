@@ -36,8 +36,9 @@ internal class KeyConfigPage(
     private val profiles: () -> List<Profile>,
     private val profileName: (String?) -> String,
     private val resolve: (control: String, profile: String?) -> String,
+    private val title: (control: String, profile: String?) -> String,
     private val overridden: (control: String, profile: String?) -> Boolean,
-    private val save: (control: String, keys: String?, profile: String?) -> Unit,
+    private val save: (control: String, keys: String?, profile: String?, label: String) -> Unit,
     private val onDismiss: () -> Unit = {},
 ) {
     data class Profile(val id: String?, val title: String, val summary: String)
@@ -133,13 +134,13 @@ internal class KeyConfigPage(
         isFocusable = true
         val keys = resolve(control.id, profile)
         val own = profile == null || overridden(control.id, profile)
-        contentDescription = context.getString(if (own) R.string.key_edit_description else R.string.key_inherited_edit_description, control.title, KeyLabels.label(context, keys))
+        contentDescription = context.getString(if (own) R.string.key_edit_description else R.string.key_inherited_edit_description, title(control.id, profile), KeyLabels.label(context, keys))
         setOnClickListener { edit(control) }
         addView(android.widget.ImageView(context).apply {
             setImageResource(control.icon); setColorFilter(Palette.muted)
             importantForAccessibility = View.IMPORTANT_FOR_ACCESSIBILITY_NO
         }, LinearLayout.LayoutParams(dp(20), dp(20)).apply { marginEnd = dp(14) })
-        addView(Ui.label(context, control.title).apply { importantForAccessibility = View.IMPORTANT_FOR_ACCESSIBILITY_NO }, LinearLayout.LayoutParams(0, -2, 1f))
+        addView(Ui.label(context, title(control.id, profile)).apply { importantForAccessibility = View.IMPORTANT_FOR_ACCESSIBILITY_NO }, LinearLayout.LayoutParams(0, -2, 1f))
         if (!own) addView(Ui.label(context, context.getString(R.string.inherited_from_general), Ui.CAPTION, Palette.faint).apply { importantForAccessibility = View.IMPORTANT_FOR_ACCESSIBILITY_NO },
             LinearLayout.LayoutParams(-2, -2).apply { marginEnd = dp(8) })
         val tinted = profile != null && own
@@ -177,6 +178,16 @@ internal class KeyConfigPage(
     /** The edit panel rises from the bottom; its profile is fixed when it opens. */
     private fun edit(control: Control) {
         val scope = profile
+        val nameField = EditText(context).apply {
+            setText(title(control.id, scope))
+            inputType = InputType.TYPE_CLASS_TEXT or InputType.TYPE_TEXT_FLAG_CAP_SENTENCES
+            isSingleLine = true; textSize = Ui.BODY
+            filters = arrayOf(android.text.InputFilter.LengthFilter(200))
+            setTextColor(Palette.text); setHintTextColor(Palette.faint)
+            background = Ui.roundRect(context, Palette.surface3, 13)
+            setPadding(dp(14), dp(12), dp(14), dp(12))
+            contentDescription = context.getString(R.string.key_name)
+        }
         val field = EditText(context).apply {
             hint = context.getString(R.string.key_input_hint)
             setText(resolve(control.id, scope))
@@ -253,11 +264,16 @@ internal class KeyConfigPage(
                 LinearLayout.LayoutParams(dp(38), dp(4)).apply { gravity = Gravity.CENTER_HORIZONTAL; bottomMargin = dp(12) })
             addView(LinearLayout(context).apply {
                 gravity = Gravity.BOTTOM
-                addView(Ui.label(context, context.getString(R.string.key_editor_title, control.title), 18f).apply { typeface = Typeface.DEFAULT_BOLD })
+                addView(Ui.label(context, context.getString(R.string.key_editor_title, title(control.id, scope)), 18f).apply { typeface = Typeface.DEFAULT_BOLD })
                 addView(Ui.label(context, if (scope == null) context.getString(R.string.general_profile) else context.getString(R.string.profile_custom, profileName(scope)), Ui.CAPTION, Palette.muted).apply {
                     maxLines = 1; ellipsize = TextUtils.TruncateAt.END
                 }, LinearLayout.LayoutParams(0, -2, 1f).apply { marginStart = dp(8) })
             })
+            addView(Ui.label(context, context.getString(R.string.key_name), Ui.CAPTION, Palette.muted),
+                LinearLayout.LayoutParams(-1, -2).apply { topMargin = dp(12) })
+            addView(nameField, LinearLayout.LayoutParams(-1, -2).apply { topMargin = dp(6) })
+            addView(Ui.label(context, context.getString(R.string.key_combination), Ui.CAPTION, Palette.muted),
+                LinearLayout.LayoutParams(-1, -2).apply { topMargin = dp(12) })
             addView(field, LinearLayout.LayoutParams(-1, -2).apply { topMargin = dp(12) })
             addView(error, LinearLayout.LayoutParams(-1, -2).apply { topMargin = dp(6) })
             addView(modifiers, LinearLayout.LayoutParams(-1, -2).apply { topMargin = dp(8) })
@@ -268,12 +284,14 @@ internal class KeyConfigPage(
         val actions = LinearLayout(context).apply {
             setPadding(dp(18), dp(10), dp(18), dp(18))
             addView(Ui.button(context, if (scope == null) context.getString(R.string.restore_default) else context.getString(R.string.restore_inherited)) {
-                save(control.id, null, scope); sheet.dismiss()
+                save(control.id, null, scope, ""); sheet.dismiss()
             }, LinearLayout.LayoutParams(0, dp(48), 1f).apply { marginEnd = dp(10) })
             addView(Ui.button(context, context.getString(R.string.save), Ui.Button.PRIMARY) {
                 val keys = Keys.normalize(field.text.toString())
                 if (keys == null) { error.text = context.getString(R.string.key_parse_error); error.visibility = View.VISIBLE }
-                else { save(control.id, keys, scope); sheet.dismiss() }
+                else if (nameField.text.toString().isBlank()) {
+                    error.text = context.getString(R.string.key_name_required); error.visibility = View.VISIBLE
+                } else { save(control.id, keys, scope, nameField.text.toString().trim()); sheet.dismiss() }
             }, LinearLayout.LayoutParams(0, dp(48), 1f))
         }
         sheet = AlertDialog.Builder(context, R.style.Theme_VibePier_Dialog)

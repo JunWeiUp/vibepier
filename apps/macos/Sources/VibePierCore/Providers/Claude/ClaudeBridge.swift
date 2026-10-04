@@ -1,294 +1,9 @@
 import Darwin
 import Foundation
 
-/// Claude Code keeps each session as an append-only JSONL transcript; only the conversation — messages and the steps of each reply — leaves this adapter.
-enum ClaudeTranscript {
-    /// What the person sent: typed text and attached images, as the sources the page later serves by id.
-    static func userMessage(_ entry: [String: Any]) -> (text: String, images: [String])? {
-        guard entry["type"] as? String == "user", entry["isMeta"] as? Bool != true,
-            entry["isCompactSummary"] as? Bool != true, entry["isSidechain"] as? Bool != true,
-            let message = entry["message"] as? [String: Any]
-        else { return nil }
-        let text: String
-        var images: [String] = []
-        if let value = message["content"] as? String {
-            text = value
-        } else if let blocks = message["content"] as? [[String: Any]] {
-            // Tool results are protocol traffic, not something the person typed.
-            guard !blocks.contains(where: { $0["type"] as? String == "tool_result" }) else { return nil }
-            text = blocks.compactMap { $0["type"] as? String == "text" ? $0["text"] as? String : nil }.joined(
-                separator: "\n")
-            images = blocks.compactMap(imageSource)
-        } else {
-            return nil
-        }
-        let trimmed = text.trimmingCharacters(in: .whitespacesAndNewlines)
-        // Slash-command wrappers, caveats and reminders are injected markup; an interrupt marker is not a message either.
-        guard !trimmed.isEmpty || !images.isEmpty, !trimmed.hasPrefix("<"), !trimmed.hasPrefix(interrupted) else {
-            return nil
-        }
-        return (trimmed, images)
-    }
-    static func userText(_ entry: [String: Any]) -> String? {
-        userMessage(entry).flatMap { $0.text.isEmpty ? nil : $0.text }
-    }
-    static func imageSource(_ block: [String: Any]) -> String? {
-        ConversationReply.imageContentSources([block]).first
-    }
-    static let interrupted = "[Request interrupted by user"
-    /// Only the latest unresolved API error is a current blocker. Historical failures stay in the timeline.
-    static func blocker(_ entries: [[String: Any]]) -> [String: Any]? {
-        for entry in entries.reversed() where entry["isSidechain"] as? Bool != true {
-            if entry["type"] as? String == "system", entry["subtype"] as? String == "api_error" {
-                let limited = (entry["error"] as? [String: Any])?["status"] as? Int == 429
-                return [
-                    "code": limited ? "rateLimit" : "apiError",
-                    "message": L10n.text(limited ? "provider.claude_rate_limited" : "provider.claude_api_unavailable"),
-                ]
-            }
-            if entry["type"] as? String == "assistant" || userMessage(entry) != nil { return nil }
-            if entry["type"] as? String == "user",
-                let content = (entry["message"] as? [String: Any])?["content"],
-                (content as? String ?? (content as? [[String: Any]])?.first?["text"] as? String ?? "")
-                    .hasPrefix(interrupted)
-            {
-                return nil
-            }
-        }
-        return nil
-    }
-    /// Ordered chat rows: each person's message, then one reply with its text, thinking and tool calls with results.
-    static func messages(_ entries: [[String: Any]]) -> [[String: Any]] { turns(entries).flatMap { $0 } }
-    static func turns(_ entries: [[String: Any]]) -> [[[String: Any]]] {
-        var result: [[[String: Any]]] = []
-        var builder = ConversationReply.Builder()
-        var apiErrorID: String?
-        func close() {
-            let rows = builder.finish()
-            if !rows.isEmpty { result.append(rows) }
-            builder = .init()
-            apiErrorID = nil
-        }
-        for (index, entry) in entries.enumerated() {
-            let uuid = entry["uuid"] as? String ?? "entry-\(index)"
-            if let message = userMessage(entry) {
-                close()
-                builder.user(
-                    uuid, text: message.text,
-                    extra: message.images.isEmpty ? [:] : [ConversationReply.imageKey: message.images])
-                continue
-            }
-            if entry["type"] as? String == "system", entry["subtype"] as? String == "api_error",
-                entry["isSidechain"] as? Bool != true
-            {
-                let status = (entry["error"] as? [String: Any])?["status"] as? Int
-                // Native gateway errors can contain URLs and credentials. Show a fixed diagnostic,
-                // coalescing retries within this turn without resubmitting or changing its receipt.
-                let text = L10n.text(
-                    status == 429 ? "provider.claude_rate_limited" : "provider.claude_api_unavailable")
-                if let apiErrorID {
-                    builder.update(apiErrorID) { $0.text = text }
-                } else {
-                    apiErrorID = uuid
-                    builder.add(
-                        .init(
-                            id: uuid, kind: "notice", title: L10n.text("provider.run_failed"),
-                            status: "failed", text: text, extra: ["groupType": "notice:api-error"]))
-                }
-                continue
-            }
-            if entry["type"] as? String == "user", entry["isSidechain"] as? Bool != true,
-                let content = (entry["message"] as? [String: Any])?["content"],
-                (content as? String ?? (content as? [[String: Any]])?.first?["text"] as? String ?? "").hasPrefix(
-                    interrupted)
-            {
-                builder.settleRunning("declined")
-                builder.add(
-                    .init(
-                        id: uuid, kind: "notice", title: L10n.text("provider.interrupted_by_you"), status: "declined",
-                        extra: ["groupType": "notice:interrupted"]))
-                continue
-            }
-            guard entry["isSidechain"] as? Bool != true,
-                let blocks = (entry["message"] as? [String: Any])?["content"] as? [[String: Any]]
-            else { continue }
-            if entry["type"] as? String == "assistant" {
-                for (offset, block) in blocks.enumerated() {
-                    let id = uuid + "-\(offset)"
-                    switch block["type"] as? String {
-                    case "text":
-                        let text = (block["text"] as? String ?? "").trimmingCharacters(in: .whitespacesAndNewlines)
-                        if !text.isEmpty { builder.add(.init(id: id, kind: "text", text: text)) }
-                    case "thinking":
-                        let text = (block["thinking"] as? String ?? "").trimmingCharacters(in: .whitespacesAndNewlines)
-                        if !text.isEmpty {
-                            builder.add(
-                                .init(
-                                    id: id, kind: "thinking", title: L10n.text("session.thinking"), text: text,
-                                    extra: ["groupType": "thinking"])
-                            )
-                        }
-                    case "tool_use":
-                        builder.add(toolPart(block, cwd: entry["cwd"] as? String))
-                    default: break
-                    }
-                }
-            } else if entry["type"] as? String == "user" {
-                for block in blocks {
-                    guard block["type"] as? String == "tool_result", let id = block["tool_use_id"] as? String else {
-                        continue
-                    }
-                    let output = resultText(block["content"])
-                    let failed = block["is_error"] as? Bool == true
-                    let images = (block["content"] as? [[String: Any]] ?? []).compactMap(imageSource)
-                    builder.update(id) { part in
-                        if !images.isEmpty { part.extra[ConversationReply.imageKey] = images }
-                        part.status = failed ? "failed" : "completed"
-                        switch part.kind {
-                        case "command": part.text = output
-                        case "plan": break
-                        case "file": if failed { part.text += L10n.text("session.error_2") + output }
-                        default:
-                            part.text +=
-                                (part.text.isEmpty ? "" : "\n\n")
-                                + (failed ? L10n.text("provider.error") : L10n.text("provider.result")) + output
-                        }
-                    }
-                }
-            }
-        }
-        close()
-        return result
-    }
-    static func resultText(_ content: Any?) -> String {
-        if let text = content as? String { return text }
-        // Images are shown as images; other non-text blocks keep a marker.
-        return (content as? [[String: Any]] ?? []).compactMap { block -> String? in
-            switch block["type"] as? String {
-            case "text": return block["text"] as? String ?? ""
-            case "image": return nil
-            default: return "[\(block["type"] as? String ?? L10n.text("provider.content_2"))]"
-            }
-        }.joined(separator: "\n")
-    }
-    /// A tool call shaped like the desktop's row for it: commands, edits as diffs, todos as a checklist.
-    static func toolPart(_ block: [String: Any], cwd: String?) -> ConversationReply.Part {
-        let name = block["name"] as? String ?? ""
-        let input = block["input"] as? [String: Any] ?? [:]
-        var part = ConversationReply.Part(
-            id: block["id"] as? String ?? UUID().uuidString, kind: "tool",
-            title: name.isEmpty ? L10n.text("session.tool") : name, status: "running")
-        func string(_ key: String) -> String { input[key] as? String ?? "" }
-        func edit(_ path: String, _ diff: String, kind: String) {
-            let counts = ConversationReply.lineCounts(diff)
-            part.kind = "file"
-            part.title = path
-            part.text = "*** \(kind) \(path)\n" + diff
-            part.extra = [
-                "added": counts.added, "removed": counts.removed,
-                "files": [["path": path, "kind": kind, "added": counts.added, "removed": counts.removed]],
-            ]
-        }
-        switch name {
-        case "Bash":
-            part.kind = "command"
-            part.title = string("command")
-            if !string("description").isEmpty { part.extra["description"] = string("description") }
-            if let cwd { part.extra["cwd"] = cwd }
-        case "Edit":
-            edit(
-                string("file_path"), ConversationReply.replacement(string("old_string"), string("new_string")),
-                kind: "update")
-        case "MultiEdit":
-            let edits = (input["edits"] as? [[String: Any]] ?? []).map {
-                ConversationReply.replacement($0["old_string"] as? String ?? "", $0["new_string"] as? String ?? "")
-            }
-            edit(string("file_path"), edits.joined(separator: "\n@@\n"), kind: "update")
-        case "Write":
-            edit(string("file_path"), ConversationReply.replacement("", string("content")), kind: "add")
-        case "NotebookEdit":
-            edit(string("notebook_path"), ConversationReply.replacement("", string("new_source")), kind: "update")
-        case "TodoWrite":
-            part.kind = "plan"
-            part.title = L10n.text("provider.to_do")
-            part.text = (input["todos"] as? [[String: Any]] ?? []).map { todo in
-                let mark =
-                    todo["status"] as? String == "completed"
-                    ? "[x]" : todo["status"] as? String == "in_progress" ? "[~]" : "[ ]"
-                return "- \(mark) " + (todo["content"] as? String ?? "")
-            }.joined(separator: "\n")
-        case "Read": part.title = L10n.text("provider.read") + string("file_path")
-        case "Grep":
-            part.title =
-                L10n.text("provider.search") + string("pattern")
-                + (string("path").isEmpty ? "" : " · " + string("path"))
-        case "Glob": part.title = L10n.text("provider.find") + string("pattern")
-        case "WebFetch":
-            part.title = L10n.text("provider.visit") + string("url")
-            part.text = string("prompt")
-        case "WebSearch": part.title = L10n.text("provider.search_web") + string("query")
-        case "Task", "Agent":
-            part.title = L10n.text("provider.subtask") + string("description")
-            part.text = string("prompt")
-        default:
-            if name.hasPrefix("mcp__") {
-                part.title = name.dropFirst(5).components(separatedBy: "__").joined(separator: " · ")
-            }
-            part.text = input.isEmpty ? "" : L10n.text("session.arguments") + ConversationReply.json(input)
-        }
-        if part.kind != "plan" { part.extra.merge(ConversationReply.toolGrouping(name)) { _, new in new } }
-        return part
-    }
-    /// The latest `/model` or `/effort` run in the session: its position, arguments and printed result.
-    static func command(_ name: String, in entries: [[String: Any]], after start: Int = 0) -> (
-        index: Int, args: String, output: String
-    )? {
-        guard start < entries.count else { return nil }
-        for index in (start..<entries.count).reversed() {
-            let entry = entries[index]
-            guard entry["subtype"] as? String == "local_command", let run = entry["commandRun"] as? [String: Any],
-                run["command"] as? String == name
-            else { continue }
-            let output = (entry["content"] as? String ?? "").replacingOccurrences(
-                of: "<local-command-stdout>", with: ""
-            ).replacingOccurrences(of: "</local-command-stdout>", with: "")
-            return (index, run["args"] as? String ?? "", output.trimmingCharacters(in: .whitespacesAndNewlines))
-        }
-        return nil
-    }
-    static func title(_ entries: [[String: Any]]) -> String {
-        if let custom = entries.last(where: { $0["type"] as? String == "custom-title" })?["customTitle"] as? String,
-            !custom.isEmpty
-        {
-            return custom
-        }
-        if let generated = entries.last(where: { $0["type"] as? String == "ai-title" })?["aiTitle"] as? String,
-            !generated.isEmpty
-        {
-            return generated
-        }
-        if let first = entries.lazy.compactMap(userText).first { return String(first.prefix(80)) }
-        return "Claude Code"
-    }
-    static func page(_ entries: [[String: Any]], projected: [[[String: Any]]]? = nil) -> [String: Any] {
-        let all = projected ?? turns(entries)
-        let count = ConversationReply.recentTurns
-        let rows = ConversationReply.preview(all.suffix(count).flatMap { $0 })
-        return ["messages": rows, "approvals": [], "hasOlder": all.count > count, "loadedTurns": count]
-    }
-}
-
 /// Lists local Claude Code sessions and continues one headlessly with `claude -p --resume`, in that session's directory.
 final class ClaudeBridge: @unchecked Sendable {
-    private struct Transcript {
-        let url: URL
-        var incarnation = UUID()
-        var inode: UInt64 = 0
-        var offset: UInt64 = 0
-        var remainder = Data()
-        var entries: [[String: Any]] = []
-        var projected: [[[String: Any]]]?
-    }
+    private typealias Transcript = ClaudeHistoryIndex
     private struct Run {
         let token: String
         let process: Process
@@ -338,6 +53,7 @@ final class ClaudeBridge: @unchecked Sendable {
     private var runErrors: [String: [String: Any]] = [:]
     private let operationReceipts = ProviderOperationReceipts()
     private var summaries: [String: Summary] = [:]
+    private var markdownReferences: [String: Set<String>] = [:]
     private var settings: [String: [String: String]] = [:]
     private var desktopControls: [String: ClaudeDesktop.Controls] = [:]
     private let permissions = ClaudePermissionTail()
@@ -451,14 +167,17 @@ final class ClaudeBridge: @unchecked Sendable {
         {
             return cached
         }
-        guard let data = try? Data(contentsOf: url, options: .mappedIfSafe) else { return nil }
-        let custom =
-            (try? Data(contentsOf: titleURL)).flatMap {
-                try? JSONSerialization.jsonObject(with: $0) as? [String: Any]
-            }?["customTitle"] as? String
-        guard let metadata = ClaudeSessionSummary.read(data, customTitle: custom) else { return nil }
+        var custom: String?
+        if let handle = try? FileHandle(forReadingFrom: titleURL) {
+            defer { try? handle.close() }
+            if let data = try? handle.read(upToCount: 65_537), data.count <= 65_536 {
+                custom = (try? JSONSerialization.jsonObject(with: data) as? [String: Any])?["customTitle"] as? String
+            }
+        }
+        guard let metadata = try? ClaudeSessionSummary.read(url, customTitle: custom) else { return nil }
         let value = Summary(
             size: size, modified: modified, customModified: titleModified, title: metadata.title, cwd: metadata.cwd)
+        if summaries.count >= 512 { summaries.removeAll(keepingCapacity: false) }
         summaries[url.path] = value
         return value
     }
@@ -669,7 +388,7 @@ final class ClaudeBridge: @unchecked Sendable {
                     limit: request["limit"] as? Int ?? 20)
                 : projects(
                     search: search, offset: request["offset"] as? Int ?? 0, limit: request["limit"] as? Int ?? 100)
-            value["capabilities"] = ["markdownFiles": true, "projectFiles": true]
+            value["capabilities"] = ["markdownFiles": true, "projectFiles": true, "videoFiles": true]
             return value
         }
         let viewVersion = (request["viewVersion"] as? NSNumber)?.int64Value ?? -1
@@ -700,40 +419,43 @@ final class ClaudeBridge: @unchecked Sendable {
             }
             updateIntervals[client] = min(1.5, max(0.25, Double(request["updatesIntervalMs"] as? Int ?? 250) / 1000))
             if transcripts[session] == nil {
-                transcripts[session] = Transcript(url: try file(session))
+                guard transcripts.count < 16 else { throw CLIError(L10n.text("provider.claude_history_busy")) }
+                transcripts[session] = try Transcript(url: file(session))
                 watch(session)
             }
             watchRegistry()
             refresh(session)
-            var page = makePage(session)
+            var page = try makePage(session)
             page["viewVersion"] = viewVersion
             emittedPages[client] = page
             return ConversationReply.conditional(page, known: request["knownVersion"] as? String)
         }
         guard viewVersions[client] == viewVersion, selected[client] == session, let transcript = transcripts[session]
         else { throw CLIError(L10n.text("session.the_session_is_not_ready_reopen_it")) }
-        let cwd = transcript.entries.lazy.compactMap { $0["cwd"] as? String }.last ?? "/"
+        refresh(session)
+        if let failure = transcript.failure { throw failure }
+        let cwd = transcript.cwd.isEmpty ? "/" : transcript.cwd
         switch op {
         case "readMarkdownFile":
             throw try markdownFiles.request(
-                request, cwd: transcript.entries.lazy.compactMap { $0["cwd"] as? String }.last ?? "", device: client,
+                request, cwd: transcript.cwd, device: client,
                 thread: session,
-                referencedPaths: SessionMarkdownFiles.referencedPaths(in: projected(session).flatMap { $0 }))
+                referencedPaths: try references(session, client: client))
         case "browseFiles":
             throw SessionProjectFiles.browseRequest(
                 request["folder"] as? String ?? "",
-                cwd: transcript.entries.lazy.compactMap { $0["cwd"] as? String }.last ?? "", thread: session)
+                cwd: transcript.cwd, thread: session)
         case _ where SessionProjectFiles.operations.contains(op):
-            let projectCwd = transcript.entries.lazy.compactMap { $0["cwd"] as? String }.last ?? ""
+            let projectCwd = transcript.cwd
             if op == "openFile" {
                 return try SessionProjectFiles.reply(
                     op, request, cwd: projectCwd, rows: { [] }, reader: markdownFiles, device: client, thread: session)
             }
-            let rows = op == "fileChanges" ? projected(session).suffix(2).flatMap { $0 } : []
+            let rows = op == "fileChanges" ? try projected(session, count: 2).flatMap { $0 } : []
             throw try SessionProjectFiles.request(
                 op, request, cwd: projectCwd, rows: rows, reader: markdownFiles, device: client, thread: session)
         case "sync":
-            var page = makePage(session)
+            var page = try makePage(session)
             page["viewVersion"] = viewVersions[client]
             emittedPages[client] = page
             return ConversationReply.conditional(page, known: request["knownVersion"] as? String)
@@ -741,15 +463,17 @@ final class ClaudeBridge: @unchecked Sendable {
             guard let before = request["before"] as? String else {
                 throw CLIError(L10n.text("session.update_the_phone_app_before_loading_earlier_messages"))
             }
-            guard let window = ConversationReply.older(projected(session), before: before) else {
+            guard let window = try transcript.older(before: before) else {
                 throw CLIError(L10n.text("session.the_session_changed_reopen_it"))
             }
+            try rememberReferences(window.rows, client: client)
             return ["threadId": session, "messages": window.rows, "hasOlder": window.start > 0]
         case "parts":
             let id = request["messageId"] as? String ?? ""
             guard
                 var result = ConversationReply.partPage(
-                    projected(session).flatMap { $0 }, id: id, offset: request["offset"] as? Int ?? 0,
+                    try projected(session, containing: id).flatMap { $0 }, id: id,
+                    offset: request["offset"] as? Int ?? 0,
                     headersOnly: request["headersOnly"] as? Bool ?? false,
                     sequence: request["sequence"] as? Bool ?? false, before: request["before"] as? Int)
             else { throw CLIError(L10n.text("session.the_message_changed_refresh_it")) }
@@ -758,7 +482,7 @@ final class ClaudeBridge: @unchecked Sendable {
             return result
         case "message":
             let id = request["messageId"] as? String ?? ""
-            let rows = projected(session).flatMap { $0 }
+            let rows = try projected(session, containing: id).flatMap { $0 }
             guard let text = ConversationReply.fullText(rows, id: id) else {
                 throw CLIError(L10n.text("session.the_message_changed_refresh_it"))
             }
@@ -774,12 +498,13 @@ final class ClaudeBridge: @unchecked Sendable {
             return reply
         case "image":
             let id = request["imageId"] as? String ?? ""
-            guard let source = ConversationReply.image(projected(session).flatMap { $0 }, id: id) else {
+            guard let source = ConversationReply.image(try projected(session, containing: id).flatMap { $0 }, id: id)
+            else {
                 throw CLIError(L10n.text("session.the_image_changed_refresh_it"))
             }
             throw ConversationImageRequest(
                 thread: session, id: id, source: source,
-                cwd: transcript.entries.lazy.compactMap { $0["cwd"] as? String }.last ?? "",
+                cwd: transcript.cwd,
                 maxPixel: request["size"] as? String == "large" ? 1280 : 480)
         case "composerOptions":
             let owner = owner(session)
@@ -1049,7 +774,7 @@ final class ClaudeBridge: @unchecked Sendable {
     private func deliverDesktop(
         _ prompt: String, session: String, host: String, ticket: ProviderOperationReceipts.Ticket
     ) throws -> [String: Any] {
-        var receipt: ClaudeSendReceipt?
+        var submittedOffset: UInt64?
         var incarnation: UUID?
         var nativeID: String?
         try ScreenLock.unlocked {
@@ -1060,15 +785,16 @@ final class ClaudeBridge: @unchecked Sendable {
                     guard let transcript = self.transcripts[session] else {
                         throw CLIError(L10n.text("session.the_session_is_not_ready_reopen_it"))
                     }
-                    let proof = ClaudeSendReceipt(entries: transcript.entries, text: prompt)
+                    if let failure = transcript.failure { throw failure }
+                    let mark = try transcript.receiptBoundary()
                     let original = transcript.incarnation
-                    receipt = proof
+                    submittedOffset = mark
                     incarnation = original
-                    try self.operationReceipts.observe(ticket, bytes: proof.retainedBytes) { [weak self] in
+                    try self.operationReceipts.observe(ticket, bytes: prompt.utf8.count + 512) { [weak self] in
                         guard let self else { return nil }
                         self.refresh(session)
                         guard let current = self.transcripts[session], current.incarnation == original,
-                            let id = proof.confirmedMessage(in: current.entries)
+                            let id = current.confirmedMessage(after: mark, text: prompt)
                         else { return nil }
                         return [
                             "ok": true, "accepted": true, "threadId": session, "delivery": "desktop",
@@ -1083,7 +809,9 @@ final class ClaudeBridge: @unchecked Sendable {
                         guard let incarnation, self.transcripts[session]?.incarnation == incarnation else {
                             return false
                         }
-                        nativeID = receipt?.confirmedMessage(in: self.transcripts[session]?.entries ?? [])
+                        if let mark = submittedOffset {
+                            nativeID = self.transcripts[session]?.confirmedMessage(after: mark, text: prompt)
+                        }
                         return nativeID != nil
                     }
                 })
@@ -1120,26 +848,15 @@ final class ClaudeBridge: @unchecked Sendable {
     }
     /// The model the session is on: a later `/model` result wins over the model of the latest reply.
     private func currentModel(_ session: String) -> (label: String, alias: String)? {
-        let entries = transcripts[session]?.entries ?? []
-        let reply = entries.indices.reversed().lazy.compactMap { index -> (Int, String)? in
-            guard entries[index]["type"] as? String == "assistant",
-                let model = (entries[index]["message"] as? [String: Any])?["model"] as? String,
-                model.hasPrefix("claude")
-            else { return nil }
-            return (index, model)
-        }.first
-        if let switched = ClaudeTranscript.command("model", in: entries, after: (reply?.0 ?? -1) + 1),
-            let label = switched.output.split(separator: "`").dropFirst().first.map(String.init)
-        {
-            return (label.replacingOccurrences(of: " (default)", with: ""), switched.args.lowercased())
-        }
-        guard let reply else { return nil }
-        let label = Self.modelName(reply.1)
+        guard let transcript = transcripts[session] else { return nil }
+        if let switched = transcript.switchedModel { return switched }
+        guard let model = transcript.modelID else { return nil }
+        let label = Self.modelName(model)
         return (label, label.split(separator: " ").first.map { $0.lowercased() } ?? "")
     }
     private func currentEffort(_ session: String) -> String {
-        let args = ClaudeTranscript.command("effort", in: transcripts[session]?.entries ?? [])?.args.lowercased() ?? ""
-        return Self.efforts.contains(args) ? args : "default"
+        let effort = transcripts[session]?.effort ?? "default"
+        return Self.efforts.contains(effort) ? effort : "default"
     }
     private func composer(_ session: String, owner: ClaudeDesktop.Owner?) -> [String: Any] {
         var value: [String: Any] = selection(session)
@@ -1179,8 +896,7 @@ final class ClaudeBridge: @unchecked Sendable {
         var value = settings[session] ?? [:]
         if value["mode"] == nil {
             let recent =
-                transcripts[session]?.entries.last(where: { $0["permissionMode"] is String })?["permissionMode"]
-                as? String ?? ""
+                transcripts[session]?.permissionMode ?? ""
             value["mode"] = Self.modes.contains(recent) ? recent : "acceptEdits"
         }
         return [
@@ -1302,21 +1018,34 @@ final class ClaudeBridge: @unchecked Sendable {
         runErrors.removeValue(forKey: session)
         schedule(session)
     }
-    private func projected(_ session: String) -> [[[String: Any]]] {
+    private func projected(_ session: String, containing id: String? = nil, count: Int = ConversationReply.recentTurns)
+        throws -> [[[String: Any]]]
+    {
         guard let transcript = transcripts[session] else { return [] }
-        if let cached = transcript.projected { return cached }
-        let rows = ClaudeTranscript.turns(transcript.entries)
-        transcripts[session]?.projected = rows
-        return rows
+        return try transcript.projected(containing: id, count: count)
     }
-    private func makePage(_ session: String) -> [String: Any] {
-        let entries = transcripts[session]?.entries ?? []
-        var page = ClaudeTranscript.page(entries, projected: projected(session))
+    private func rememberReferences(_ rows: [[String: Any]], client: String) throws {
+        let paths = SessionMarkdownFiles.referencedPaths(in: rows)
+        let combined = (markdownReferences[client] ?? []).union(paths)
+        guard combined.count <= 512, combined.reduce(0, { $0 + $1.utf8.count }) <= 256 * 1024 else {
+            throw ClaudeHistoryIndex.Failure.tooLarge
+        }
+        markdownReferences[client] = combined
+    }
+    private func references(_ session: String, client: String) throws -> Set<String> {
+        try rememberReferences(try projected(session).flatMap { $0 }, client: client)
+        return markdownReferences[client] ?? []
+    }
+    private func makePage(_ session: String) throws -> [String: Any] {
+        guard let transcript = transcripts[session] else { throw ClaudeHistoryIndex.Failure.unavailable }
+        let entries = try transcript.latestEntries()
+        var page = ClaudeTranscript.page(entries)
+        page["hasOlder"] = transcript.turnCount > ConversationReply.recentTurns
         if let failure = runErrors[session] {
             page["messages"] = (page["messages"] as? [[String: Any]] ?? []) + [failure]
         }
         page["threadId"] = session
-        page["title"] = ClaudeTranscript.title(entries)
+        page["title"] = transcript.title
         let owner = owner(session)
         let desktopTurn =
             owner?.desktop == true && owner?.busy == true
@@ -1330,6 +1059,7 @@ final class ClaudeBridge: @unchecked Sendable {
         var capabilities = page["capabilities"] as? [String: Any] ?? [:]
         capabilities["markdownFiles"] = true
         capabilities["projectFiles"] = true
+        capabilities["videoFiles"] = true
         page["capabilities"] = capabilities
         if let owner { page["owner"] = owner.desktop ? "desktop" : "terminal" }
         // Details can be whole files; the phone fetches them when the card is opened.
@@ -1341,34 +1071,10 @@ final class ClaudeBridge: @unchecked Sendable {
         }
         return ConversationReply.versioned(page)
     }
-    /// Reads only bytes appended since the previous read; a truncated or replaced file is re-read from the start.
+    /// Index appended metadata without retaining decoded history bodies.
     private func refresh(_ session: String) {
-        guard var transcript = transcripts[session] else { return }
-        guard let attributes = try? FileManager.default.attributesOfItem(atPath: transcript.url.path),
-            let size = (attributes[.size] as? NSNumber)?.uint64Value,
-            let inode = (attributes[.systemFileNumber] as? NSNumber)?.uint64Value
-        else {
-            transcripts[session] = Transcript(url: transcript.url)
-            return
-        }
-        if inode != transcript.inode || size < transcript.offset {
-            transcript = Transcript(url: transcript.url)
-            transcript.inode = inode
-        }
-        guard size > transcript.offset, let handle = try? FileHandle(forReadingFrom: transcript.url) else {
-            transcripts[session] = transcript
-            return
-        }
-        defer { try? handle.close() }
-        try? handle.seek(toOffset: transcript.offset)
-        let data = transcript.remainder + (handle.readDataToEndOfFile())
-        transcript.offset += UInt64(data.count - transcript.remainder.count)
-        let complete = data.lastIndex(of: UInt8(ascii: "\n")).map { data[data.startIndex...$0] } ?? Data()
-        transcript.remainder = Data(data[(complete.endIndex)...])
-        transcript.entries += Self.parse(Data(complete))
-        transcript.projected = nil
-        transcripts[session] = transcript
-        revisions[session] = (revisions[session] ?? 0) + 1
+        guard let transcript = transcripts[session] else { return }
+        if transcript.refresh() { revisions[session] = (revisions[session] ?? 0) + 1 }
     }
     private func watch(_ session: String) {
         guard let url = transcripts[session]?.url else { return }
@@ -1415,6 +1121,7 @@ final class ClaudeBridge: @unchecked Sendable {
     }
     private func unsubscribe(_ client: String) {
         markdownFiles.remove(device: client)
+        markdownReferences.removeValue(forKey: client)
         defer {
             if selected.isEmpty {
                 registryWatcher?.cancel()
@@ -1444,7 +1151,13 @@ final class ClaudeBridge: @unchecked Sendable {
             guard self.transcripts[session] != nil else { return }
             self.revisions[session] = (self.revisions[session] ?? 0) + 1
             for (client, selected) in self.selected where selected == session {
-                var result = self.makePage(session)
+                var result: [String: Any]
+                do { result = try self.makePage(session) } catch {
+                    result = ProviderFailure.reply(error, provider: "claude")
+                    result["threadId"] = session
+                    result["canSend"] = false
+                    result["messages"] = []
+                }
                 result["viewVersion"] = self.viewVersions[client]
                 let full = result
                 if let previous = self.emittedPages[client] {

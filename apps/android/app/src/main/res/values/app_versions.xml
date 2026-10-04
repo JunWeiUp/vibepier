@@ -2,6 +2,4 @@
 <resources>
     <string name="app_version_current">Version %1$s (%2$d)</string>
     <string name="app_version_available">New version %1$s (%2$d)</string>
-    <string name="app_version_send_from_mac">On the Mac, open Install APK and choose Send latest update.</string>
-    <string name="app_version_checking">Checking the available APK on your connected Mac…</string>
 </resources>

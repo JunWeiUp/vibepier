@@ -10,7 +10,7 @@ import android.os.Looper
 import android.os.SystemClock
 import android.view.PixelCopy
 import android.view.View
-import android.widget.ScrollView
+import io.github.junweiup.vibepier.remote.features.remote.HomeViewport
 import io.github.junweiup.vibepier.remote.core.ui.CanvasLabel
 import io.github.junweiup.vibepier.remote.core.transport.RemoteSender
 import io.github.junweiup.vibepier.remote.features.remote.Palette
@@ -70,13 +70,15 @@ object VoiceLayoutProbe {
             val pads = field(activity, "pads").get(activity) as Map<*, *>
             val voice = pads["talk"] as io.github.junweiup.vibepier.remote.features.remote.TalkPad
             val delete = pads["knob-press"] as io.github.junweiup.vibepier.remote.features.remote.Pad
-            val scroll = field(activity, "controlScroll").get(activity) as ScrollView
+            val viewport = field(activity, "homeViewport").get(activity) as HomeViewport
+            val canvas = viewport.getChildAt(0)
             var voiceY = 0
             var deleteY = 0
             test.runOnMainSync {
                 fun full(view: View): Rect {
                     val rect = Rect(); check(view.getGlobalVisibleRect(rect))
-                    check(rect.width() == view.width && rect.height() == view.height) { "Clipped fixed control" }
+                    check(kotlin.math.abs(rect.width() - view.width * canvas.scaleX) <= 2 &&
+                        kotlin.math.abs(rect.height() - view.height * canvas.scaleY) <= 2) { "Clipped scaled control" }
                     return rect
                 }
                 val v = full(voice); val d = full(delete)
@@ -84,7 +86,7 @@ object VoiceLayoutProbe {
                 check(delete.height >= 48 * activity.resources.displayMetrics.density - 1)
                 check(delete.width >= 140 * activity.resources.displayMetrics.density - 1)
                 voiceY = v.top; deleteY = d.top
-                scroll.fullScroll(View.FOCUS_DOWN)
+                check(canvas.scaleX == canvas.scaleY && canvas.scaleX <= 1f)
             }
             settle()
             test.runOnMainSync {
@@ -110,7 +112,51 @@ object VoiceLayoutProbe {
             }
             settle(); capture("voice-layout-active.png")
             test.runOnMainSync { voice.releaseIfHeld() }
-            return "PASS: fixed voice/caption and 140x48 Delete fully visible; shortcut scrolling leaves actions fixed; circular hold/slide-out/re-entry verified\n"
+            val originalWidth = viewport.layoutParams.width
+            val originalHeight = viewport.layoutParams.height
+            try {
+                for ((width, height) in listOf(320 to 480, 320 to 420, 600 to 320)) {
+                    test.runOnMainSync {
+                        viewport.layoutParams = viewport.layoutParams.apply {
+                            this.width = (width * activity.resources.displayMetrics.density).toInt()
+                            this.height = (height * activity.resources.displayMetrics.density).toInt()
+                        }
+                    }
+                    settle()
+                    test.runOnMainSync {
+                        check(canvas.scaleX == canvas.scaleY && canvas.scaleX < 1f)
+                        check(kotlin.math.abs(canvas.translationX - viewport.paddingLeft) <= 1) { "Left gutter after scaling" }
+                        check(kotlin.math.abs(canvas.width * canvas.scaleX - (viewport.width - viewport.paddingLeft - viewport.paddingRight)) <= 1) { "Canvas no longer fills width" }
+                        check(canvas.translationY >= viewport.paddingTop - 1)
+                        check(canvas.translationX + canvas.width * canvas.scaleX <= viewport.width - viewport.paddingRight + 1)
+                        check(canvas.translationY + canvas.height * canvas.scaleY <= viewport.height - viewport.paddingBottom + 1)
+                        fun noVerticalScroll(view: View) {
+                            check(view !is android.widget.ScrollView)
+                            if (view is android.view.ViewGroup) for (i in 0 until view.childCount) noVerticalScroll(view.getChildAt(i))
+                        }
+                        noVerticalScroll(canvas)
+                        var pressed = 0; var released = 0
+                        voice.onPress = { pressed++ }; voice.onRelease = { released++ }
+                        val geometry = voice.javaClass.getDeclaredMethod("geometry").apply { isAccessible = true }.invoke(voice) as FloatArray
+                        val point = floatArrayOf(geometry[0], geometry[1])
+                        val global = android.graphics.Matrix(); voice.transformMatrixToGlobal(global); global.mapPoints(point)
+                        val parent = android.graphics.Matrix(); viewport.transformMatrixToGlobal(parent)
+                        val inverse = android.graphics.Matrix(); check(parent.invert(inverse)); inverse.mapPoints(point)
+                        val now = SystemClock.uptimeMillis()
+                        for (action in listOf(android.view.MotionEvent.ACTION_DOWN, android.view.MotionEvent.ACTION_UP)) {
+                            val event = android.view.MotionEvent.obtain(now, now, action, point[0], point[1], 0)
+                            viewport.dispatchTouchEvent(event); event.recycle()
+                        }
+                        check(pressed == 1 && released == 1) { "Scaled voice hit target missed" }
+                    }
+                    capture("voice-layout-${width}x${height}.png")
+                }
+            } finally {
+                test.runOnMainSync {
+                    viewport.layoutParams = viewport.layoutParams.apply { width = originalWidth; height = originalHeight }
+                }
+            }
+            return "PASS: uniform home scaling, compact/landscape fit and transformed touch targets; fixed voice/caption and 140x48 Delete fully visible; home has no vertical scroll; circular hold/slide-out/re-entry verified\n"
         } finally { test.runOnMainSync { activity.finish() } }
     }
 }

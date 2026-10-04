@@ -48,3 +48,11 @@ See [architecture](ARCHITECTURE.md) for ownership, [design](../DESIGN.md) for ap
 New-session dialogs keep an unresolved first message locked for result checking. Reopening restores the saved request; only an explicit retry after a Mac `notFound` response can resend it, using the same ID and body.
 
 新建会话结果未知时，弹窗保留并锁定原首条消息，重新打开仍可检查回执；只有 Mac 明确返回未收到后，才能手动重试同一请求，不生成新 ID。
+
+Phone key editors on Android and macOS support editing the key name together with its shortcut. Names appear on the Android remote and in both configuration lists, sync with the binding revision, and follow the general/application profile inheritance. Restore defaults/inheritance resets both fields. Names are required when saving and limited to 200 characters; application names remain separate. Settings export/import includes custom key names.
+
+Android 与 macOS 按键编辑器支持同时修改按键名称和快捷键。名称显示在手机遥控页及两端配置列表，随按键版本同步，并遵循通用与应用专属配置继承规则。“恢复默认/继承”同时重置名称和快捷键；保存时名称不能为空，最多 200 个字符。按键名称与应用名称独立，设置导出/导入包含自定义按键名称。
+
+MP4 links (including Markdown media embeds) in Claude Code and Codex conversations open an in-app video preview; MP4 entries in the project file browser use the same player. The phone downloads the complete file through the authorized encrypted session channel, then offers play/pause and seeking. Preview accepts MP4 files within the selected session workspace up to 128 MiB; network video links and files outside that workspace are unsupported. Playback depends on Android codec support (H.264/AAC is the tested format). Closing the viewer stops playback and removes the private temporary file; backgrounding closes the viewer and stops playback.
+
+Claude Code 与 Codex 会话中的 MP4 链接（包括 Markdown 媒体嵌入）可打开应用内视频预览，项目文件列表中的 MP4 使用同一播放器。手机通过已有授权加密会话通道下载完整文件，再提供播放、暂停与进度拖动。支持所选会话项目目录内、不超过 128 MiB 的 MP4；暂不支持网络视频链接或项目目录外视频。编码兼容性取决于 Android 系统，已测试 H.264/AAC。关闭预览停止播放并删除私有临时文件，进入后台关闭预览并停止播放。

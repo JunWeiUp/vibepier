@@ -63,3 +63,4 @@ lint-repository:
 	python3 scripts/check/repository.py
 	python3 scripts/check/localization.py
 	python3 scripts/dev/localize-macos.py --check
+	python3 scripts/check/release-provenance.py

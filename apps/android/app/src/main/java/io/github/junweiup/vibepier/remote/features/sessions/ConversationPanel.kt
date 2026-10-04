@@ -70,6 +70,8 @@ class ConversationPanel(private val activity: Activity, private val client: Sess
         openDeadline?.let(ui::removeCallbacks); openDeadline = null
     }
     private fun openingFailed(error: String) {
+        discardRestoredAttachment()
+        restoredScrollY = null
         ready = false
         stopOpening(); client.cancelPageReads(); pauseProcessReads()
         if (!drawer && ::status.isInitialized) {
@@ -130,6 +132,10 @@ class ConversationPanel(private val activity: Activity, private val client: Sess
     private lateinit var group: LinearLayout
     private lateinit var newSession: View
     private lateinit var timeline: LinearLayout
+    private lateinit var timelineRows: ConversationTimeline
+    private var restoredScrollY: Int? = null
+    private data class RestoredAttachment(val uri: android.net.Uri, val target: ConversationViewState)
+    private var restoredAttachment: RestoredAttachment? = null
     private lateinit var scroll: ScrollView
     private lateinit var editor: EditText
     private lateinit var sendButton: CanvasLabel
@@ -137,7 +143,10 @@ class ConversationPanel(private val activity: Activity, private val client: Sess
     private lateinit var queuedBox: LinearLayout
     private var queueRendering = ""
     private var attachmentRendering = ""
+    private var uploadProgressLabel: CanvasLabel? = null
     private var creationAttachment: ((android.net.Uri) -> Unit)? = null
+    private var creationPickerToken = ""
+    private var creationAttachmentIsCurrent: () -> Boolean = { false }
     private var uploading = false
     private var uploadLabel = ""
     private var uploadGeneration = 0
@@ -189,7 +198,7 @@ class ConversationPanel(private val activity: Activity, private val client: Sess
     private val renderedProcesses = mutableListOf<InlineReplyProcess>()
     private fun pauseProcessReads() { media.cancelReads(); processStates.values.forEach { it.pause(); it.changed() } }
     private val media by lazy { ConversationMedia(context,
-        scope = { ConversationMedia.Scope(client.provider, thread, generation) },
+        scope = { ConversationMedia.Scope(client.provider, thread, generation, authorizationSource()) },
         active = { foreground && !drawer }, version = ::imageVersion, request = ::call, dialog = ::canvasDialog) }
     private var prependAnchor: Pair<Int, Int>? = null
     private var approvalDialog: AlertDialog? = null
@@ -214,7 +223,14 @@ class ConversationPanel(private val activity: Activity, private val client: Sess
             insets
         }
         client.onEvent = { value ->
-            if (value.optString("event") == "paired") { processStates.clear(); media.clear(); if (drawer) showDrawer() }
+            if (value.optString("event") == "paired") {
+                saveDraft(); processStates.clear(); media.clear(); outbox.clear(); olderMessages.clear()
+                auxiliaryDialogs.toList().forEach { it.dismiss() }; auxiliaryDialogs.clear(); approvalDialog?.dismiss()
+                questionDrafts.clear(); approvedHere.clear(); page = JSONObject(); thread = ""; title = ""
+                savedDrawer = emptyList(); drawerLoaded = false; loadedDrawerKey = ""
+                restoredDrawer = client.drawerState; search = ""; projectCwd = ""; projectName = ""
+                showDrawer()
+            }
             else if ((!value.has("provider") || value.optString("provider") == client.provider) && (value.optString("threadId").isEmpty() || value.optString("threadId") == thread)) {
                 if (value.optString("event") == "lateReceipt" && !drawer) {
                     val original = value.optJSONObject("operation") ?: JSONObject()
@@ -288,7 +304,76 @@ class ConversationPanel(private val activity: Activity, private val client: Sess
         if (!drawer) { saveDraft(); hideKeyboard(); showDrawer() } else close()
         return true
     }
-    fun close() {
+    /** Saved Android view state contains only navigation, never conversation or draft bodies. */
+    fun navigationState(): JSONObject {
+        saveDraft(); saveDrawerState()
+        val y = if (drawer) drawerScroll() ?: 0 else if (::scroll.isInitialized) scroll.scrollY else 0
+        return ConversationViewState(authorizationSource(), client.provider, drawer, thread, title, y).json()
+            .put("creationAttachment", creationAttachment != null).put("creationPickerToken", creationPickerToken).apply {
+                restoredAttachment?.let { pending -> put("pendingUri", pending.uri.toString()); put("pendingTarget", pending.target.json()) }
+            }
+    }
+    private fun authorizationSource() = if (reviews) "review:$fixture" else client.authorizationIdentity
+    private fun renderingScope() = ConversationRenderScope(authorizationSource(), client.provider, thread, generation)
+    fun restoreNavigationState(value: JSONObject): Boolean {
+        val saved = ConversationViewState.read(value, authorizationSource()) ?: return false
+        if (client.provider != saved.provider) switchProvider(saved.provider)
+        restoredDrawer = client.drawerState
+        search = restoredDrawer.optString("search"); projectCwd = restoredDrawer.optString("projectCwd"); projectName = restoredDrawer.optString("projectName")
+        if (saved.drawer) { showDrawer(); return true }
+        restoredScrollY = saved.scrollY
+        open(saved.thread, saved.title)
+        val pendingUri = value.optString("pendingUri")
+        if (pendingUri.isNotBlank() && pendingUri.length <= 4096) {
+            val expected = value.optJSONObject("pendingTarget")
+            val uri = android.net.Uri.parse(pendingUri)
+            if (expected == null || !addRestoredPhoneAttachment(uri, expected)) {
+                releasePickerPermission(uri)
+                android.widget.Toast.makeText(context, R.string.conversation_attachment_reselect, android.widget.Toast.LENGTH_LONG).show()
+            }
+        }
+        return true
+    }
+    /** A picker result waits for a verified page; changing source/provider/thread invalidates it. */
+    fun addRestoredPhoneAttachment(uri: android.net.Uri, expectedNavigation: JSONObject): Boolean {
+        if (expectedNavigation.optBoolean("creationAttachment") || creationAttachment != null) return false
+        val expected = ConversationViewState.read(expectedNavigation, authorizationSource()) ?: return false
+        val current = ConversationViewState.read(navigationState(), authorizationSource()) ?: return false
+        if (!expected.sameConversation(current) || restoredAttachment != null || uploading || sending) return false
+        restoredAttachment = RestoredAttachment(uri, expected)
+        drainRestoredAttachment()
+        return true
+    }
+    fun addPickedCreationAttachment(uri: android.net.Uri, expectedNavigation: JSONObject): Boolean {
+        if (!ConversationPickerTarget.matchesCreation(expectedNavigation, navigationState(), authorizationSource()) ||
+            !creationAttachmentIsCurrent()) return false
+        val callback = creationAttachment ?: return false
+        callback(uri)
+        return true
+    }
+    private fun clearCreationAttachment(token: String) {
+        if (creationPickerToken != token) return
+        creationAttachment = null; creationPickerToken = ""; creationAttachmentIsCurrent = { false }
+    }
+    private fun releasePickerPermission(uri: android.net.Uri) {
+        runCatching { context.contentResolver.releasePersistableUriPermission(uri, android.content.Intent.FLAG_GRANT_READ_URI_PERMISSION) }
+    }
+    private fun discardRestoredAttachment() {
+        val pending = restoredAttachment ?: return
+        restoredAttachment = null; releasePickerPermission(pending.uri)
+        android.widget.Toast.makeText(context, R.string.conversation_attachment_reselect, android.widget.Toast.LENGTH_LONG).show()
+    }
+    private fun drainRestoredAttachment() {
+        val pending = restoredAttachment ?: return
+        val current = ConversationViewState(authorizationSource(), client.provider, drawer, thread, title, 0)
+        if (!pending.target.sameConversation(current) || creationAttachment != null) { discardRestoredAttachment(); return }
+        if (!foreground || !ready || !connected || uploading || sending) return
+        if (!mutableReady || !supports("attachments") || entries().length() >= 6) { discardRestoredAttachment(); return }
+        restoredAttachment = null
+        addPhoneAttachment(pending.uri)
+    }
+    fun close(preservePendingAttachment: Boolean = false) {
+        if (preservePendingAttachment) restoredAttachment = null else discardRestoredAttachment()
         saveDrawerState()
         foreground = false; generation++; listGeneration++
         closeMarkdownViewer()
@@ -356,6 +441,7 @@ class ConversationPanel(private val activity: Activity, private val client: Sess
     }
     private fun saveDraft() { if (::editor.isInitialized && thread.isNotEmpty() && !reviews) client.saveDraft(thread, editor.text.toString()) }
     private fun showDrawer() {
+        discardRestoredAttachment()
         // Invalidate old view callbacks before pausing them: a change notification can otherwise start another read.
         drawer = true; generation++; ready = false
         closeMarkdownViewer()
@@ -548,6 +634,7 @@ class ConversationPanel(private val activity: Activity, private val client: Sess
         hideKeyboard()
         val cwd = projectCwd; val provider = client.provider; var busy = false
         val token = generation
+        val authorization = authorizationSource(); val pickerToken = java.util.UUID.randomUUID().toString()
         var original = client.uncertain("", provider).firstOrNull { it.optString("op") == "new" && it.optString("cwd") == cwd }
         var creation = try {
             if (original?.has("draftId") == true) SessionCreationDraft.restore(original.toString(), cwd, provider)
@@ -558,6 +645,7 @@ class ConversationPanel(private val activity: Activity, private val client: Sess
         lateinit var options: NewSessionOptionsView
         lateinit var dialog: AlertDialog
         var optionsRequest: String? = null
+        fun sameCreationScope() = token == generation && provider == client.provider && authorization == authorizationSource()
 
         val field = EditText(context).apply {
             hint = context.getString(R.string.session_first_message); textSize = Ui.BODY; setTextColor(Palette.text); setHintTextColor(Palette.faint)
@@ -587,7 +675,7 @@ class ConversationPanel(private val activity: Activity, private val client: Sess
             for (i in 0 until items.length()) {
                 val item = items.getJSONObject(i)
                 attachmentList.addView(button("× " + item.optString("name")) {
-                    if (busy || original != null) return@button
+                    if (busy || original != null || !sameCreationScope()) return@button
                     val kept = JSONArray((0 until items.length()).filter { it != i }.map { items.getJSONObject(it) })
                     if (!client.saveAttachments(creation.attachmentScope, kept, provider)) return@button
                     client.request("newAttachmentRemove", draftFields().put("attachmentId", item.optString("attachmentId"))) {}
@@ -603,7 +691,7 @@ class ConversationPanel(private val activity: Activity, private val client: Sess
             creation = it.copy(text = field.text.toString())
             ui.removeCallbacks(persistDraft); ui.postDelayed(persistDraft, 250)
         }, addAttachment = {
-            if (busy || original != null) return@NewSessionOptionsView
+            if (busy || original != null || !sameCreationScope()) return@NewSessionOptionsView
             if (attachmentIDsForDraft().length() >= 6) { state.text = context.getString(R.string.session_limit_of_6_attachments_reached_remove_one_first); return@NewSessionOptionsView }
             if (!saveCreation()) { state.text = context.getString(R.string.creation_draft_unavailable); return@NewSessionOptionsView }
             menu(context.getString(R.string.session_add_attachments_and_context), context.getString(R.string.session_up_to_6_attachments_10_mb_each_they_are_submitted_to_this_sessio), listOf(
@@ -630,17 +718,18 @@ class ConversationPanel(private val activity: Activity, private val client: Sess
         }
         lateinit var start: CanvasLabel
         fun loadCreationOptions() {
+            if (!sameCreationScope()) return
             client.cancelCreationOptions(optionsRequest)
             val id = java.util.UUID.randomUUID().toString(); optionsRequest = id
             state.text = context.getString(R.string.creation_loading_options)
             call("newOptions", draftFields().put("id", id)) { result ->
-                if (!dialog.isShowing || token != generation || optionsRequest != id) return@call
+                if (!dialog.isShowing || !sameCreationScope() || optionsRequest != id) return@call
                 if (!result.optBoolean("ok")) { state.text = result.optString("error", context.getString(R.string.creation_options_unavailable)); return@call }
                 options.applyOptions(result); state.text = hintText
             }
         }
         fun receive(result: JSONObject) {
-            if (!dialog.isShowing) return
+            if (!dialog.isShowing || !sameCreationScope()) return
             busy = false; start.alpha = 1f; options.setLocked(original != null)
             val unknown = result.optBoolean("unknown") || (result.optBoolean("ok") && result.optString("threadId").isBlank())
             if (unknown || !result.optBoolean("ok")) {
@@ -667,12 +756,12 @@ class ConversationPanel(private val activity: Activity, private val client: Sess
                 }
             }
             original = null
-            dialog.setOnDismissListener { client.cancelCreationOptions(optionsRequest); ui.removeCallbacks(persistDraft); options.closeMenus(); creationAttachment = null; auxiliaryDialogs.remove(dialog) }
+            dialog.setOnDismissListener { client.cancelCreationOptions(optionsRequest); ui.removeCallbacks(persistDraft); options.closeMenus(); clearCreationAttachment(pickerToken); auxiliaryDialogs.remove(dialog) }
             dialog.dismiss()
             if (drawer && client.provider == provider) open(result.optString("threadId"), result.optString("title").ifBlank { field.text.toString().take(40) })
         }
         start = button(context.getString(if (original == null) R.string.session_start else R.string.session_check_result), true) {
-            if (busy) return@button
+            if (busy || !dialog.isShowing || !sameCreationScope()) return@button
             val pending = original
             if (pending != null) {
                 busy = true; start.alpha = .5f
@@ -713,19 +802,23 @@ class ConversationPanel(private val activity: Activity, private val client: Sess
             call("new", original!!, ::receive)
         }
         footer.addView(start, LinearLayout.LayoutParams(0, -2, 1f))
+        creationPickerToken = pickerToken
+        creationAttachmentIsCurrent = { dialog.isShowing && token == generation && authorization == authorizationSource() &&
+            provider == client.provider && !busy && original == null }
         creationAttachment = { uri ->
-            if (dialog.isShowing && token == generation && !busy && original == null) {
+            if (creationPickerToken == pickerToken && creationAttachmentIsCurrent()) {
                 busy = true; options.setLocked(true); state.text = context.getString(R.string.session_reading_attachment)
                 val target = creation
                 CodexFileUpload.prepare(context, uri) { file, name, mime, error ->
-                    if (!dialog.isShowing || token != generation) { file?.delete(); return@prepare }
+                    releasePickerPermission(uri)
+                    if (!dialog.isShowing || token != generation || authorization != authorizationSource() || provider != client.provider) { file?.delete(); return@prepare }
                     if (file == null) { busy = false; options.setLocked(false); state.text = error ?: context.getString(R.string.attachment_unreadable); return@prepare }
                     CodexFileUpload.upload(resources, client, target.attachmentScope, file, name, mime, { progress ->
                         if (dialog.isShowing) state.text = context.getString(R.string.session_upload_progress, name, progress.optInt("progress"))
-                    }, cancelled = { !dialog.isShowing || token != generation }, creation = target) { result ->
-                        if (!dialog.isShowing || token != generation || !result.optBoolean("ok")) {
+                    }, cancelled = { !dialog.isShowing || token != generation || authorization != authorizationSource() || provider != client.provider }, creation = target) { result ->
+                        if (!dialog.isShowing || token != generation || authorization != authorizationSource() || provider != client.provider || !result.optBoolean("ok")) {
                             file.delete()
-                            client.request("newAttachmentRemove", draftFields().put("attachmentId", result.optString("attachmentId"))) {}
+                            if (authorization == authorizationSource()) client.request("newAttachmentRemove", draftFields().put("attachmentId", result.optString("attachmentId"))) {}
                         } else {
                             val entries = client.attachments(target.attachmentScope, provider); entries.put(result)
                             if (!client.saveAttachments(target.attachmentScope, entries, provider)) {
@@ -743,7 +836,7 @@ class ConversationPanel(private val activity: Activity, private val client: Sess
             }
         }
         dialog.setOnDismissListener {
-            client.cancelCreationOptions(optionsRequest); ui.removeCallbacks(persistDraft); saveCreation(); options.closeMenus(); creationAttachment = null; auxiliaryDialogs.remove(dialog)
+            client.cancelCreationOptions(optionsRequest); ui.removeCallbacks(persistDraft); saveCreation(); options.closeMenus(); clearCreationAttachment(pickerToken); auxiliaryDialogs.remove(dialog)
         }
         watch(field) { if (original == null) { ui.removeCallbacks(persistDraft); ui.postDelayed(persistDraft, 250) } }
         renderAttachments()
@@ -879,6 +972,7 @@ class ConversationPanel(private val activity: Activity, private val client: Sess
         }
     }
     private fun open(id: String, name: String) {
+        discardRestoredAttachment()
         closeMarkdownViewer()
         turnChanges = null; changesKey = ""; changesHolder = null
         if (drawer) {
@@ -935,7 +1029,8 @@ class ConversationPanel(private val activity: Activity, private val client: Sess
             addView(IconControl(context, IconControl.Icon.REMOTE, context.getString(R.string.session_back_to_phone_remote), action = { close() }), LinearLayout.LayoutParams(dp(44), dp(48)))
         })
         layout.addView(View(context), LinearLayout.LayoutParams(-1, dp(4)))
-        timeline = column(); scroll = object : ScrollView(context) {
+        timeline = column(); timelineRows = ConversationTimeline(timeline); renderedProcesses.clear()
+        scroll = object : ScrollView(context) {
             private var startY = 0f
             override fun dispatchTouchEvent(event: MotionEvent): Boolean {
                 if (event.actionMasked == MotionEvent.ACTION_DOWN) startY = event.y
@@ -950,7 +1045,7 @@ class ConversationPanel(private val activity: Activity, private val client: Sess
             }
         }.apply {
             isFillViewport = true; addView(timeline)
-            setOnScrollChangeListener { _, _, y, _, oldY -> if (y < oldY && y < dp(320)) loadOlder() }
+            setOnScrollChangeListener { _, _, y, _, oldY -> if (!timelineRows.restoringPosition && y < oldY && y < dp(320)) loadOlder() }
         }
         newest = Ui.pill(context, context.getString(R.string.session_latest)) { scroll.fullScroll(ScrollView.FOCUS_DOWN); newest.visibility = GONE }.apply {
             visibility = GONE; background = Ui.inset(context, Ui.roundRect(context, Palette.surface4, 16), 8); elevation = dp(4).toFloat()
@@ -967,9 +1062,7 @@ class ConversationPanel(private val activity: Activity, private val client: Sess
             }
         }.apply { addView(queuedBox); isVerticalScrollBarEnabled = false }, LinearLayout.LayoutParams(-1, -2))
         waitMessage = label("", Ui.CAPTION, Palette.amber).apply { accessibilityLiveRegion = View.ACCESSIBILITY_LIVE_REGION_POLITE }
-        waitCancel = button(context.getString(R.string.session_cancel_task)) {
-            if (canStopCurrentTurn()) stopCurrentTurn() else { saveDraft(); hideKeyboard(); showDrawer() }
-        }
+        waitCancel = button(context.getString(R.string.session_stop_waiting)) { saveDraft(); hideKeyboard(); showDrawer() }
         waitBanner = column().apply {
             visibility = GONE; setPadding(dp(12), dp(8), dp(12), dp(8)); background = background(Palette.surface3, 12)
             addView(waitMessage, LinearLayout.LayoutParams(-1, -2))
@@ -1088,40 +1181,30 @@ class ConversationPanel(private val activity: Activity, private val client: Sess
         val rendering = messages.toString() + approvals.toString() + value.optBoolean("hasOlder") + pending.joinToString { it.at.toString() } + value.optString("status")
         if (rendering != lastMessages) {
             val y = scroll.scrollY
-            val anchor = prependAnchor; prependAnchor = null
-            val atBottom = anchor == null && (lastMessages.isEmpty() || scroll.getChildAt(0).height - (scroll.height + y) < dp(80))
+            val prepend = prependAnchor; prependAnchor = null
+            val restored = restoredScrollY; restoredScrollY = null
+            val renderingGeneration = generation
+            val atBottom = restored == null && prepend == null && (timeline.childCount == 0 || timeline.height - (scroll.height + y) < dp(80))
+            timelineRows.preservePosition(scroll, atBottom, restored,
+                { !drawer && foreground && renderingGeneration == generation },
+                { if (restored == null && !atBottom) newest.visibility = VISIBLE })
             lastMessages = rendering
             timelineProcessKeys = (0 until messages.length()).map { messages.getJSONObject(it) }.filter { it.optString("role") != "user" }.map { "${client.provider}:$thread:${it.optString("id")}" }.toSet()
-            timeline.removeAllViews()
+            val holder = changesHolder ?: column().apply { layoutParams = LinearLayout.LayoutParams(-1, -2) }.also { changesHolder = it }
+            timelineRows.reconcile(timelineContent.rows(messages, approvals,
+                pending.map { ConversationTimelineContent.Pending(it.text, it.at) }, value.optString("status") == "active",
+                value.optBoolean("hasOlder"), loadingHistory, holder))
             renderedProcesses.clear()
-            if (value.optBoolean("hasOlder")) timeline.addView(label(if (loadingHistory) context.getString(R.string.session_loading_earlier_messages) else context.getString(R.string.session_pull_down_for_earlier_messages), Ui.CAPTION, Palette.faint)
-                .apply { gravity = Gravity.CENTER; setPadding(0, dp(8), 0, dp(8)) }, LinearLayout.LayoutParams(-1, -2).apply { bottomMargin = dp(12) })
-            for (i in 0 until messages.length()) addMessage(messages.getJSONObject(i))
-            pending.forEach(::addPending)
-            changesHolder = column().also { timeline.addView(it, LinearLayout.LayoutParams(-1, -2)) }
+            fun collect(view: View) {
+                if (view is InlineReplyProcess) renderedProcesses.add(view)
+                else if (view is ViewGroup) for (index in 0 until view.childCount) collect(view.getChildAt(index))
+            }
+            collect(timeline)
             renderChangesCard()
-            for (i in 0 until approvals.length()) {
-                val approval = approvals.getJSONObject(i)
-                timeline.addView(column().apply {
-                    background = background(Palette.amberContainer, 16); setPadding(dp(14), dp(13), dp(14), dp(14))
-                    addView(label(context.getString(R.string.session_provider_needs_approval, agent), Ui.LABEL, Palette.amber).apply { typeface = Typeface.DEFAULT_BOLD })
-                    addView(label(approval.optString("title"), Ui.BODY, Palette.text).apply { maxLines = 4; ellipsize = android.text.TextUtils.TruncateAt.END },
-                        LinearLayout.LayoutParams(-1, -2).apply { topMargin = dp(6) })
-                    addView(button(if (approval.optBoolean("canDecide")) (if (approval.optString("kind") == "questions") context.getString(R.string.session_answer_questions) else context.getString(R.string.session_review_request)) else context.getString(R.string.session_view_details_handle_on_mac), approval.optBoolean("canDecide")) { showApproval(approval) }.apply {
-                        if (approval.optBoolean("canDecide")) { background = Ui.roundRect(context, Palette.amber, 12); setTextColor(Color.rgb(42, 29, 7)) }
-                        else background = Ui.roundRect(context, Palette.surface3, 12)
-                    }, LinearLayout.LayoutParams(-1, -2).apply { topMargin = dp(12) })
-                }, LinearLayout.LayoutParams(-1, -2).apply { topMargin = dp(10); bottomMargin = dp(12) })
-            }
-            if (messages.length() == 0 && approvals.length() == 0 && pending.isEmpty()) timeline.addView(label(context.getString(R.string.session_no_messages_to_display_in_this_session_yet), 14f, Palette.muted))
-            scroll.post {
-                if (anchor != null) scroll.scrollTo(0, (anchor.first + timeline.height - anchor.second).coerceAtLeast(0))
-                else if (atBottom) scroll.fullScroll(ScrollView.FOCUS_DOWN)
-                else { scroll.scrollTo(0, y); newest.visibility = VISIBLE }
-            }
         }
         updateComposer()
         if (!wasReady && ready) processStates.values.forEach { it.changed() }
+        drainRestoredAttachment()
         refreshTurnChanges()
     }
     /** Asks for the whole current page, e.g. after a missed delta; one request at a time. */
@@ -1145,19 +1228,10 @@ class ConversationPanel(private val activity: Activity, private val client: Sess
             shown.any { it.optString("id") !in sent.known && it.optString("text").trim().startsWith(sent.text) } }
         if (pending.isEmpty()) outbox.remove(threadKey())
     }
-    private fun addPending(sent: Sent) {
-        val box = column().apply {
-            background = userBubble()
-            setPadding(dp(14), dp(10), dp(14), dp(12))
-            addView(label(if (page.optString("status") == "active") context.getString(R.string.session_you_delivered_appears_after_the_current_task_finishes) else context.getString(R.string.session_you_sent_waiting_for_the_session_to_display_it), Ui.LABEL, Palette.faint).apply { typeface = Ui.medium },
-                LinearLayout.LayoutParams(-1, -2).apply { bottomMargin = dp(8) })
-            addView(ChatMarkdownView(context, ::openFileLink, anyFile = true).apply { render(sent.text) }, LinearLayout.LayoutParams(-1, -2))
-        }
-        timeline.addView(box, LinearLayout.LayoutParams(-1, -2).apply { topMargin = dp(6); bottomMargin = dp(12); marginStart = dp(48) })
-    }
     private val messageRenderer by lazy { ConversationMessageRenderer(context, { client.provider },
-        ::inlineProcess, media::strip, ::openFileLink, ::showMessage) }
-    private fun userBubble() = messageRenderer.userBubble()
+        ::inlineProcess, media::strip, ::openFileLink, ::showMessage, ::renderingScope, { foreground && !drawer }) }
+    private val timelineContent by lazy { ConversationTimelineContent(context, messageRenderer, { agent }, ::openFileLink, ::showApproval,
+        ::renderingScope, { foreground && !drawer }) }
     private fun applyDelta(delta: JSONObject) {
         if (delta.has("provider") && delta.optString("provider") != client.provider) return
         if (drawer || delta.optString("threadId") != thread || (!reviews && delta.optLong("viewVersion", -1) != client.viewVersion)) return
@@ -1172,21 +1246,22 @@ class ConversationPanel(private val activity: Activity, private val client: Sess
         for (i in 0 until order.length()) items[order.getString(i)]?.let { messages.put(it) }
         applyPage(JSONObject(delta.toString()).put("messages", messages))
     }
-    private fun addMessage(message: JSONObject) { timeline.addView(messageRenderer.render(message)) }
     private fun inlineProcess(message: JSONObject, sequence: JSONArray): View {
         val id = message.optString("id"); val target = thread; val token = generation
         val key = "${client.provider}:$target:$id"
         val sourceProvider = client.provider
+        val sourceAuthorization = authorizationSource()
         val state = processStates.getOrPut(key) { InlineReplyProcess.State().apply {
             if (!reviews) client.cachedProcess(target, id)?.let { cached -> try { restore(cached) } catch (_: Exception) { rows.clear(); bodies.clear(); groups.clear(); this.count = 0 } }
-            persist = { value -> if (!reviews) client.rememberProcess(target, id, value, sourceProvider) }
+            persist = { value -> if (!reviews && sourceAuthorization == authorizationSource()) client.rememberProcess(target, id, value, sourceProvider) }
         } }
         while (processStates.size > 64) {
             val oldest = processStates.keys.firstOrNull { it !in timelineProcessKeys } ?: break
             processStates.remove(oldest)
         }
         state.accept(sequence, message.optInt("partCount", sequence.length()))
-        val current = { foreground && !drawer && ready && connected && token == generation && target == thread }
+        val current = { foreground && !drawer && ready && connected && token == generation && target == thread &&
+            sourceProvider == client.provider && sourceAuthorization == authorizationSource() }
         return InlineReplyProcess(context, state, current, { offset, before, done ->
             call("parts", JSONObject().put("threadId", target).put("messageId", id).put("offset", offset).put("sequence", true).apply { if (before != null) put("before", before) }) { result ->
                 if (current()) done(result)
@@ -1195,7 +1270,7 @@ class ConversationPanel(private val activity: Activity, private val client: Sess
             call("message", JSONObject().put("threadId", target).put("messageId", part).put("offset", offset).put("withPart", offset == 0)) { result ->
                 if (current()) done(result)
             }
-        }, media::strip, ::openFileLink).also { renderedProcesses.add(it) }
+        }, media::strip, { if (current()) openFileLink(it) }).also { renderedProcesses.add(it) }
     }
     private fun imageVersion(id: String): String {
         val owner = id.substringBeforeLast('#')
@@ -1239,6 +1314,7 @@ class ConversationPanel(private val activity: Activity, private val client: Sess
             return
         }
         val fingerprint = approval.optString("fingerprint"); val target = thread; val token = generation
+        val actionScope = renderingScope()
         openApproval = fingerprint; openApprovalId = approval.optString("id")
         val isQuestion = approval.optString("kind") == "questions" && approval.optBoolean("canDecide")
         val questions = approval.optJSONArray("questions") ?: JSONArray()
@@ -1325,10 +1401,12 @@ class ConversationPanel(private val activity: Activity, private val client: Sess
         actions.addView(button(context.getString(R.string.close)) { dialog.dismiss() }, LinearLayout.LayoutParams(-1, -2).apply { topMargin = dp(8) })
         var retryOriginal = false
         fun uncertain() = if (reviews) null else client.uncertain(target).firstOrNull { it.optString("op") == "approve" && it.optString("fingerprint") == fingerprint }
-        fun current() = token == generation && target == thread && approvalDialog === dialog && dialog.isShowing
+        fun current() = actionScope == renderingScope() && foreground && !drawer && token == generation &&
+            target == thread && approvalDialog === dialog && dialog.isShowing
         fun update() {
             val unknown = uncertain() != null
-            val canPick = mutableReady && supports("approvals") && (isQuestion || !content.canScrollVertically(1)) && submittingApproval.isEmpty() && fingerprint !in approvedHere && !unknown
+            val canPick = actionScope == renderingScope() && foreground && !drawer && mutableReady && supports("approvals") &&
+                (isQuestion || !content.canScrollVertically(1)) && submittingApproval.isEmpty() && fingerprint !in approvedHere && !unknown
             if (isQuestion) {
                 val filled = (0 until questions.length()).count { answers[questions.getJSONObject(it).getString("id")]?.isNotBlank() == true }
                 val complete = if (approval.optString("method") == "item/tool/requestUserInput") filled == questions.length() else filled > 0
@@ -1352,7 +1430,7 @@ class ConversationPanel(private val activity: Activity, private val client: Sess
             }
         }
         fun accepted(result: JSONObject) {
-            if (token != generation || target != thread) return
+            if (actionScope != renderingScope() || token != generation || target != thread) return
             if (submittingApproval == fingerprint) submittingApproval = ""
             if (result.optBoolean("ok") && result.optBoolean("submitted")) {
                 approvedHere.add(fingerprint); questionDrafts.remove(fingerprint)
@@ -1366,6 +1444,7 @@ class ConversationPanel(private val activity: Activity, private val client: Sess
             updateComposer()
         }
         fun checkOrRetry(describe: (JSONObject) -> String) {
+            if (!current()) return
             val original = uncertain() ?: return
             if (retryOriginal) {
                 submittingApproval = fingerprint; update(); message.text = heading + context.getString(R.string.session_retrying_the_original_choice) + describe(original)
@@ -1452,15 +1531,19 @@ class ConversationPanel(private val activity: Activity, private val client: Sess
     fun addPhoneAttachment(uri: android.net.Uri) {
         creationAttachment?.let { it(uri); return }
         if (drawer || !mutableReady || !supports("attachments") || uploading) return
-        val token = generation; val target = thread; val provider = client.provider; val upload = ++uploadGeneration; uploading = true; uploadLabel = context.getString(R.string.session_reading_attachment); updateComposer()
+        val token = generation; val target = thread; val provider = client.provider; val authorization = authorizationSource()
+        val upload = ++uploadGeneration; uploading = true; uploadLabel = context.getString(R.string.session_reading_attachment); updateComposer()
         CodexFileUpload.prepare(context, uri) { file, name, mime, error ->
-            if (token != generation || upload != uploadGeneration) { file?.delete(); return@prepare }
+            releasePickerPermission(uri)
+            if (token != generation || upload != uploadGeneration || authorization != authorizationSource() || provider != client.provider) { file?.delete(); return@prepare }
             if (file == null) { uploading = false; uploadLabel = ""; notice.text = error ?: context.getString(R.string.attachment_unreadable); updateComposer(); return@prepare }
             CodexFileUpload.upload(resources, client, target, file, name, mime, { progress ->
-                if (token == generation && upload == uploadGeneration) { uploadLabel = context.getString(R.string.session_upload_progress, progress.optString("name"), progress.optInt("progress")); updateComposer() }
-            }, cancelled = { token != generation || upload != uploadGeneration }) { result ->
-                if (token != generation || upload != uploadGeneration) {
-                    file.delete(); client.request("attachmentRemove", JSONObject().put("threadId", target).put("attachmentId", result.optString("attachmentId")).put("provider", provider)) {}; return@upload
+                if (token == generation && upload == uploadGeneration) { uploadLabel = context.getString(R.string.session_upload_progress, progress.optString("name"), progress.optInt("progress")); uploadProgressLabel?.text = uploadLabel }
+            }, cancelled = { token != generation || upload != uploadGeneration || authorization != authorizationSource() || provider != client.provider }) { result ->
+                if (token != generation || upload != uploadGeneration || authorization != authorizationSource() || provider != client.provider) {
+                    file.delete()
+                    if (authorization == authorizationSource()) client.request("attachmentRemove", JSONObject().put("threadId", target).put("attachmentId", result.optString("attachmentId")).put("provider", provider)) {}
+                    return@upload
                 }
                 uploading = false; uploadLabel = ""
                 if (result.optBoolean("ok")) { val items = client.attachments(target, provider); items.put(result); client.saveAttachments(target, items, provider); notice.text = context.getString(R.string.session_attachment_ready_tap_send_to_submit_it) }
@@ -1516,6 +1599,9 @@ class ConversationPanel(private val activity: Activity, private val client: Sess
     private fun openProjectFile(path: String, line: Int? = null, status: String = "", diff: Boolean = false) {
         if (drawer || !ready || !connected || !authorized) { notice.text = context.getString(R.string.files_connect_to_the_mac_and_open_a_session_to_view_files); return }
         if (!projectFiles) { notice.text = context.getString(R.string.files_update_vibepier_on_the_mac_to_view_this_file); return }
+        if (ProjectFiles.isVideo(path) && !supports("videoFiles", false)) {
+            notice.text = context.getString(R.string.video_update_mac); return
+        }
         hideKeyboard(); fileViewer?.dismiss()
         fileViewer = ProjectFileViewer(fileHost(), path, line, status, diff) { fileViewer = null }.also { it.show(); auxiliaryDialogs.add(it.dialog) }
     }
@@ -1797,7 +1883,7 @@ class ConversationPanel(private val activity: Activity, private val client: Sess
     private fun renderAttachments() {
         val items = entries(); val signature = items.toString() + uploadLabel + sending + uploading + client.uncertain(thread).any { it.optString("op") == "send" }
         if (signature == attachmentRendering) return
-        attachmentRendering = signature; val row = composerControls.attachments; row.removeAllViews()
+        attachmentRendering = signature; uploadProgressLabel = null; val row = composerControls.attachments; row.removeAllViews()
         for (i in 0 until items.length()) {
             val item = items.getJSONObject(i)
             val chip = row().apply {
@@ -1815,7 +1901,7 @@ class ConversationPanel(private val activity: Activity, private val client: Sess
             row.addView(chip, LinearLayout.LayoutParams(-2, -2).apply { marginEnd = dp(6) })
         }
         if (uploadLabel.isNotEmpty()) row.addView(row().apply {
-            addView(label(uploadLabel.take(70), 12f, Palette.green).apply { maxLines = 2; setPadding(dp(8), dp(8), dp(8), dp(8)) }, LinearLayout.LayoutParams(dp(190), -2))
+            addView(label(uploadLabel.take(70), 12f, Palette.green).apply { uploadProgressLabel = this; maxLines = 2; setPadding(dp(8), dp(8), dp(8), dp(8)) }, LinearLayout.LayoutParams(dp(190), -2))
             addView(button(context.getString(R.string.cancel)) { uploadGeneration++; uploading = false; uploadLabel = ""; notice.text = context.getString(R.string.session_upload_cancelled); updateComposer() })
         })
         composerControls.attachmentScroll.visibility = if (row.childCount == 0) GONE else VISIBLE
@@ -1845,16 +1931,18 @@ class ConversationPanel(private val activity: Activity, private val client: Sess
         editor.isEnabled = !zcode || canSend
         renderAttachments()
         renderQueue()
-        val stop = supports("interrupt") && page.optString("status") == "active" && editor.text.toString().isBlank() && attachmentIDs().length() == 0
+        val submit = ConversationActions.submit(page.optString("status") == "active", supports("queue", client.provider == "codex"),
+            mutableReady, canSend, sending, uploading, unresolved, settingsOperation.isNotEmpty(),
+            editor.text.toString().isNotBlank() || attachmentIDs().length() > 0)
         stopButton.visibility = if (supports("interrupt") && page.optString("status") == "active") VISIBLE else GONE
         stopButton.isEnabled = canStopCurrentTurn()
         stopButton.alpha = if (stopButton.isEnabled) 1f else .4f
-        sendButton.isEnabled = mutableReady && !sending && !uploading && (if (stop) canStopCurrentTurn() else canSend && !unresolved && settingsOperation.isEmpty()) && (stop || editor.text.toString().isNotBlank() || attachmentIDs().length() > 0)
+        sendButton.isEnabled = submit.enabled
         sendButton.alpha = 1f
-        sendButton.background = Ui.inset(context, background(if (!sendButton.isEnabled) Palette.surface3 else if (stop) Palette.redContainer else Palette.accent, 13), 4, 4)
-        sendButton.setTextColor(if (!sendButton.isEnabled) Palette.faint else if (stop) Palette.red else Palette.onAccent)
-        sendButton.text = if (sending) "…" else if (stop) "■" else "↑"
-        sendButton.contentDescription = if (sending) context.getString(R.string.session_sending) else if (stop) context.getString(R.string.session_stop_current_task) else if (page.optString("status") == "active" && supports("queue", client.provider == "codex")) context.getString(R.string.session_add_to_the_send_queue) else context.getString(R.string.session_send_message)
+        sendButton.background = Ui.inset(context, background(if (submit.enabled) Palette.accent else Palette.surface3, 13), 4, 4)
+        sendButton.setTextColor(if (submit.enabled) Palette.onAccent else Palette.faint)
+        sendButton.text = context.getString(if (sending) R.string.session_sending else if (submit.queued) R.string.conversation_queue_send else R.string.conversation_send)
+        sendButton.contentDescription = context.getString(if (sending) R.string.session_sending else if (submit.queued) R.string.session_add_to_the_send_queue else R.string.session_send_message)
         notice.minimumHeight = if (unresolved) dp(48) else 0
         notice.gravity = Gravity.CENTER_VERTICAL
         notice.setOnClickListener {
@@ -1880,7 +1968,6 @@ class ConversationPanel(private val activity: Activity, private val client: Sess
     private fun sendReply() {
         if (!sendButton.isEnabled) return
         val ids = attachmentIDs()
-        if (supports("interrupt") && page.optString("status") == "active" && editor.text.toString().isBlank() && ids.length() == 0) { stopCurrentTurn(); return }
         if (!canSend) return
         val text = editor.text.toString().trim(); if (text.toByteArray().size > 32_000) { notice.text = context.getString(R.string.session_reply_is_too_long_send_it_in_parts); return }
         val target = thread; val token = generation; sending = true; updateComposer(); notice.text = context.getString(R.string.session_sending_to, title)
@@ -1979,8 +2066,9 @@ class ConversationPanel(private val activity: Activity, private val client: Sess
             null -> R.string.session_wait_stopping
         }
         val canStop = canStopCurrentTurn()
-        waitMessage.text = context.getString(message) + if (canStop) "" else "\n" + context.getString(R.string.session_stop_waiting_detail)
-        waitCancel.text = context.getString(if (canStop) R.string.session_cancel_task else R.string.session_stop_waiting)
+        waitMessage.text = context.getString(message) + "\n" + context.getString(R.string.session_stop_waiting_detail) +
+            if (canStop) "\n" + context.getString(R.string.conversation_stop_at_header) else ""
+        waitCancel.text = context.getString(R.string.session_stop_waiting)
     }
 
     private fun stopCurrentTurn() {

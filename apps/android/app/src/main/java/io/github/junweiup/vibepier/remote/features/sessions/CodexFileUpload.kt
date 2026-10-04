@@ -4,6 +4,7 @@ import io.github.junweiup.vibepier.remote.R
 import io.github.junweiup.vibepier.remote.core.session.SessionClient
 import io.github.junweiup.vibepier.remote.core.session.SessionCreationDraft
 
+import io.github.junweiup.vibepier.remote.core.files.BinaryFileClient
 import android.content.Context
 import android.graphics.Bitmap
 import android.graphics.BitmapFactory
@@ -51,27 +52,138 @@ internal object CodexFileUpload {
         }
     }
     fun upload(resources: android.content.res.Resources, client: SessionClient, thread: String, file: File, name: String, mime: String, progress: (JSONObject) -> Unit, cancelled: () -> Boolean = { false }, creation: SessionCreationDraft? = null, done: (JSONObject) -> Unit) {
-        val id = UUID.randomUUID().toString(); val version = client.viewVersion; val provider = creation?.provider ?: client.provider; var bytes: ByteArray; var digest: String
+        val id = UUID.randomUUID().toString(); val version = client.viewVersion; val provider = creation?.provider ?: client.provider
+        val authorization = client.authorizationIdentity
         worker.execute {
-            try { bytes = file.readBytes(); digest = MessageDigest.getInstance("SHA-256").digest(bytes).joinToString("") { "%02x".format(it) } }
-            catch (_: Exception) { main.post { done(JSONObject().put("ok", false).put("error", resources.getString(R.string.attachment_expired))) }; return@execute }
-            val content = bytes; val hash = digest
+            val size: Int; val hash: String
+            try {
+                val length = file.length(); check(length in 1..10L * 1024 * 1024)
+                size = length.toInt()
+                val digest = MessageDigest.getInstance("SHA-256")
+                file.inputStream().use { input ->
+                    val buffer = ByteArray(64 * 1024)
+                    while (true) { val count = input.read(buffer); if (count < 0) break; digest.update(buffer, 0, count) }
+                }
+                hash = digest.digest().joinToString("") { "%02x".format(it) }
+            } catch (_: Exception) { main.post { done(JSONObject().put("ok", false).put("error", resources.getString(R.string.attachment_expired))) }; return@execute }
             main.post {
                 fun fields() = (if (creation == null) JSONObject().put("threadId", thread).put("viewVersion", version)
                     else JSONObject().put("draftId", creation.id).put("cwd", creation.cwd))
                     .put("attachmentId", id).put("provider", provider)
                 fun operation(name: String) = if (creation == null) name else "new" + name.replaceFirstChar { it.uppercase() }
-                fun finish(result: JSONObject) { done(JSONObject(result.toString()).put("cachePath", file.path).put("name", name).put("mime", mime).put("attachmentId", id)) }
-                fun chunk(offset: Int) {
-                    if (cancelled()) { finish(JSONObject().put("ok", false).put("error", resources.getString(R.string.attachment_upload_cancelled))); return }
-                    if (offset >= content.size) { client.request(operation("attachmentComplete"), fields().put("sha256", hash), ::finish); return }
-                    val end = minOf(content.size, offset + client.attachmentChunkBytes)
-                    progress(fields().put("name", name).put("progress", (offset * 100L / content.size).toInt()))
-                    client.request(operation("attachmentChunk"), fields().put("offset", offset).put("data", Base64.encodeToString(content.copyOfRange(offset, end), Base64.NO_WRAP))) { result ->
-                        if (result.optBoolean("ok")) chunk(end) else finish(result)
-                    }
+                var finished = false
+                var completing = false
+                var binaryTransfer: BinaryFileClient? = null
+                var binaryTicket: String? = null
+                var lastProgress = -1
+                var lastProgressAt = 0L
+                fun stopped() = cancelled() || client.authorizationIdentity != authorization || client.provider != provider ||
+                    (creation == null && client.viewVersion != version)
+                fun finish(result: JSONObject) {
+                    if (finished) return
+                    finished = true
+                    binaryTransfer?.cancel()
+                    if (binaryTicket != null && client.online && client.authorizationIdentity == authorization)
+                        client.request("fileCancel", JSONObject().put("ticket", binaryTicket)) {}
+                    client.cancelAttachmentRequests(id)
+                    done(JSONObject(result.toString()).put("cachePath", file.path).put("name", name).put("mime", mime).put("attachmentId", id))
                 }
-                client.request(operation("attachmentStart"), fields().put("name", name).put("mime", mime).put("size", content.size)) { result -> if (result.optBoolean("ok")) chunk(0) else finish(result) }
+                fun stop() = finish(JSONObject().put("ok", false).put("error", resources.getString(R.string.attachment_upload_cancelled)))
+                fun watchCancellation() {
+                    if (finished) return
+                    if (stopped()) stop() else main.postDelayed({ watchCancellation() }, 150)
+                }
+                if (stopped()) { stop(); return@post }
+                watchCancellation()
+                val start = fields().put("name", name).put("mime", mime).put("size", size)
+                if (!client.bluetooth) start.put("binaryVersion", 1).put("uploadVersion", 1).put("uploadFragmentChars", client.attachmentFragmentChars)
+                client.request(operation("attachmentStart"), start) { response ->
+                    if (finished) return@request
+                    if (stopped()) { stop(); return@request }
+                    if (!response.optBoolean("ok")) { finish(response); return@request }
+                    val binary = response.optJSONObject("binary")
+                    if (binary != null && !client.bluetooth) {
+                        val transfer = BinaryFileClient { !finished && !stopped() }; binaryTransfer = transfer; binaryTicket = binary.getString("id")
+                        val host = client.binaryHost
+                        worker.execute {
+                            val result = runCatching {
+                                transfer.upload(binary, host, file) { bytes ->
+                                    val percent = minOf(95, (bytes * 100 / size).toInt())
+                                    main.post {
+                                        val now = android.os.SystemClock.elapsedRealtime()
+                                        if (!finished && !stopped() && percent != lastProgress && now - lastProgressAt >= 150) {
+                                            lastProgress = percent; lastProgressAt = now
+                                            progress(fields().put("name", name).put("progress", percent))
+                                        }
+                                    }
+                                }
+                            }
+                            main.post binaryDone@{
+                                if (finished) return@binaryDone
+                                if (stopped()) { stop(); return@binaryDone }
+                                if (result.isFailure) { finish(JSONObject().put("ok", false).put("error", resources.getString(R.string.file_transfer_interrupted))); return@binaryDone }
+                                client.request(operation("attachmentComplete"), fields().put("sha256", hash).put("binaryTicket", binary.getString("id"))) { done ->
+                                    if (finished) return@request
+                                    if (done.optBoolean("ok")) progress(fields().put("name", name).put("progress", 100))
+                                    finish(done)
+                                }
+                            }
+                        }
+                        return@request
+                    }
+                    val profile = response.optJSONObject("upload")
+                    val fast = !client.bluetooth && profile?.optInt("version") == 1 && profile.optString("token") == id &&
+                        profile.optInt("fragmentChars") == start.optInt("uploadFragmentChars") && profile.optInt("chunkBytes") == 64 * 1024 && profile.optInt("window") == 3
+                    val window = AttachmentUploadWindow(size, if (fast) 64 * 1024 else client.attachmentChunkBytes, if (fast) 3 else 1)
+                    fun report() {
+                        val percent = (window.acknowledgedBytes * 100L / size).toInt()
+                        val now = android.os.SystemClock.elapsedRealtime()
+                        if (percent != lastProgress && (lastProgress < 0 || now - lastProgressAt >= 150 || percent == 100)) {
+                            lastProgress = percent; lastProgressAt = now
+                            progress(fields().put("name", name).put("progress", percent))
+                        }
+                    }
+                    fun pump() {
+                        if (finished || completing) return
+                        if (stopped()) { stop(); return }
+                        if (window.complete) {
+                            completing = true
+                            val complete = fields().put("sha256", hash)
+                            if (fast) complete.put("uploadVersion", 1)
+                            client.request(operation("attachmentComplete"), complete) { result -> if (stopped()) stop() else finish(result) }
+                            return
+                        }
+                        while (true) {
+                            val offset = window.reserve() ?: break
+                            val length = window.length(offset)
+                            worker.execute {
+                                val encoded = try {
+                                    val bytes = ByteArray(length)
+                                    java.io.RandomAccessFile(file, "r").use { input -> input.seek(offset.toLong()); input.readFully(bytes) }
+                                    Base64.encodeToString(bytes, Base64.NO_WRAP)
+                                } catch (_: Exception) { null }
+                                main.post chunkReady@{
+                                    if (finished) return@chunkReady
+                                    if (stopped()) { stop(); return@chunkReady }
+                                    if (encoded == null) { finish(JSONObject().put("ok", false).put("error", resources.getString(R.string.attachment_expired))); return@chunkReady }
+                                    val chunk = fields().put("offset", offset).put("data", encoded)
+                                    if (fast) chunk.put("uploadVersion", 1).put("uploadFragmentChars", profile!!.getInt("fragmentChars"))
+                                    client.request(operation("attachmentChunk"), chunk) chunkReply@{ result ->
+                                        if (finished) return@chunkReply
+                                        if (stopped()) { stop(); return@chunkReply }
+                                        if (!result.optBoolean("ok")) { finish(result); return@chunkReply }
+                                        try {
+                                            check(result.optString("attachmentId") == id)
+                                            window.acknowledge(offset, result.getInt("offset"))
+                                        } catch (_: Exception) { finish(JSONObject().put("ok", false).put("error", resources.getString(R.string.client_message_invalid))); return@chunkReply }
+                                        report(); pump()
+                                    }
+                                }
+                            }
+                        }
+                    }
+                    report(); pump()
+                }
             }
         }
     }

@@ -106,6 +106,7 @@ enum RuntimeCommands {
             return [
                 "ok": true, "device": device, "transfer": status.transfer, "name": status.name,
                 "size": status.size, "received": status.received, "state": status.state,
+                "phase": status.phase.rawValue,
             ]
         default: return await runtime(req)
         }

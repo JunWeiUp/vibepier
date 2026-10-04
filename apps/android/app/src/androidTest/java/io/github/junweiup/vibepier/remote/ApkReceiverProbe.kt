@@ -4,6 +4,9 @@ import io.github.junweiup.vibepier.remote.core.session.SessionClient
 import io.github.junweiup.vibepier.remote.core.session.SessionTransport
 import io.github.junweiup.vibepier.remote.features.updates.ApkInstallResult
 import io.github.junweiup.vibepier.remote.features.updates.ApkReceiver
+import io.github.junweiup.vibepier.remote.features.updates.AppUpdatesSheet
+import io.github.junweiup.vibepier.remote.features.updates.AppVersionUpdates
+import io.github.junweiup.vibepier.remote.features.updates.AvailableAppVersion
 
 import android.app.Activity
 import android.app.AlertDialog
@@ -40,18 +43,25 @@ object ApkReceiverProbe {
         lateinit var receiver: ApkReceiver
         var clientCreated = false
         var receiverCreated = false
+        lateinit var initialUpdates: AppUpdatesSheet
         var transfer = UUID.randomUUID().toString()
         var corrupt = false
         var stopAtChunk = false
+        var fastReordered = false
+        var staged = false
+        var updateRequests = 0
+        val durableOffsets = java.util.concurrent.CopyOnWriteArrayList<Long>()
+        val main = android.os.Handler(android.os.Looper.getMainLooper())
         val offsets = java.util.concurrent.CopyOnWriteArrayList<Long>()
         val statuses = java.util.concurrent.CopyOnWriteArrayList<String>()
+        val notices = java.util.concurrent.CopyOnWriteArrayList<String>()
         val frames = mutableMapOf<String, MutableMap<Int, String>>()
-        fun respond(value: JSONObject, callback: (JSONObject) -> Unit) {
+        fun respond(value: JSONObject, callback: (JSONObject) -> Unit, fastRequest: String? = null) {
             val packet = UUID.randomUUID().toString()
             val cipher = Cipher.getInstance("AES/GCM/NoPadding")
             cipher.init(Cipher.ENCRYPT_MODE, key); cipher.updateAAD("vibepier-session-v1|mac|${client.device}|$packet".toByteArray())
-            val pieces = Base64.encodeToString(cipher.iv + cipher.doFinal(value.toString().toByteArray()), Base64.NO_WRAP).chunked(900)
-            pieces.forEachIndexed { i, body -> callback(JSONObject().put("type", "vibepier-session1").put("sender", client.device).put("device", client.device).put("packet", packet).put("part", i).put("parts", pieces.size).put("data", body)) }
+            val pieces = Base64.encodeToString(cipher.iv + cipher.doFinal(value.toString().toByteArray()), Base64.NO_WRAP).chunked(if (fastRequest == null) 900 else 7200)
+            pieces.forEachIndexed { i, body -> callback(JSONObject().put("type", "vibepier-session1").put("sender", client.device).put("device", client.device).put("packet", packet).put("part", i).put("parts", pieces.size).put("data", body).apply { if (fastRequest != null) put("request", fastRequest) }) }
         }
         val transport = object : SessionTransport {
             override var mode = "bluetooth"
@@ -72,7 +82,18 @@ object ApkReceiverProbe {
                 val request = JSONObject(String(cipher.doFinal(raw.copyOfRange(12, raw.size))))
                 val reply = JSONObject().put("id", request.getString("id")).put("ok", true)
                 when (request.getString("op")) {
-                    "apkOffer" -> reply.put("transfer", transfer).put("name", "VibePier.apk").put("size", bytes.size).put("sha256", if (corrupt) "0".repeat(64) else hash)
+                    "androidUpdateStage" -> {
+                        check(request.getString("packageName") == BuildConfig.APPLICATION_ID)
+                        check(request.getInt("versionCode") == BuildConfig.VERSION_CODE)
+                        staged = true; updateRequests++
+                        reply.put("phase", "pending").put("transfer", transfer)
+                    }
+                    "apkOffer" -> {
+                        if (!staged) { respond(reply, onSessionFrame); return }
+                        reply.put("transfer", transfer).put("name", "VibePier.apk").put("size", bytes.size).put("sha256", if (corrupt) "0".repeat(64) else hash)
+                        if (mode == "relay" && request.optInt("downloadVersion") == 1) reply.put("download", JSONObject()
+                            .put("version", 1).put("token", request.getString("id")).put("fragmentChars", 7200).put("chunkBytes", 131072).put("window", 4))
+                    }
                     "apkChunk" -> {
                         val offset = request.getInt("offset"); offsets.add(offset.toLong())
                         if (stopAtChunk && offset > 0) return
@@ -82,7 +103,15 @@ object ApkReceiverProbe {
                     "apkStatus" -> statuses.add(request.getString("state"))
                     else -> return
                 }
-                respond(reply, onSessionFrame)
+                if (mode == "relay" && request.optString("op") == "apkChunk") {
+                    check(request.has("downloadToken"))
+                    durableOffsets.add(request.getLong("durableOffset"))
+                    val offset = request.getInt("offset")
+                    main.postDelayed({
+                        if (offset == 0) fastReordered = offsets.size >= 4
+                        respond(reply, onSessionFrame, request.getString("id"))
+                    }, if (offset == 0) 150 else 0)
+                } else respond(reply, onSessionFrame)
             }
         }
         fun waitUntil(condition: () -> Boolean) {
@@ -134,7 +163,24 @@ object ApkReceiverProbe {
                 transport.onSessionPair(JSONObject().put("state", "approved").put("device", client.device).put("key", Base64.encodeToString(ByteArray(32) { 7 }, Base64.NO_WRAP)).toString().toByteArray())
             }
             test.waitForIdleSync(); check(client.paired)
-            test.runOnMainSync { transport.mode = "wifi"; receiver = ApkReceiver(activity, client); receiverCreated = true; stopAtChunk = true; receiver.resume() }
+            test.runOnMainSync {
+                transport.mode = "wifi"; receiver = ApkReceiver(activity, client, notices::add); receiverCreated = true
+                stopAtChunk = true; receiver.resume()
+                val versions = AppVersionUpdates(client) {}
+                versions.javaClass.getDeclaredField("available").apply { isAccessible = true }
+                    .set(versions, AvailableAppVersion(BuildConfig.VERSION_CODE.toLong() + 1, "synthetic-next"))
+                val updates = AppUpdatesSheet(activity, client, versions, receiver)
+                initialUpdates = updates
+                updates.show(requestUpdate = true)
+                updates.show(requestUpdate = true)
+                repeat(3) { updates.refresh() }
+            }
+            // Session transmission is asynchronous; inspect only after the isolated host admits the request.
+            waitUntil { updateRequests >= 1 }
+            test.runOnMainSync {
+                check(updateRequests == 1) { "Tapping a known update must stage it once without a Mac send action" }
+                initialUpdates.close()
+            }
             waitUntil { offsets.size >= 2 }
             test.runOnMainSync { receiver.pause(); client.connectionChanged(false) }
             val durable = java.io.File(activity.filesDir, "apk-install/$transfer.apk").length()
@@ -145,8 +191,11 @@ object ApkReceiverProbe {
             check(java.io.File(activity.filesDir, "apk-install/$transfer.apk").readBytes().contentEquals(bytes))
             // A fresh desktop task supersedes a downloaded APK which has not entered the system installer.
             transfer = UUID.randomUUID().toString()
-            test.runOnMainSync { receiver.check(true) }
+            test.runOnMainSync { offsets.clear(); transport.mode = "relay"; client.connectionChanged(false); client.connectionChanged(true); receiver.check(true) }
             waitUntil { prefs.getString("state", "") == "received" && JSONObject(prefs.getString("offer", "{}")!!).optString("transfer") == transfer }
+            check(fastReordered) { "Relay did not fill four slots before the first block arrived" }
+            check(durableOffsets.take(4) == listOf(0L, 0L, 0L, 0L)) { "Requested offsets incorrectly acknowledged as durable" }
+            check(java.io.File(activity.filesDir, "apk-install/$transfer.apk").readBytes().contentEquals(bytes))
             test.runOnMainSync { check(dialog() != null); dialog()!!.getButton(AlertDialog.BUTTON_NEGATIVE).performClick() }
             waitUntil { "cancelled" in statuses }
             check(!java.io.File(activity.filesDir, "apk-install/$transfer.apk").exists())
@@ -163,6 +212,31 @@ object ApkReceiverProbe {
             waitUntil { "success" in statuses }
             val installed = test.uiAutomation.executeShellCommand("dumpsys package io.github.junweiup.vibepier.installprobe").use { descriptor -> java.io.FileInputStream(descriptor.fileDescriptor).bufferedReader().readText() }
             check(installed.contains("versionName=1.0")) // Arbitrary installed packages are hidden by package visibility rules.
+            // Unacknowledged receipts retry without replaying local feedback, even after recreation.
+            val successNotice = activity.getString(R.string.apk_installed)
+            check(prefs.getString("notified", "") == "$transfer:success")
+            // MainActivity also owns a receiver; seed a fresh local notice after its resume completed.
+            val beforeNotice = notices.size
+            test.runOnMainSync {
+                client.connectionChanged(false)
+                prefs.edit().remove("reported").remove("notified").commit()
+                receiver.check(true)
+            }
+            check(notices.size == beforeNotice + 1 && notices.last() == successNotice)
+            val noticeCount = notices.size
+            test.runOnMainSync {
+                repeat(5) { receiver.check(true); receiver.pause(); receiver.resume() }
+                receiver.close()
+                receiver = ApkReceiver(activity, client, notices::add)
+                receiver.resume()
+            }
+            check(notices.size == noticeCount) { "Offline/recreated receiver repeated the installation notice" }
+            val successReports = statuses.count { it == "success" }
+            test.runOnMainSync { client.connectionChanged(true); receiver.check(true) }
+            waitUntil { prefs.getString("reported", "") == transfer }
+            check(statuses.count { it == "success" } > successReports) { "Suppressing notice suppressed receipt retry" }
+            check(notices.size == noticeCount)
+            check(notices.count { it == activity.getString(R.string.apk_install_failed, activity.getString(R.string.apk_digest_failed)) } == 1)
             // Self-replacement fallback only completes an active update of our own package.
             prefs.edit().putString("state", "installing").putString("package", "other.app").commit()
             test.runOnMainSync { ApkInstallResult().onReceive(activity, Intent(Intent.ACTION_MY_PACKAGE_REPLACED)) }
@@ -170,7 +244,7 @@ object ApkReceiverProbe {
             prefs.edit().putString("package", activity.packageName).commit()
             test.runOnMainSync { ApkInstallResult().onReceive(activity, Intent(Intent.ACTION_MY_PACKAGE_REPLACED)) }
             check(prefs.getString("state", "") == "success")
-            return "PASS: encrypted APK RPC, durable offset resume after disconnect, exact file bytes/SHA256, new offer replaces downloaded/unconfirmed APK, cancellation cleanup, corrupt SHA256 blocked, PackageInstaller system confirmation and actual APK installation, persisted success ACK, self-update replacement fallback scoped to active own-package install\n"
+            return "PASS: known update tap stages once without a Mac send action, negotiated relay APK, four-slot out-of-order receive and durable acknowledgments, encrypted APK RPC, durable offset resume after disconnect, exact file bytes/SHA256, new offer replaces downloaded/unconfirmed APK, cancellation cleanup, corrupt SHA256 blocked, PackageInstaller system confirmation and actual APK installation, persisted success ACK, single terminal notice across offline retries and receiver recreation, self-update replacement fallback scoped to active own-package install\n"
         } finally {
             test.runOnMainSync { if (receiverCreated) receiver.close(); if (clientCreated) client.close(); activity.finish() }
             if (clientCreated) io.github.junweiup.vibepier.remote.core.security.DeviceKeys(context).clear()

@@ -9,6 +9,7 @@ public final class PhoneBindings: @unchecked Sendable {
         public var version: String
         public var operation: String
         public var name: String
+        public var label: String? = nil
     }
     public struct Snapshot: Codable, Sendable {
         public var revision: String
@@ -41,6 +42,7 @@ public final class PhoneBindings: @unchecked Sendable {
     struct PortableEntry: Codable, Equatable {
         var value: String
         var name: String
+        var label: String? = nil
     }
     static func validatePortable(_ entries: [String: PortableEntry]) throws {
         guard entries.count <= 256 else { throw CLIError(L10n.text("control.you_can_import_up_to_256_phone_bindings")) }
@@ -49,7 +51,9 @@ public final class PhoneBindings: @unchecked Sendable {
                 controls.contains { key == Self.key($0) }
                 || application(for: key).map { !$0.isEmpty && $0.count <= 200 && !$0.contains(where: \.isWhitespace) }
                     == true
-            guard valid, key.count <= 240, entry.name.count <= 200, entry.value.count <= 200 else {
+            guard valid, key.count <= 240, entry.name.count <= 200, entry.value.count <= 200,
+                (entry.label?.count ?? 0) <= 200
+            else {
                 throw CLIError(L10n.text("control.invalid_phone_binding_settings"))
             }
             _ = try normalize(entry.value)
@@ -79,12 +83,16 @@ public final class PhoneBindings: @unchecked Sendable {
             var modified = false
             for (key, entry) in entries {
                 let normalized = try Self.normalize(entry.value)
-                if next.entries[key]?.value == normalized && next.entries[key]?.name == entry.name { continue }
+                if next.entries[key]?.value == normalized && next.entries[key]?.name == entry.name
+                    && next.entries[key]?.label == entry.label
+                {
+                    continue
+                }
                 modified = true
                 next.generation += 1
                 next.entries[key] = Entry(
                     value: normalized, generation: next.generation,
-                    version: UUID().uuidString, operation: UUID().uuidString, name: entry.name)
+                    version: UUID().uuidString, operation: UUID().uuidString, name: entry.name, label: entry.label)
             }
             guard modified else { return false }
             next.revision = UUID().uuidString
@@ -148,14 +156,14 @@ public final class PhoneBindings: @unchecked Sendable {
     }
     /// nil expectedVersion is a local edit. Empty means first migration; tombstones still win.
     @discardableResult public func set(
-        key: String, value: String?, name: String = "", expectedVersion: String? = nil,
+        key: String, value: String?, name: String = "", label: String? = nil, expectedVersion: String? = nil,
         operation: String = UUID().uuidString
     ) throws -> Bool {
         let valid =
             Self.controls.contains { key == Self.key($0) }
             || Self.application(for: key).map { !$0.isEmpty && $0.count <= 200 && !$0.contains(where: \.isWhitespace) }
                 == true
-        guard valid, key.count <= 240, name.count <= 200, operation.count <= 80 else {
+        guard valid, key.count <= 240, name.count <= 200, (label?.count ?? 0) <= 200, operation.count <= 80 else {
             throw CLIError(L10n.text("control.invalid_phone_binding_settings"))
         }
         let normalized = try value.map(Self.normalize)
@@ -171,7 +179,7 @@ public final class PhoneBindings: @unchecked Sendable {
             next.generation += 1
             next.entries[key] = Entry(
                 value: normalized, generation: next.generation, version: UUID().uuidString, operation: operation,
-                name: name)
+                name: name, label: normalized == nil ? nil : label?.trimmingCharacters(in: .whitespacesAndNewlines))
             let data = try JSONEncoder().encode(next)
             try FileManager.default.createDirectory(
                 at: url.deletingLastPathComponent(), withIntermediateDirectories: true)
@@ -186,6 +194,13 @@ public final class PhoneBindings: @unchecked Sendable {
         let entries = snapshot.entries
         return entries[Self.key(control, app: app)]?.value ?? entries[Self.key(control)]?.value ?? Self.defaults[
             control] ?? ""
+    }
+    public func resolvedLabel(_ control: String, app: String = "", fallback: String) -> String {
+        let entries = snapshot.entries
+        for key in [Self.key(control, app: app), Self.key(control)] {
+            if let entry = entries[key], entry.value != nil, let label = entry.label, !label.isEmpty { return label }
+        }
+        return fallback
     }
     /// Call only after the transport verifies an active subscribed peer.
     func reply(to text: String, sender: String) -> [Data]? {
@@ -218,6 +233,7 @@ public final class PhoneBindings: @unchecked Sendable {
         do {
             ack["accepted"] = try set(
                 key: key, value: request["value"] as? String, name: request["name"] as? String ?? "",
+                label: request["label"] as? String,
                 expectedVersion: version, operation: operation)
         } catch {
             ack["accepted"] = false

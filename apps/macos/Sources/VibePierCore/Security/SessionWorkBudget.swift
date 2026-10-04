@@ -127,7 +127,7 @@ enum SessionRequestLane: String, CaseIterable {
         }
         if [
             "applications", "applicationShortcutSet", "appUsage", "appUsageSet", "lockScreen", "unlockScreen",
-            "unlockPassword",
+            "unlockPassword", "androidUpdateStage",
         ]
         .contains(operation) {
             return Self.controls.rawValue
@@ -184,6 +184,10 @@ struct SessionReadReplies {
         entries[key]?.result = result
     }
     mutating func removeAll() { entries.removeAll() }
+    mutating func abandon(_ key: String, hash: String) {
+        guard let entry = entries[key], entry.hash == hash, entry.result == nil else { return }
+        entries.removeValue(forKey: key)
+    }
     mutating func remove(device: String) { entries = entries.filter { $0.value.device != device } }
     private mutating func makeRoom(device: String, addedCount: Int, addedBytes: Int, except key: String?) -> Bool {
         guard addedBytes <= limits.bytesPerDevice, addedBytes <= limits.bytesTotal else { return false }

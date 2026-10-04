@@ -34,7 +34,9 @@ final class BluetoothRemote: NSObject, CBPeripheralManagerDelegate, @unchecked S
     private var currentApplicationObserver: NSObjectProtocol?
     private var bindingsObserver: NSObjectProtocol?
     private var trustObserver: NSObjectProtocol?
-    private let security = SecureControlServer(keyForDevice: { DeviceTrustStore.shared.key(for: $0) })
+    private let security = SecureControlServer(
+        keyForDevice: { DeviceTrustStore.shared.key(for: $0) },
+        capabilities: ControlProtocol.required | ControlProtocol.phoneAudio)
     private var buffers: [UUID: RemoteLineBuffer] = [:]
     private var centrals: [UUID: CBCentral] = [:]
     private var senders: [UUID: String] = [:]
@@ -58,7 +60,8 @@ final class BluetoothRemote: NSObject, CBPeripheralManagerDelegate, @unchecked S
     var status: [String: Any] {
         queue.sync {
             [
-                "state": label, "connectedCount": senders.count,
+                "state": label, "connectedCount": Set(senders.values).count,
+                "deviceIDs": Array(Set(senders.values)).sorted(),
                 "authorization": CBManager.authorization.rawValue, "managerState": manager?.state.rawValue ?? -1,
             ]
         }

@@ -295,6 +295,7 @@ final class Daemon: @unchecked Sendable {
     // MARK: Android remote
 
     private func startRemote() {
+        BinaryFileTransfers.shared.configure(nil)
         let port = lock.withLock { config.remotePort } ?? Int(RemoteListener.defaultPort)
         guard port > 0, let p = UInt16(exactly: port) else { return }
         let listener = RemoteListener(
@@ -315,7 +316,9 @@ final class Daemon: @unchecked Sendable {
     private func restartRelay() {
         relayClient?.stop()
         relayClient = nil
-        guard let settings = lock.withLock({ RelaySettings(config) }) else { return }
+        let settings = lock.withLock { RelaySettings(config) }
+        BinaryFileTransfers.shared.configure(settings)
+        guard let settings else { return }
         let client = RelayClient(settings: settings) { [weak self] e in self?.onRemote(e) }
         client.directOffer = { [weak self] sender, token, candidates, answer in
             guard let remote = self?.remote else {
@@ -1013,6 +1016,15 @@ final class Daemon: @unchecked Sendable {
             let (b, linked, sessions) = lock.withLock {
                 (lastBattery, micLinked, agentSessions.mapValues { $0.state })
             }
+            let bluetoothStatus =
+                bluetoothRemote?.status ?? ["state": L10n.text("mac.not_started"), "connectedCount": 0]
+            let relayStatus =
+                relayClient?.status ?? [
+                    "state": L10n.text("mac.not_configured"), "connectedCount": 0, "url": "", "room": "",
+                ]
+            let connectedPhoneIDs = Set(
+                (remote?.connectedDeviceIDs ?? []) + (bluetoothStatus["deviceIDs"] as? [String] ?? [])
+                    + (relayStatus["deviceIDs"] as? [String] ?? []))
             var out: [String: Any] = [
                 "ok": true,
                 "dongleConnected": session.isConnected,
@@ -1027,12 +1039,11 @@ final class Daemon: @unchecked Sendable {
                 "launchAtLogin": Service.appLoginEnabled,
                 "keyEventCount": lock.withLock { keyEventCount },
                 "remoteConnectedAddresses": remote?.connectedAddresses ?? [],
+                "connectedPhoneIDs": connectedPhoneIDs.sorted(),
                 "remoteListening": remote != nil,
                 "phoneMicrophone": PhoneMicrophone.shared.status,
-                "bluetooth": bluetoothRemote?.status ?? ["state": L10n.text("mac.not_started"), "connectedCount": 0],
-                "relay": relayClient?.status ?? [
-                    "state": L10n.text("mac.not_configured"), "connectedCount": 0, "url": "", "room": "",
-                ],
+                "bluetooth": bluetoothStatus,
+                "relay": relayStatus,
                 "applicationShortcuts": ApplicationShortcuts.shared.snapshot.entries.map {
                     [
                         "slot": $0.slot, "bundleID": $0.bundleID, "name": $0.name, "iconPNG": "",

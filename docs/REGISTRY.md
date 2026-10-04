@@ -4,9 +4,9 @@ VibePier is distributed as applications, a CLI and relay archives. There is **no
 
 ## Artifact contract
 
-`VERSION` contains the prerelease-aware version; `VERSION_CODE` contains the Android/Mac numeric build. Build from the repository root. Packaging does not install or launch anything.
+`VERSION` contains the prerelease-aware version; `VERSION_CODE` contains the Android/Mac numeric build. Build from the repository root. Packaging does not install or launch anything. New packages use `dist/build-<VERSION_CODE>/`; the published build 8 filenames remain unchanged. Each artifact also has a `.build.json` sidecar with source commit, dirty state, source-tree digest and artifact digest. Packaging rejects source changes and refuses to overwrite a build with different bytes or provenance. These sidecars do not claim device acceptance or hosted CI.
 
-| Command | Output in `dist/` | Contents / identity |
+| Command | Output in `dist/build-<VERSION_CODE>/` | Contents / identity |
 | --- | --- | --- |
 | `make package-macos` | `VibePier-<VERSION>-macos-arm64.zip` | `VibePier.app`, `io.github.junweiup.vibepier`, icon, permission resources, LICENSE/NOTICE |
 | Same command | `vibepier-<VERSION>-macos-arm64.tar.gz` | CLI binary, LICENSE/NOTICE |
@@ -39,8 +39,9 @@ Checksum generation from the repository root uses an explicit file list so stale
 
 ```sh
 release_version=$(cat VERSION)
+release_build=$(cat VERSION_CODE)
 (
-  cd dist
+  cd "dist/build-$release_build"
   shasum -a 256 \
     "VibePier-$release_version-macos-arm64.zip" \
     "vibepier-$release_version-macos-arm64.tar.gz" \
@@ -55,6 +56,8 @@ release_version=$(cat VERSION)
 Consumers run `shasum -a 256 -c SHA256SUMS` in the download directory (or `sha256sum -c SHA256SUMS` on Linux). A checksum verifies equality with the published bytes; it is not a substitute for checking the source of the release or its platform signature.
 
 ## 中文说明
+
+新增产物按构建号保存在 `dist/build-<VERSION_CODE>/`，每项附 `.build.json` 源码追溯与摘要。构建期间源码变化、同构建号不同字节或元数据冲突会拒绝，既有公开 build 8 不改变。
 
 实际分发包含 Mac 应用、CLI、Android 正式 APK、Linux 双架构中继和校验和，没有组件注册中心或云端网页平台。版本来自根目录版本文件，Mac 系统短版本保留数字部分，包名与 CLI 保留 beta 后缀。
 

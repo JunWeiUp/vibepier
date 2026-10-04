@@ -98,6 +98,7 @@ class RemoteSender(context: Context, private val simulateLaunchLoss: Boolean = f
         else -> wifiSecurity.supports(ControlProtocol.PHONE_AUDIO)
     }
     /** Relay mode whose keys and audio currently go straight over UDP (see [startDirect]). */
+    override val binaryHost: String? get() = if (mode == "wifi") selected?.hostAddress else if (mode == "relay") direct?.address?.hostAddress else null
     val isDirect: Boolean get() = mode == "relay" && direct != null
     /** Saved from the pairing code; applied on the next watch. */
     @Volatile var relaySettings: RelayLink.Settings? = null
@@ -423,7 +424,7 @@ class RemoteSender(context: Context, private val simulateLaunchLoss: Boolean = f
     override fun sendBinding(message: JSONObject) {
         val copy = JSONObject(message.toString()).put("sender", sender)
         val path = direct
-        if (mode == "relay" && path != null && copy.optString("type") == "vibepier-mic1")
+        if (mode == "relay" && path != null && (copy.optString("type") == "vibepier-mic1" || directSecurity.ready && copy.optString("type") == "vibepier-session1" && (!copy.has("upload") || copy.optInt("fragmentChars", 7200) == 512)))
             queueDatagram(copy.toString().toByteArray(), path, directSecurity, "relay", copy.optString("action") == "end")
         else if (mode == "relay") relay.send(copy.toString())
         else if (mode == "bluetooth" && copy.optString("type") == "vibepier-session1") bluetooth.sendChat(copy.toString())
@@ -612,10 +613,12 @@ class RemoteSender(context: Context, private val simulateLaunchLoss: Boolean = f
 
     private fun queueDatagram(bytes: ByteArray, destination: InetSocketAddress, channel: SecureControlClient, selectedMode: String, release: Boolean) {
         if (!watching) return
-        val frame = channel.seal(bytes)?.toByteArray(Charsets.UTF_8) ?: return
+        val sealed = channel.seal(bytes) ?: return
+        val frame = sealed.toByteArray(Charsets.UTF_8)
         // Seal now: a final release must still leave during the short shutdown drain.
         // Repeats use the identical authenticated packet, so only one may execute.
-        for (delay in REPEAT_DELAYS_MS) executor.schedule({
+        val delays = if (sealed.startsWith("vibepier-bulk1 ")) longArrayOf(0) else REPEAT_DELAYS_MS
+        for (delay in delays) executor.schedule({
             if (!release && (!watching || mode != selectedMode)) return@schedule
             try { socket.send(DatagramPacket(frame, frame.size, destination)) }
             catch (_: Exception) { if (!socket.isClosed) TransportLog.warning(TransportLog.Event.UDP_CONTROL) }
@@ -792,6 +795,7 @@ class RemoteSender(context: Context, private val simulateLaunchLoss: Boolean = f
     private val sessionHandler = android.os.Handler(android.os.Looper.getMainLooper())
     private fun updateSessionConnection() {
         val connected = synchronized(this) { currentApplication != null && connectedHost != null }
+        ConnectionDiagnostics.shared.observe(mode, isDirect, connected, deviceKeys.authorized)
         sessionHandler.post {
             if (sessionClientDelegate.isInitialized()) sessionClient.connectionChanged(connected)
         }

@@ -18,6 +18,7 @@ import javax.crypto.spec.GCMParameterSpec
 
 /** Encrypted, bounded RPC over either existing transport. No independent polling or background service. */
 interface SessionTransport {
+    val binaryHost: String? get() = null
     val mode: String
     /** Discovery is enough to request approval; private traffic still requires authorization. */
     val enrollmentReady: Boolean get() = false
@@ -32,8 +33,11 @@ interface SessionTransport {
 
 class SessionClient(context: Context, private val sender: SessionTransport, private val replyTimeoutMs: Long = 0, private val completionNotifications: Boolean = false) {
     val receivingContent get() = inbox.receivingContent
+    val relayDownload get() = sender.mode == "relay"
     val bluetooth get() = sender.mode == "bluetooth"
     val canRequestAuthorization get() = bluetooth && sender.enrollmentReady
+    val binaryHost: String? get() = sender.binaryHost
+    val attachmentFragmentChars get() = if (sender.mode == "wifi" || sender is io.github.junweiup.vibepier.remote.core.transport.RemoteSender && sender.isDirect) 512 else 7200
     val attachmentChunkBytes get() = if (sender.mode == "bluetooth") 8 * 1024 else 128 * 1024
     private val responseTimeout get() = if (replyTimeoutMs > 0) replyTimeoutMs else if (sender.mode == "bluetooth") 45_000L else 12_000L
     private val context = context.applicationContext
@@ -43,7 +47,20 @@ class SessionClient(context: Context, private val sender: SessionTransport, priv
     val versionConnectionID get() = if (online && paired) "$versionConnectionEpoch:${sender.mode}" else null
     val device = keys.device
     private val main = Handler(Looper.getMainLooper())
+    private val transmission = java.util.concurrent.Executors.newSingleThreadExecutor()
+    private val transmissionBytes = java.util.concurrent.atomic.AtomicInteger()
+    private data class UploadTransmission(val request: String, val attachment: String, val authorization: String,
+        val frames: List<String>, val created: Long, val bytes: Int, val resends: java.util.concurrent.atomic.AtomicInteger = java.util.concurrent.atomic.AtomicInteger())
+    private val uploadTransmissions = java.util.concurrent.ConcurrentHashMap<String, UploadTransmission>()
+    private val uploadTransmissionBytes = java.util.concurrent.atomic.AtomicInteger()
+    private val cancelledUploads = java.util.concurrent.ConcurrentHashMap<String, Long>()
+    private fun clearUploadTransmissions(keep: (UploadTransmission) -> Boolean) {
+        uploadTransmissions.entries.forEach { (packet, value) ->
+            if (!keep(value) && uploadTransmissions.remove(packet, value)) uploadTransmissionBytes.addAndGet(-value.bytes)
+        }
+    }
     val paired get() = keys.authorized
+    val authorizationIdentity: String get() = keys.authorizationIdentity.orEmpty()
     var viewVersion = prefs.getLong("viewVersion", 0); private set
     /** Pending retries retain the provider of the original request. */
     var provider = SessionProvider.normalize(prefs.getString("provider", "codex"))
@@ -55,7 +72,7 @@ class SessionClient(context: Context, private val sender: SessionTransport, priv
     /** Session drawer grouping: "recent" or "projects". */
     var listMode = prefs.getString("listMode", "recent") ?: "recent"
         set(value) { field = value; prefs.edit().putString("listMode", value).apply() }
-    var online = false; private set
+    @Volatile var online = false; private set
     var onAPKAvailable: () -> Unit = {}
     var onEvent: (JSONObject) -> Unit = {}
     var onState: (String) -> Unit = {}
@@ -73,8 +90,8 @@ class SessionClient(context: Context, private val sender: SessionTransport, priv
     private val pairRetry = Runnable { if (System.currentTimeMillis() < pairDeadline) sender.readSessionPair() else { pairDeadline = 0; reportAuthorization(context.getString(R.string.client_approval_timeout)) } }
     private fun mutable(op: String) = op in setOf("send", "new", "approve", "settings", "interrupt", "queueSteer", "queueDelete", "lockScreen", "unlockScreen", "codexUsageReset")
     // Password verification is not retried, but must never enter durable phone storage.
-    private fun uncertainOnTimeout(op: String) = mutable(op) || op == "unlockPassword"
-    private data class Request(val json: JSONObject, val callbacks: MutableList<(JSONObject) -> Unit>, val readKey: String? = null, val cacheKey: String? = null, var attempts: Int = 0) {
+    private fun uncertainOnTimeout(op: String) = mutable(op) || op in setOf("unlockPassword", "androidUpdateStage")
+    private data class Request(val json: JSONObject, val callbacks: MutableList<(JSONObject) -> Unit>, val readKey: String? = null, val cacheKey: String? = null, var attempts: Int = 0, val byteSize: Int = json.toString().toByteArray(Charsets.UTF_8).size) {
         fun deliver(value: JSONObject) { callbacks.toList().forEach { it(JSONObject(value.toString())) } }
     }
     private val content = ConversationCache(prefs)
@@ -144,23 +161,32 @@ class SessionClient(context: Context, private val sender: SessionTransport, priv
         content.put("page:$key", value)
     }
     private val inbox = SessionResponseInbox(device, android.os.SystemClock::elapsedRealtime)
-    private val pending = mutableMapOf<String, Request>()
+    private var apkDownloadToken: String? = null
+    private var apkDownloadConnection: String? = null
+    private val pending = java.util.concurrent.ConcurrentHashMap<String, Request>()
     @Volatile private var closed = false
+    private val queuedFrameBytes = java.util.concurrent.atomic.AtomicInteger()
     private val queuedFrames = java.util.concurrent.atomic.AtomicInteger()
     init {
         sender.onSessionFrame = { frame ->
             if (!closed) {
-                val encoded = frame.toString()
-                if (encoded.toByteArray(Charsets.UTF_8).size <= 4096) {
-                    if (queuedFrames.incrementAndGet() <= 2048) {
-                        if (!main.post { try { if (!closed) receive(JSONObject(encoded)) } finally { queuedFrames.decrementAndGet() } }) queuedFrames.decrementAndGet()
-                    } else queuedFrames.decrementAndGet()
+                val encoded = frame.toString().replace("\\/", "/")
+                val size = encoded.toByteArray(Charsets.UTF_8).size
+                if (size <= 8192) {
+                    val count = queuedFrames.incrementAndGet()
+                    val bytes = queuedFrameBytes.addAndGet(size)
+                    if (count <= 2048 && bytes <= 8 * 1024 * 1024) {
+                        if (!main.post {
+                            try { if (!closed) receive(JSONObject(encoded)) }
+                            finally { queuedFrames.decrementAndGet(); queuedFrameBytes.addAndGet(-size) }
+                        }) { queuedFrames.decrementAndGet(); queuedFrameBytes.addAndGet(-size) }
+                    } else { queuedFrames.decrementAndGet(); queuedFrameBytes.addAndGet(-size) }
                 }
             }
         }
         sender.onSessionPair = { data -> if (!closed && (data == null || data.size <= 4096)) { val copy = data?.copyOf(); main.post { if (!closed) pairReply(copy) } } }
     }
-    private var versionConnectionEpoch = 0L
+    @Volatile private var versionConnectionEpoch = 0L
     fun connectionChanged(connected: Boolean) {
         if (closed) return
         if (connected != online) versionConnectionEpoch++
@@ -169,6 +195,7 @@ class SessionClient(context: Context, private val sender: SessionTransport, priv
         if (restored && paired && completionNotifications) request("notificationSubscribe") { }
         if (!connected) {
             if (!sender.enrollmentReady) { pairDeadline = 0; main.removeCallbacks(pairRetry) }
+            apkDownloadToken = null; apkDownloadConnection = null
             inbox.clearPartial()
             val requests = pending.toMap(); pending.clear()
             requests.values.forEach { it.deliver(JSONObject().put("ok", false).put("unknown", uncertainOnTimeout(it.json.optString("op"))).put("error", context.getString(R.string.client_disconnected))) }
@@ -210,7 +237,12 @@ class SessionClient(context: Context, private val sender: SessionTransport, priv
     }
     fun request(op: String, fields: JSONObject = JSONObject(), callback: (JSONObject) -> Unit): String {
         val id = fields.optString("id").ifBlank { UUID.randomUUID().toString() }
-        val request = JSONObject(fields.toString()).put("op", op).put("id", id).put("sentAt", System.currentTimeMillis())
+        val request = JSONObject().apply {
+            fields.keys().forEach { key ->
+                val value = fields.get(key)
+                put(key, when (value) { is JSONObject -> JSONObject(value.toString()); is JSONArray -> JSONArray(value.toString()); else -> value })
+            }
+        }.put("op", op).put("id", id).put("sentAt", System.currentTimeMillis())
         if (!request.has("provider")) request.put("provider", provider)
         if (!online && paired && (op == "image" || (op == "message" && request.optString("cacheVersion").isNotBlank()))) {
             val key = "read:${request.optString("provider")}:${request.optString("threadId")}:$op:" + readKey(request, false)
@@ -223,7 +255,8 @@ class SessionClient(context: Context, private val sender: SessionTransport, priv
         val nextView = if (changesView) viewVersion + 1 else viewVersion
         if (!request.has("viewVersion")) request.put("viewVersion", nextView)
         if (!request.has("provider")) request.put("provider", provider)
-        val requestBytes = request.toString().toByteArray(Charsets.UTF_8).size
+        val encodedRequest = request.toString().toByteArray(Charsets.UTF_8)
+        val requestBytes = encodedRequest.size
         if (requestBytes > SessionResponseInbox.PLAINTEXT_LIMIT) { callback(JSONObject().put("ok", false).put("error", context.getString(R.string.client_request_too_large))); return id }
         pending[id]?.let { existing ->
             if (readKey(existing.json, true) != readKey(request, true)) {
@@ -233,7 +266,7 @@ class SessionClient(context: Context, private val sender: SessionTransport, priv
             } else existing.callbacks.add(callback)
             return id
         }
-        val reading = op in setOf("list", "projects", "sync", "history", "parts", "message", "image", "composerOptions", "contextUsage", "browseFiles", "readMarkdownFile", "approvalDetails", "fileChanges", "readFile", "readImageFile", "fileDiff", "searchFiles")
+        val reading = op in setOf("list", "projects", "sync", "history", "parts", "message", "image", "composerOptions", "contextUsage", "browseFiles", "readMarkdownFile", "approvalDetails", "fileChanges", "readFile", "readImageFile", "readVideoFile", "fileDiff", "searchFiles")
         val readIdentity = if (reading) readKey(request, true) else null
         val cacheAge = when {
             op == "image" -> 10 * 60_000L
@@ -250,7 +283,7 @@ class SessionClient(context: Context, private val sender: SessionTransport, priv
             else { coalescedReads++; item.callbacks.add(callback) }
             return item.json.getString("id")
         }
-        if (pending.size >= 64 || pending.values.sumOf { it.json.toString().toByteArray(Charsets.UTF_8).size.toLong() } + requestBytes > 2 * 1024 * 1024) {
+        if (pending.size >= 64 || pending.values.sumOf { it.byteSize.toLong() } + requestBytes > 2 * 1024 * 1024) {
             callback(JSONObject().put("ok", false).put("error", context.getString(R.string.client_request_busy))); return id
         }
         if (mutable(op)) {
@@ -272,10 +305,10 @@ class SessionClient(context: Context, private val sender: SessionTransport, priv
             if (!prefs.edit().putLong("viewVersion", nextView).commit()) { callback(JSONObject().put("ok", false).put("error", context.getString(R.string.client_state_save_failed))); return id }
             viewVersion = nextView
         }
-        val item = Request(request, mutableListOf(callback), readIdentity, cacheKey)
+        val item = Request(request, mutableListOf(callback), readIdentity, cacheKey, byteSize = requestBytes)
         pending[id] = item
         if (reading) networkReads++
-        transmit(request)
+        transmit(request, encodedRequest)
         // Desktop actions may first unlock the Mac and switch apps, which takes several seconds.
         main.postDelayed({ timeout(id, item) }, if (replyTimeoutMs == 0L && op in listOf("send", "new", "approve", "settings", "interrupt", "queueSteer", "queueDelete", "lockScreen", "unlockScreen")) maxOf(responseTimeout, 30_000L) else responseTimeout)
         return id
@@ -292,7 +325,17 @@ class SessionClient(context: Context, private val sender: SessionTransport, priv
         }
     }
     /** Leaving a page cancels its reads, so their timeout retries cannot reopen an obsolete subscription. */
-    fun cancelAPKReads() { pending.entries.removeAll { it.value.json.optString("op") in setOf("apkOffer", "apkChunk") } }
+    internal fun cancelAttachmentRequests(attachment: String) {
+        cancelledUploads[attachment] = android.os.SystemClock.elapsedRealtime() + 30_000
+        clearUploadTransmissions { it.attachment != attachment }
+        pending.entries.removeAll { it.value.json.optString("attachmentId") == attachment &&
+            it.value.json.optString("op") in setOf("attachmentStart", "attachmentChunk", "attachmentComplete", "newAttachmentStart", "newAttachmentChunk", "newAttachmentComplete") }
+    }
+    fun cancelAPKReads() {
+        pending.entries.removeAll { it.value.json.optString("op") in setOf("apkOffer", "apkChunk", "apkBinary") }
+        apkDownloadToken = null; apkDownloadConnection = null
+        inbox.clearFastPartial()
+    }
     fun cancelMarkdownReads(thread: String, sourceProvider: String) {
         pending.entries.removeAll { it.value.json.optString("op") == "readMarkdownFile" && it.value.json.optString("threadId") == thread && it.value.json.optString("provider") == sourceProvider }
     }
@@ -300,7 +343,7 @@ class SessionClient(context: Context, private val sender: SessionTransport, priv
         if (id != null && pending[id]?.json?.optString("op") == "newOptions") pending.remove(id)
     }
     fun cancelPageReads() {
-        pending.entries.removeAll { it.value.json.optString("op") in setOf("open", "close", "list", "projects", "sync", "history", "parts", "message", "image", "composerOptions", "newOptions", "contextUsage", "browseFiles", "readMarkdownFile", "approvalDetails", "fileChanges", "readFile", "readImageFile", "fileDiff", "searchFiles") }
+        pending.entries.removeAll { it.value.json.optString("op") in setOf("open", "close", "list", "projects", "sync", "history", "parts", "message", "image", "composerOptions", "newOptions", "contextUsage", "browseFiles", "readMarkdownFile", "approvalDetails", "fileChanges", "readFile", "readImageFile", "readVideoFile", "fileDiff", "searchFiles") }
     }
     fun uncertain(thread: String, sourceProvider: String = provider): List<JSONObject> = prefs.all.filterKeys { it.startsWith("pending.") }.values.mapNotNull {
         try { JSONObject(it as String).takeIf { j -> j.optString("threadId") == thread && j.optString("provider", "codex") == sourceProvider } } catch (_: Exception) { null }
@@ -370,35 +413,102 @@ class SessionClient(context: Context, private val sender: SessionTransport, priv
         }
         saveAttachments(thread, keep, sourceProvider)
     }
-    private fun transmit(value: JSONObject) {
-        try {
-            val packet = UUID.randomUUID().toString()
-            val cipher = Cipher.getInstance("AES/GCM/NoPadding")
-            cipher.init(Cipher.ENCRYPT_MODE, secret()); cipher.updateAAD(aad(packet, "phone"))
-            val data = Base64.encodeToString(cipher.iv + cipher.doFinal(value.toString().toByteArray()), Base64.NO_WRAP)
-            val pieces = data.chunked(900)
-            pieces.forEachIndexed { i, part -> sender.sendBinding(JSONObject().put("type", "vibepier-session1").put("device", device)
-                .put("packet", packet).put("part", i).put("parts", pieces.size).put("data", part)) }
-        } catch (_: Exception) { onState(context.getString(R.string.client_key_unavailable)) }
+    private fun transmit(value: JSONObject, encoded: ByteArray = value.toString().toByteArray(Charsets.UTF_8)) {
+        val authorization = authorizationIdentity
+        val requestID = value.optString("id")
+        val requestToken = pending[requestID]
+        val fragmentHint = value.optInt("uploadFragmentChars", 7200)
+        val untrackedResend = value.optString("op") == "resend"
+        val attachment = value.optString("attachmentId").takeIf { value.optString("op") in setOf("attachmentStart", "attachmentChunk", "attachmentComplete", "newAttachmentStart", "newAttachmentChunk", "newAttachmentComplete") }
+        val upload = value.optString("attachmentId").takeIf {
+            value.optInt("uploadVersion") == 1 && value.optString("op") in setOf("attachmentChunk", "newAttachmentChunk")
+        }
+        if (transmissionBytes.addAndGet(encoded.size) > 2 * 1024 * 1024) {
+            transmissionBytes.addAndGet(-encoded.size)
+            onState(context.getString(R.string.client_request_busy)); return
+        }
+        try { transmission.execute {
+            try {
+                if (closed || !online || authorizationIdentity != authorization || (!untrackedResend && pending[requestID] !== requestToken) || attachment != null && cancelledUploads.containsKey(attachment)) return@execute
+                val packet = UUID.randomUUID().toString()
+                val cipher = Cipher.getInstance("AES/GCM/NoPadding")
+                cipher.init(Cipher.ENCRYPT_MODE, secret()); cipher.updateAAD(aad(packet, "phone"))
+                val data = Base64.encodeToString(cipher.iv + cipher.doFinal(encoded), Base64.NO_WRAP)
+                val fragmentChars = if (upload != null && !bluetooth) fragmentHint else 900
+                val parts = (data.length + fragmentChars - 1) / fragmentChars
+                val frames = (0 until parts).map { i ->
+                    JSONObject().put("type", "vibepier-session1").put("device", device)
+                        .put("packet", packet).put("part", i).put("parts", parts)
+                        .put("data", data.substring(i * fragmentChars, minOf((i + 1) * fragmentChars, data.length)))
+                        .apply { if (upload != null && !bluetooth) put("upload", upload).put("fragmentChars", fragmentChars) }.toString()
+                }
+                if (upload != null) {
+                    val now = android.os.SystemClock.elapsedRealtime()
+                    cancelledUploads.entries.removeAll { it.value <= now }
+                    clearUploadTransmissions { now - it.created < 30_000 && it.request != requestID }
+                    val bytes = frames.sumOf { it.toByteArray(Charsets.UTF_8).size }
+                    if (uploadTransmissionBytes.addAndGet(bytes) > 2 * 1024 * 1024) {
+                        uploadTransmissionBytes.addAndGet(-bytes); return@execute
+                    }
+                    uploadTransmissions[packet] = UploadTransmission(requestID, upload, authorization, frames, now, bytes)
+                }
+                for (frame in frames) {
+                    if (closed || !online || authorizationIdentity != authorization || (!untrackedResend && pending[requestID] !== requestToken) || attachment != null && cancelledUploads.containsKey(attachment)) break
+                    sender.sendBinding(JSONObject(frame))
+                }
+            } catch (_: Exception) { main.post { if (!closed) onState(context.getString(R.string.client_key_unavailable)) } }
+            finally { transmissionBytes.addAndGet(-encoded.size) }
+        } } catch (_: java.util.concurrent.RejectedExecutionException) { transmissionBytes.addAndGet(-encoded.size) }
+    }
+    private fun recoverUpload(value: JSONObject) {
+        val packet = value.optString("packet")
+        val saved = uploadTransmissions[packet] ?: return
+        val waiting = pending[saved.request] ?: return
+        val missing = value.optJSONArray("missing") ?: return
+        if (saved.attachment != value.optString("attachmentId") || waiting.json.optString("attachmentId") != saved.attachment ||
+            saved.authorization != authorizationIdentity || cancelledUploads.containsKey(saved.attachment) || missing.length() !in 1..256) return
+        val indices = (0 until missing.length()).map { missing.opt(it) as? Int ?: return }
+        if (indices.any { it !in saved.frames.indices } || indices.distinct().size != indices.size || saved.resends.incrementAndGet() > 3) return
+        try { transmission.execute {
+            if (closed || !online || saved.authorization != authorizationIdentity || cancelledUploads.containsKey(saved.attachment) ||
+                uploadTransmissions[packet] !== saved || android.os.SystemClock.elapsedRealtime() - saved.created >= 30_000) return@execute
+            indices.forEach { index ->
+                if (!closed && !cancelledUploads.containsKey(saved.attachment)) sender.sendBinding(JSONObject(saved.frames[index]))
+            }
+        } } catch (_: java.util.concurrent.RejectedExecutionException) {}
     }
     private fun receive(frame: JSONObject) {
         if (closed || !paired) return
         try {
-            val progress = inbox.receive(frame) { packet, bytes ->
+            val progress = inbox.receive(frame, decrypt = { packet, bytes ->
                 val cipher = Cipher.getInstance("AES/GCM/NoPadding")
                 cipher.init(Cipher.DECRYPT_MODE, secret(), GCMParameterSpec(128, bytes.copyOfRange(0, 12)))
                 cipher.updateAAD(aad(packet, "mac"))
                 cipher.doFinal(bytes.copyOfRange(12, bytes.size))
-            } ?: return
+            }, acceptsFastRequest = { id ->
+                val request = pending[id]?.json
+                relayDownload && apkDownloadToken != null && apkDownloadConnection == versionConnectionID &&
+                    request?.optString("op") == "apkChunk" && request.optString("downloadToken") == apkDownloadToken
+            }) ?: return
             if (progress.started && progress.message == null) main.postDelayed({ missing(progress.ticket) }, 1800)
             val value = progress.message ?: return
+            if (value.optString("event") == "uploadMissing") { recoverUpload(value); return }
             val id = value.optString("id")
             if (id.isNotEmpty()) {
                 val original = prefs.getString("pending.$id", null)?.let { JSONObject(it) }
                 val waiting = pending[id]
+                if (waiting?.json?.optString("op") == "apkOffer") {
+                    val profile = value.optJSONObject("download")
+                    apkDownloadToken = if (relayDownload && waiting.json.optInt("downloadVersion") == 1 &&
+                        profile?.optInt("version") == 1 && profile.optString("token") == id &&
+                        profile.optInt("fragmentChars") == 7200 && profile.optInt("chunkBytes") == 128 * 1024 && profile.optInt("window") == 4) id else null
+                    apkDownloadConnection = if (apkDownloadToken != null) versionConnectionID else null
+                    if (apkDownloadToken == null) value.remove("download")
+                }
                 val intent = original ?: waiting?.json?.takeIf { mutable(it.optString("op")) }
                 if (intent != null && !SessionResponseInbox.confirms(value, intent)) { onState(context.getString(R.string.client_message_invalid)); return }
                 pending.remove(id)
+                clearUploadTransmissions { it.request != id }
                 val sourceProvider = waiting?.json?.optString("provider") ?: original?.optString("provider", "codex")
                 if (!value.has("provider") && sourceProvider != null) value.put("provider", sourceProvider)
                 if (!value.optBoolean("unknown")) {
@@ -443,5 +553,5 @@ class SessionClient(context: Context, private val sender: SessionTransport, priv
             }
         }
     }
-    fun close() { closed = true; online = false; content.flush(); pairDeadline = 0; main.removeCallbacksAndMessages(null); inbox.clearPartial(); pending.clear() }
+    fun close() { closed = true; transmission.shutdownNow(); uploadTransmissions.clear(); cancelledUploads.clear(); online = false; content.flush(); pairDeadline = 0; main.removeCallbacksAndMessages(null); inbox.clearPartial(); pending.clear() }
 }

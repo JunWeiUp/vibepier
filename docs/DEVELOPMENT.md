@@ -187,3 +187,29 @@ The generated Mac catalog is checked alongside repository resources by `make lin
 `swift test --package-path apps/macos --filter CodexUsageTests` uses injected account replies for quota projection, unknown values, confirmation, account/card changes, expiry, scoped idempotency, duplicate requests and uncertain outcomes. `VIBEPIER_CODEX_USAGE_SMOKE=1` opts into the separate **read-only** native account check; it never calls consume. The `codex-usage` Android instrumentation probe uses synthetic replies and verifies the actual menu/dialog, bilingual remaining/reset/card labels, cancellation, single submission and unknown-receipt protection. Run it with `am instrument -w -r` so raw result codes, selector and locale are observable. Test redemption must stay synthetic.
 
 Android update deliveries must increment `VERSION_CODE`; see [Android version registration](ANDROID-UPDATES.md) and `agent.md`. APK metadata generation is build-only; registration and installation are explicit operations.
+
+## APK relay throughput experiment
+
+Run `VIBEPIER_APK_BENCHMARK=1 go -C services/relay test ./internal/relay -run TestAPKRelayThroughput -v`. Optionally set `VIBEPIER_APK_BENCHMARK_OUTPUT` to a local JSON output path. Ordinary tests skip this timed experiment. It uses generated 2 MiB data, temporary synced files, authenticated isolated relay connections and synthetic AES-GCM endpoints; it never installs an APK, reads signing keys or contacts the deployed relay. The synthetic endpoints model the two encryption layers and production frame/window sizes; this is not a full Mac-to-Android or real-device benchmark.
+
+For 20/100/200 ms injected request-to-response delay, report elapsed time, MiB/s, encrypted frame count, peak reserved blocks and file write/sync time. Compare 900-character/one-block and 7200-character/four-block profiles. Require at least 2× at 100 ms and verify the final SHA-256. Production logic has separate Swift/JVM tests for negotiation, envelope budgets, pending-request binding, reordered replies, duplicate rejection, legacy/BLE resume, cancellation and stale disk writes.
+
+隔离中继测试模拟云链路往返延迟，记录吞吐、帧数、窗口峰值和落盘耗时；不能将模拟端点的提速倍数当作真机承诺。真机验收须另行指定设备，分别记录传输、校验、等待系统确认和安装成功。
+
+### Focused improvement checks / 改进验证
+
+`make lint-repository` includes temporary dummy-artifact publication checks. Related Android PRs run the existing API 35 device workflow with its normal smoke cases plus `audit-runtime`, `audit-conversation` and `apk`. The new review probes use synthetic audio/pages and encrypted loopback where applicable; they do not operate a real Mac/provider. Manual full suites remain optional; ordinary smoke no longer changes to a special small-screen layout.
+
+Packaging snapshots the public source fingerprint before building, verifies it again before each immutable publication, and writes `dist/build-<VERSION_CODE>/` with per-artifact `.build.json` provenance. Do not edit source during packaging or overwrite different bytes under an existing build number. A local dirty build records that state; it cannot claim to correspond exactly to its parent commit.
+
+相关 PR 只运行单 API 35 核心冒烟及运行恢复/会话/APK 专项，不自动扩展矩阵。普通检查不操作真机、原生服务商或真实音频；本地模拟器结果和远端工作流结果分别记录。产物按构建号保存，打包期间源码变化会拒绝；dirty 产物明确记录，不能声称完全对应父提交。
+
+### MP4 preview validation / MP4 预览验证
+
+`SessionProjectFilesTests.testVideoChunksAreBoundedVersionedAndWorkspaceScoped` checks encrypted RPC chunk bounds, complete reconstruction, file mutation, traversal/symlink escape and the 128 MiB limit using synthetic temporary files. The `video-preview` designReview instrumentation probe checks multi-chunk download, exact SHA-256, manual H.264/AAC playback, pause/seek and cleanup for synthetic Claude/Codex hosts. It does not call either provider or validate a real phone. Its test-only fixture can be regenerated with:
+
+```sh
+ffmpeg -f lavfi -i testsrc2=size=320x240:rate=24 -f lavfi -i sine=frequency=440:sample_rate=44100 -t 4 -c:v libx264 -g 24 -pix_fmt yuv420p -c:a aac -movflags +faststart -y apps/android/app/src/androidTest/assets/video-preview.mp4
+```
+
+Swift 测试仅使用临时合成文件，覆盖分块、完整重组、文件变更、目录穿越/符号链接越界和大小上限。`video-preview` 模拟器探针使用上述测试专属合成视频与虚构 Claude/Codex 主机，验证摘要、播放、暂停/拖动和清理；不调用真实 AI 会话，不等于真机验收。

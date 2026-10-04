@@ -1046,6 +1046,14 @@ enum LocalizationCatalog {
             "Unknown file operation",
             "未知文件操作",
         ],
+        "files.video_size_limit": [
+            "Video preview supports non-empty MP4 files up to 128 MB.",
+            "视频预览支持非空且不超过 128 MB 的 MP4 文件。",
+        ],
+        "files.video_workspace_only": [
+            "Only MP4 files inside this session workspace can be played.",
+            "仅支持播放此会话项目目录内的 MP4 文件。",
+        ],
         "hardware.checksum_step": [
             "check sum",
             "校验和",
@@ -1462,6 +1470,10 @@ enum LocalizationCatalog {
             "Delete",
             "删除",
         ],
+        "mac.details": [
+            "Details",
+            "详情",
+        ],
         "mac.device_heartbeat": [
             "Device heartbeat",
             "设备心跳",
@@ -1581,6 +1593,14 @@ enum LocalizationCatalog {
         "mac.key_bindings": [
             "Key bindings",
             "按键绑定",
+        ],
+        "mac.key_name": [
+            "Key name",
+            "按键名称",
+        ],
+        "mac.key_name_required": [
+            "Enter a key name (up to 200 characters).",
+            "请输入按键名称（最多 200 个字符）。",
         ],
         "mac.leave_blank_to_keep_the_saved_secret": [
             "Leave blank to keep the saved secret",
@@ -1753,6 +1773,14 @@ enum LocalizationCatalog {
         "mac.open_vibepier_on_the_phone_the_first_bluetooth_connection_asks_for_a": [
             "Open VibePier on the phone. The first Bluetooth connection asks for approval on the Mac automatically. Authorized phones can receive over Wi-Fi, Bluetooth or cloud relay. Use Wi-Fi for large files; Bluetooth needs no network.",
             "手机打开 VibePier，首次蓝牙连接会自动请求 Mac 确认。已授权手机可通过 Wi-Fi、蓝牙或云中继接收；蓝牙无需网络，大文件建议用 Wi-Fi。",
+        ],
+        "mac.operation": [
+            "Operation",
+            "操作",
+        ],
+        "mac.operation_failed": [
+            "Failed",
+            "失败",
         ],
         "mac.optional_queries_alidns_for_the_relay_hostname_only_after_wss_system": [
             "Optional. Queries AliDNS for the relay hostname only after WSS system DNS or connection failure. Certificate verification stays enabled.",
@@ -2205,6 +2233,18 @@ enum LocalizationCatalog {
         "provider.claude_desktop_window_not_found_no_action_was_taken": [
             "Claude desktop window not found; no action was taken",
             "找不到 Claude 桌面端窗口，未执行",
+        ],
+        "provider.claude_history_busy": [
+            "Too many Claude histories are open. Close another session and try again.",
+            "同时打开的 Claude 历史过多，请关闭其他会话后重试。",
+        ],
+        "provider.claude_history_page_too_large": [
+            "This turn is too large to load safely on the phone. Its complete history is preserved on the Mac.",
+            "这一轮内容过大，暂时无法在手机安全加载；完整历史仍保留在 Mac。",
+        ],
+        "provider.claude_history_unavailable": [
+            "This history could not be read safely. Reopen the session.",
+            "暂时无法安全读取这段历史，请重新打开会话。",
         ],
         "provider.claude_output_limit": [
             "Claude output exceeded the supported limit. Check the original session on the Mac; the operation was not resent.",
@@ -3570,13 +3610,25 @@ enum LocalizationCatalog {
             "Running: {0} · Unviewed: {1}",
             "{0} 运行 · {1} 未查看",
         ],
+        "updates.active_transfer": [
+            "This phone already has an active installation task. Finish or cancel it before sending another APK.",
+            "这台手机已有进行中的安装任务，请先完成或取消，再发送其他 APK。",
+        ],
         "updates.available": [
             "Available APK: {0}",
             "可用 APK 版本：{0}",
         ],
+        "updates.choose_phone": [
+            "Choose a receiving phone",
+            "请选择接收手机",
+        ],
         "updates.cli_usage": [
             "Usage: vibepier android-update <apk> (requires adjacent .apk.json)",
             "用法：vibepier android-update <apk>（需同目录 .apk.json）",
+        ],
+        "updates.finish_on_phone": [
+            "Complete the permission or installation prompt on the receiving phone.",
+            "请在接收手机上完成权限或系统安装确认。",
         ],
         "updates.increment_version": [
             "Increase the Android version code before registering a changed APK. Downgrades are refused.",
@@ -3590,13 +3642,37 @@ enum LocalizationCatalog {
             "Invalid APK version metadata or digest. Keep the APK and its .apk.json file together.",
             "APK 版本信息或摘要无效，请将 APK 和对应的 .apk.json 文件放在一起。",
         ],
+        "updates.no_newer_release": [
+            "The registered release is not newer than the version on this phone.",
+            "已登记版本不高于这台手机当前版本。",
+        ],
         "updates.no_release": [
             "No Android update is registered on this Mac.",
             "此 Mac 尚未登记 Android 更新。",
         ],
+        "updates.phone_offline": [
+            "Phone is offline. The task waits until VibePier reconnects.",
+            "手机离线，任务将等待 VibePier 重新连接。",
+        ],
+        "updates.preparation_busy": [
+            "APK preparation is busy. Try again after the current preparation finishes.",
+            "正在准备 APK，请等待当前准备完成后再试。",
+        ],
+        "updates.preparation_cancelled": [
+            "APK preparation was cancelled.",
+            "APK 准备已取消。",
+        ],
         "updates.register": [
             "Register as latest update",
             "登记为最新更新",
+        ],
+        "updates.registered_release": [
+            "VibePier update release",
+            "VibePier 更新版本",
+        ],
+        "updates.registration_hint": [
+            "Registration makes this release available to authorized phones. Sending an APK is a separate step.",
+            "登记后，已授权手机可获取此版本；发送 APK 需单独操作。",
         ],
         "updates.send_latest": [
             "Send latest update",

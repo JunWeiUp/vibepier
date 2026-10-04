@@ -5,7 +5,12 @@ package relay
 import (
 	"crypto/sha1"
 	"encoding/base64"
+	"encoding/json"
+	"errors"
+	"github.com/JunWeiUp/vibepier/services/relay/internal/filetransfer"
+	"io"
 	"log"
+	"net"
 	"net/http"
 	"strings"
 	"time"
@@ -17,6 +22,35 @@ func acceptKey(key string) string {
 }
 
 func (r *relay) ServeHTTP(w http.ResponseWriter, req *http.Request) {
+	if strings.Contains(req.URL.Path, "/files/") {
+		if strings.HasSuffix(req.URL.Path, "/files/register") {
+			if req.Method != http.MethodPost {
+				http.Error(w, "method", 405)
+				return
+			}
+			_, role, room, err := r.verify(req.Header.Get("X-VibePier-Authorization"))
+			if err != nil || role != "host" {
+				http.Error(w, "unauthorized", 403)
+				return
+			}
+			var registration filetransfer.RelayRegistration
+			decoder := json.NewDecoder(http.MaxBytesReader(w, req.Body, 4096))
+			decoder.DisallowUnknownFields()
+			if decoder.Decode(&registration) != nil || registration.Room != room {
+				http.Error(w, "invalid", 400)
+				return
+			}
+			if err = r.files.Register(registration); err != nil {
+				http.Error(w, "capacity or invalid", 409)
+				return
+			}
+			w.WriteHeader(201)
+			return
+		}
+		r.files.ServeHTTP(w, req)
+		return
+	}
+
 	key := req.Header.Get("Sec-WebSocket-Key")
 	decoded, err := base64.StdEncoding.DecodeString(key)
 	if req.Method != http.MethodGet || !req.ProtoAtLeast(1, 1) ||
@@ -53,7 +87,11 @@ func (r *relay) ServeHTTP(w http.ResponseWriter, req *http.Request) {
 		_ = raw.Close()
 		return
 	}
-	c := &conn{raw: raw, reader: buffered.Reader}
+	c := &conn{raw: raw, reader: buffered.Reader, budget: &r.buffers}
+	c.onClose = func(reason closeReason) {
+		count := r.closed[reason].Add(1)
+		log.Printf("relay closed reason=%s count=%d active=%d output_bytes=%d", reason, count, r.connections.Load(), r.buffers.bytes.Load())
+	}
 	handedOff = true
 	go func() {
 		defer r.connections.Add(-1)
@@ -78,6 +116,11 @@ func (r *relay) serve(c *conn, ip string) {
 	_ = c.raw.SetReadDeadline(admissionDeadline)
 	hello, err := c.next()
 	if err != nil || time.Now().After(admissionDeadline) {
+		if err == nil {
+			c.closeWith(closeTimeout)
+		} else {
+			c.closeWith(readCloseReason(err))
+		}
 		return
 	}
 	prefix := "vibepier-relay1"
@@ -86,9 +129,10 @@ func (r *relay) serve(c *conn, ip string) {
 	}
 	protocol, role, roomName, err := r.verify(hello)
 	if err != nil {
-		log.Printf("reject %q: %v", ip, err)
+		log.Printf("relay rejected reason=authentication")
 		time.Sleep(time.Second)
 		_ = c.text(prefix + " error " + err.Error())
+		c.closeWith(closeAuthentication)
 		return
 	}
 	c.role, c.room, c.protocol = role, roomName, protocol
@@ -102,11 +146,12 @@ func (r *relay) serve(c *conn, ip string) {
 	old, _, err := r.join(c)
 	if err != nil {
 		_ = c.text(prefix + " error " + err.Error())
+		c.closeWith(closeCapacity)
 		return
 	}
 	defer r.leave(c)
 	for _, replaced := range old {
-		replaced.close()
+		replaced.closeWith(closeReplaced)
 	}
 	ok := "vibepier-relay1 ok"
 	if protocol == 2 {
@@ -116,7 +161,7 @@ func (r *relay) serve(c *conn, ip string) {
 		return
 	}
 	r.activate(c)
-	log.Printf("%s relay%d joined room %s from %q", role, protocol, roomName, ip)
+	log.Printf("relay joined role=%s protocol=%d active=%d", role, protocol, r.connections.Load())
 
 	stop := make(chan struct{})
 	defer close(stop)
@@ -129,7 +174,7 @@ func (r *relay) serve(c *conn, ip string) {
 				return
 			case <-ticker.C:
 				if c.send(0x9, nil) != nil {
-					c.close()
+					c.closeWith(closeWrite)
 					return
 				}
 			}
@@ -139,9 +184,20 @@ func (r *relay) serve(c *conn, ip string) {
 	for {
 		message, err := c.next()
 		if err != nil {
+			c.closeWith(readCloseReason(err))
 			break
 		}
 		r.forward(c, message)
 	}
-	log.Printf("%s left room %s", role, roomName)
+}
+
+func readCloseReason(err error) closeReason {
+	var network net.Error
+	if errors.As(err, &network) && network.Timeout() {
+		return closeTimeout
+	}
+	if err == nil || errors.Is(err, io.EOF) || errors.Is(err, net.ErrClosed) || errors.As(err, &network) {
+		return closeNormal
+	}
+	return closeProtocol
 }

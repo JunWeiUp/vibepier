@@ -37,6 +37,14 @@ final class PhoneAppVersionsTests: XCTestCase {
         try write(5)
         try store.publish(apk)
         XCTAssertEqual(store.latest?["versionCode"] as? Int, 5)
+        XCTAssertEqual(
+            try store.requestedUpdate(["packageName": PhoneAppVersions.packageName, "versionCode": 4]).version
+                .versionCode, 5)
+        for code: Any in [true, 5, 6, 0, "4"] {
+            XCTAssertThrowsError(
+                try store.requestedUpdate(["packageName": PhoneAppVersions.packageName, "versionCode": code]))
+        }
+        XCTAssertThrowsError(try store.requestedUpdate(["packageName": "other.package", "versionCode": 4]))
         try store.publish(apk)  // Same artifact is repeatable.
         try write(4)
         XCTAssertThrowsError(try store.publish(apk))
@@ -62,5 +70,26 @@ final class PhoneAppVersionsTests: XCTestCase {
         XCTAssertNoThrow(
             try PhoneAppVersions.Version(try XCTUnwrap(JSONSerialization.jsonObject(with: wire) as? [String: Any])))
         XCTAssertThrowsError(try PhoneAppVersions.Version(metadata(name: "bad\nversion")))
+    }
+    func testPreparedReleaseCannotCommitOverNewerRegistration() throws {
+        let root = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+        defer { try? FileManager.default.removeItem(at: root) }
+        try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
+        let apk = root.appendingPathComponent("fixture.apk")
+        let bytes = Data([1, 2, 3])
+        try bytes.write(to: apk)
+        let store = PhoneAppVersions(root: root.appendingPathComponent("store"))
+        func prepare(_ code: Int) throws -> PhoneAppVersions.PreparedRelease {
+            var value = metadata(code)
+            value["sha256"] = SHA256.hash(data: bytes).map { String(format: "%02x", $0) }.joined()
+            try JSONSerialization.data(withJSONObject: value).write(to: apk.appendingPathExtension("json"))
+            return try PhoneAppVersions.prepare(apk, root: store.root, job: APKPreparationJob())
+        }
+        let old = try prepare(5)
+        let new = try prepare(6)
+        try store.adopt(new)
+        XCTAssertThrowsError(try store.adopt(old))
+        old.apk.discard()
+        XCTAssertEqual(store.latest?["versionCode"] as? Int, 6)
     }
 }

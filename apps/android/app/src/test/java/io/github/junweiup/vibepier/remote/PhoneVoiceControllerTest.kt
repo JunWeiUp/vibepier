@@ -86,4 +86,23 @@ class PhoneVoiceControllerTest {
         assertTrue(h.voice.active); assertTrue(h.failures.isEmpty())
         h.ready("session-2"); assertEquals(PhoneVoiceController.State.RECORDING, h.states.last())
     }
+    @Test fun audioPathLossEndsRecordingAndRejectsLateFrames() {
+        val h = Harness(); h.begin(); h.ready()
+        val oldFrame = h.frame!!
+        h.voice.transportChanged(false, "synthetic path lost")
+        oldFrame(byteArrayOf(4)); h.clock.advance(5000)
+        assertFalse(h.voice.active)
+        assertEquals(listOf("synthetic path lost"), h.failures)
+        assertEquals(listOf("stop", "end:session-1"), h.events.takeLast(2))
+        h.voice.transportChanged(true, "")
+        assertFalse(h.voice.active)
+    }
+    @Test fun audioPathLossDuringNegotiationCancelsRetryAndIgnoresReady() {
+        val h = Harness(); h.begin()
+        h.voice.transportChanged(false, "synthetic path lost"); h.ready(); h.clock.advance(5000)
+        assertEquals(1, h.events.count { it.startsWith("begin:") })
+        assertFalse(h.events.any { it.startsWith("record:") })
+        assertTrue(h.clock.pending.isEmpty())
+        assertEquals(listOf("synthetic path lost"), h.failures)
+    }
 }

@@ -76,6 +76,7 @@ jobs:
       - run: python3 scripts/check/repository.py
       - run: python3 scripts/check/localization.py
       - run: python3 scripts/dev/localize-macos.py --check
+      - run: python3 scripts/check/release-provenance.py
       - uses: actions/setup-go@924ae3a1cded613372ab5595356fb5720e22ba16 # v6
         with:
           go-version: '1.27.x'

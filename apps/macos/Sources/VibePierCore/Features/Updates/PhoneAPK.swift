@@ -1,12 +1,19 @@
 import CryptoKit
 import Foundation
 
+public enum PhoneAPKPhase: String, Sendable {
+    case preparing, pending, transferring, received, permission, installing, success, cancelled, failed
+    public var isActive: Bool { ![.success, .cancelled, .failed].contains(self) }
+    public var canCancel: Bool { isActive && self != .installing }
+}
+
 public struct PhoneAPKStatus: Sendable {
     public let transfer: String
     public let name: String
     public let size: Int
     public let received: Int
     public let state: String
+    public let phase: PhoneAPKPhase
 }
 
 /// Accessed only on SessionRemote's serial queue. Each snapshot belongs to one authorized phone.
@@ -18,11 +25,13 @@ final class PhoneAPK {
         let file: URL
         let size: Int
         let sha256: String
-        var phase = "pending"
+        var downloadPeer: String?
+        var downloadToken: String?
+        var phase: PhoneAPKPhase = .pending
         var received = 0
         var state = L10n.text("control.waiting_for_the_phone_open_vibepier_on_it")
     }
-    private let root: URL
+    let root: URL
     private var transfers: [String: Transfer] = [:]
     init(root: URL = Paths.supportDirectory.appendingPathComponent("phone-apk")) {
         self.root = root
@@ -30,47 +39,45 @@ final class PhoneAPK {
         try? FileManager.default.removeItem(at: root)
     }
     deinit { try? FileManager.default.removeItem(at: root) }
+    /// Synchronous convenience for isolated tests. Production preparation uses APKPreparationWorkers.
     func stage(_ url: URL, device: String) throws {
-        guard url.pathExtension.lowercased() == "apk" else {
-            throw CLIError(L10n.text("control.choose_a_complete_apk_file_split_apks_and_xapk_are_not_supported"))
-        }
-        let values = try url.resourceValues(forKeys: [.isRegularFileKey, .fileSizeKey])
-        guard values.isRegularFile == true, let size = values.fileSize, size > 0, size <= Self.maxSize else {
-            throw CLIError(L10n.text("control.the_apk_must_be_between_1_byte_and_512_mb"))
-        }
-        try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
-        let id = UUID().uuidString
-        let snapshot = root.appendingPathComponent(id + ".apk")
-        try FileManager.default.copyItem(at: url, to: snapshot)
-        do {
-            let handle = try FileHandle(forReadingFrom: snapshot)
-            defer { try? handle.close() }
-            var hash = SHA256()
-            var total = 0
-            while let bytes = try handle.read(upToCount: 1024 * 1024), !bytes.isEmpty {
-                hash.update(data: bytes)
-                total += bytes.count
-            }
-            guard total == size else {
-                throw CLIError(L10n.text("control.the_file_changed_while_being_copied_select_it_again"))
-            }
-            if let old = transfers[device] { try? FileManager.default.removeItem(at: old.file) }
-            transfers[device] = Transfer(
-                id: id, name: String(url.lastPathComponent.prefix(160)), file: snapshot, size: size,
-                sha256: hash.finalize().map { String(format: "%02x", $0) }.joined())
-        } catch {
-            try? FileManager.default.removeItem(at: snapshot)
+        let prepared = try PreparedAPK.prepare(url, root: root, job: APKPreparationJob())
+        do { try adopt(prepared, device: device) } catch {
+            prepared.discard()
             throw error
         }
     }
+    func adopt(_ prepared: PreparedAPK, device: String) throws {
+        guard transfers[device]?.phase.isActive != true else {
+            throw CLIError(L10n.text("updates.active_transfer"))
+        }
+        if let old = transfers[device] { try? FileManager.default.removeItem(at: old.file) }
+        transfers[device] = Transfer(
+            id: prepared.id, name: prepared.name, file: prepared.file, size: prepared.size, sha256: prepared.sha256)
+    }
+    func matchingActive(_ digest: String, device: String) -> PhoneAPKStatus? {
+        guard let transfer = transfers[device], transfer.phase.isActive, transfer.sha256 == digest else { return nil }
+        return status(device)
+    }
     func cancel(_ device: String) {
-        if let old = transfers.removeValue(forKey: device) { try? FileManager.default.removeItem(at: old.file) }
+        if let old = transfers.removeValue(forKey: device) {
+            BinaryFileTransfers.shared.cancelAPK(device: device, transfer: old.id)
+            try? FileManager.default.removeItem(at: old.file)
+        }
     }
     func status(_ device: String) -> PhoneAPKStatus? {
         guard let t = transfers[device] else { return nil }
-        return PhoneAPKStatus(transfer: t.id, name: t.name, size: t.size, received: t.received, state: t.state)
+        return PhoneAPKStatus(
+            transfer: t.id, name: t.name, size: t.size, received: t.received, state: t.state, phase: t.phase)
     }
-    func reply(_ request: [String: Any], device: String) throws -> [String: Any] {
+    func fastDownload(_ request: [String: Any], device: String, peer: String) -> Bool {
+        guard peer.hasPrefix("relay:"), let t = transfers[device], t.downloadPeer == peer,
+            let token = t.downloadToken, request["downloadToken"] as? String == token,
+            request["transfer"] as? String == t.id, request["op"] as? String == "apkChunk"
+        else { return false }
+        return true
+    }
+    func reply(_ request: [String: Any], device: String, peer: String = "") throws -> [String: Any] {
         let op = request["op"] as? String ?? ""
         guard var t = transfers[device] else {
             if op == "apkChunk" {
@@ -78,15 +85,52 @@ final class PhoneAPK {
             }
             return ["ok": true]
         }
-        if op == "apkOffer", ["success", "cancelled", "failed"].contains(t.phase) { return ["ok": true] }
+        if op == "apkOffer", !t.phase.isActive { return ["ok": true] }
         if op == "apkOffer" {
-            return ["ok": true, "transfer": t.id, "name": t.name, "size": t.size, "sha256": t.sha256]
+            var offer: [String: Any] = [
+                "ok": true, "transfer": t.id, "name": t.name, "size": t.size, "sha256": t.sha256,
+            ]
+            if BinaryFileTransfers.shared.available { offer["binaryVersion"] = 1 }
+            if peer.hasPrefix("relay:"), request["downloadVersion"] as? Int == 1,
+                let token = request["id"] as? String, UUID(uuidString: token) != nil
+            {
+                t.downloadPeer = peer
+                t.downloadToken = token
+                offer["download"] = [
+                    "version": 1, "token": token, "fragmentChars": 7200, "chunkBytes": 128 * 1024, "window": 4,
+                ]
+            } else {
+                t.downloadPeer = nil
+                t.downloadToken = nil
+            }
+            transfers[device] = t
+            return offer
         }
         guard request["transfer"] as? String == t.id else {
             throw CLIError(L10n.text("control.the_installation_task_was_cancelled_or_replaced_start_receiving_agai"))
         }
+        if op == "apkProgress" {
+            guard t.phase.isActive, let ticket = request["binaryTicket"] as? String,
+                BinaryFileTransfers.shared.ownsAPKTicket(device: device, transfer: t.id, ticket: ticket),
+                let offset = request["durableOffset"] as? Int, offset >= 0, offset <= t.size
+            else { throw CLIError(L10n.text("core.invalid_request")) }
+            t.received = max(t.received, offset)
+            transfers[device] = t
+            return ["ok": true]
+        }
+        if op == "apkBinary" {
+            guard t.phase.isActive, let offset = request["offset"] as? Int, offset >= 0, offset < t.size,
+                let profile = BinaryFileTransfers.shared.apkOffer(
+                    device: device, transfer: t.id, file: t.file, size: t.size, offset: offset,
+                    requestID: request["id"] as? String ?? "")
+            else { return ["ok": true, "binaryUnavailable": true] }
+            t.phase = .transferring
+            t.state = L10n.text("control.transferring")
+            transfers[device] = t
+            return ["ok": true, "transfer": t.id, "binary": profile]
+        }
         if op == "apkChunk" {
-            guard !["success", "cancelled", "failed"].contains(t.phase) else {
+            guard t.phase.isActive else {
                 throw CLIError(L10n.text("control.the_installation_task_has_ended_send_the_apk_again"))
             }
             guard let offset = request["offset"] as? Int, offset >= 0, offset < t.size else {
@@ -101,8 +145,22 @@ final class PhoneAPK {
                 throw CLIError(L10n.text("control.could_not_read_the_apk_snapshot_send_it_again"))
             }
             // Offset is acknowledged bytes, rather than bytes merely sent to the transport.
-            t.received = max(t.received, offset)
-            t.state = L10n.text("control.transferring")
+            if request["downloadToken"] != nil {
+                guard fastDownload(request, device: device, peer: peer),
+                    let durable = request["durableOffset"] as? Int, durable >= 0, durable <= t.size
+                else {
+                    throw CLIError(L10n.text("control.invalid_apk_chunk_offset"))
+                }
+                t.received = max(t.received, durable)
+            } else {
+                // Only legacy single-flight clients acknowledge by their next requested offset.
+                guard t.downloadToken == nil else { throw CLIError(L10n.text("core.invalid_request")) }
+                t.received = max(t.received, offset)
+            }
+            if [.pending, .transferring].contains(t.phase) {
+                t.phase = .transferring
+                t.state = L10n.text("control.transferring")
+            }
             transfers[device] = t
             return ["ok": true, "transfer": t.id, "offset": offset, "data": bytes.base64EncodedString()]
         }
@@ -118,14 +176,17 @@ final class PhoneAPK {
             guard let state = request["state"] as? String, let label = states[state] else {
                 throw CLIError(L10n.text("control.invalid_installation_state"))
             }
-            if ["success", "cancelled", "failed"].contains(t.phase) { return ["ok": true] }
-            t.phase = state
+            if !t.phase.isActive { return ["ok": true] }
+            t.phase = PhoneAPKPhase(rawValue: state)!
             t.state = label
             if let detail = request["detail"] as? String, !detail.isEmpty {
                 t.state += "：" + String(detail.prefix(180))
             }
             if ["received", "permission", "installing", "success"].contains(state) { t.received = t.size }
             transfers[device] = t
+            if ["received", "success", "cancelled", "failed"].contains(state) {
+                BinaryFileTransfers.shared.cancelAPK(device: device, transfer: t.id)
+            }
             if ["success", "cancelled", "failed"].contains(state) { try? FileManager.default.removeItem(at: t.file) }
             return ["ok": true]
         }

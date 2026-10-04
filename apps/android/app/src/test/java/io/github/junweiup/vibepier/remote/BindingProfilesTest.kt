@@ -6,6 +6,19 @@ import org.junit.Assert.assertEquals
 import org.junit.Test
 
 class BindingProfilesTest {
+    @Test fun labelsInheritAndResetSeparatelyFromApplicationNames() {
+        val saved = mutableMapOf("label.keys.confirm" to "发送", "appName.com.example.A" to "Editor")
+        fun label(app: String?) = BindingProfiles.resolveLabel("confirm", app, "确认", saved::get)
+        assertEquals("发送", label("com.example.A"))
+        saved[BindingProfiles.labelKey("confirm", "com.example.A")] = "运行"
+        assertEquals("运行", label("com.example.A"))
+        assertEquals("发送", label("com.example.B"))
+        saved.remove(BindingProfiles.labelKey("confirm", "com.example.A"))
+        assertEquals("发送", label("com.example.A"))
+        saved.remove("label.keys.confirm")
+        assertEquals("确认", label("com.example.A"))
+        assertEquals("Editor", saved["appName.com.example.A"])
+    }
     @Test fun listsLegacyAppOverridesWithoutMetadataOrGlobalEntries() {
         val saved: Map<String, Any> = mapOf(
             "keys.confirm" to "return",

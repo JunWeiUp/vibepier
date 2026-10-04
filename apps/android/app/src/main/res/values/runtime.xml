@@ -119,4 +119,5 @@
     <string name="client_request_too_large">This request is too large. Shorten its content and try again.</string>
     <string name="client_request_id_conflict">This operation ID already belongs to another request. The saved request was preserved.</string>
     <string name="client_receipt_storage_full">Unconfirmed requests have filled receipt storage. Check their results on the Mac before sending more.</string>
+    <string name="apk_transfer_speed">\n%1$d KiB/s · About %2$d s remaining</string>
 </resources>

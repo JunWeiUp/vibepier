@@ -1,0 +1,40 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="audit_mic_fallback">Mac microphone · phone audio unavailable</string>
+    <string name="audit_mic_path_lost">The phone audio connection was lost. Recording stopped; reconnect and hold to talk again.</string>
+    <string name="audit_navigation_changed">The authorized Mac changed. Reopen the conversation on this Mac.</string>
+    <string name="audit_attachment_reselect">This attachment could not return to its original conversation. Your draft is retained; select the file again.</string>
+    <string name="audit_creation_attachment_reselect">Your new conversation draft is retained. Reopen it and select the attachment again.</string>
+    <string name="audit_updates_title">App version and updates</string>
+    <string name="audit_update_request">Request latest APK from Mac</string>
+    <string name="audit_update_requesting">Requesting…</string>
+    <string name="audit_update_status">Receive and installation status</string>
+    <string name="audit_update_check">Check Mac</string>
+    <string name="audit_update_authorization_required">Authorize this phone on the Mac before requesting an update.</string>
+    <string name="audit_update_offline">The Mac is offline. Reconnect to check or receive its registered update.</string>
+    <string name="audit_update_registered_source">Updates come only from the latest APK registered on your authorized Mac.</string>
+    <string name="audit_update_no_known_version">No newer APK is currently known. Check the connected Mac for its registered version.</string>
+    <string name="audit_update_preparing">The Mac was asked to prepare its registered APK. Receiving it does not complete installation.</string>
+    <string name="audit_update_connection_changed">The connection changed. Check receive status before requesting again.</string>
+    <string name="audit_update_request_unknown">The request result is not confirmed. Check receive status or the Mac; this request was not resent automatically.</string>
+    <string name="audit_update_request_failed">The Mac could not prepare the update. Check its registered APK and try again.</string>
+    <string name="audit_update_requested">The Mac accepted the update request. Check receive and installation status to continue.</string>
+    <string name="audit_update_ready_to_install">APK received; waiting for you to continue installation.</string>
+    <string name="audit_update_waiting_permission">Waiting for permission to install apps from VibePier.</string>
+    <string name="audit_diagnostics_title">Connection diagnostics</string>
+    <string name="audit_diagnostics_summary">Current path, recovery count and safe error categories</string>
+    <string name="audit_diagnostics_copy">Copy diagnostics</string>
+    <string name="audit_diagnostics_copied">Diagnostics copied</string>
+    <string name="audit_diagnostics_scope">Diagnostics for this app process. Includes fixed categories and counters, without addresses, device identities, pairing codes, messages or attachments.</string>
+    <string name="audit_diagnostics_wifi">Wi-Fi</string>
+    <string name="audit_diagnostics_direct">Direct connection</string>
+    <string name="audit_diagnostics_unknown">Unknown</string>
+    <string name="audit_diagnostics_authorized">Authorized</string>
+    <string name="audit_diagnostics_unauthorized">Not authorized</string>
+    <string name="audit_diagnostics_path">Current path: %1$s</string>
+    <string name="audit_diagnostics_state">State: %1$s · %2$s</string>
+    <string name="audit_diagnostics_restorations">Connections restored: %1$d</string>
+    <string name="audit_diagnostics_last">Last event: %1$s\nLast warning category: %2$s</string>
+    <string name="audit_diagnostics_warnings">Warnings recorded: %1$d</string>
+    <string name="audit_diagnostics_recovery">If disconnected, check the selected connection setup and reconnect. If authorization expired, connect through Bluetooth and approve this phone on the Mac.</string>
+</resources>

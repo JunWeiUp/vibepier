@@ -26,7 +26,7 @@ internal class ConversationMedia(
     private val request: (String, JSONObject, (JSONObject) -> Unit) -> Unit,
     private val dialog: (String, View, LinearLayout, Boolean) -> AlertDialog,
 ) {
-    data class Scope(val provider: String, val thread: String, val generation: Int)
+    data class Scope(val provider: String, val thread: String, val generation: Int, val authorization: String = "")
     private val ui = Handler(Looper.getMainLooper())
     private data class CachedImage(val bitmap: Bitmap, val at: Long = android.os.SystemClock.elapsedRealtime())
     private val imageCache = object : LinkedHashMap<String, CachedImage>(16, .75f, true) {
@@ -44,12 +44,14 @@ internal class ConversationMedia(
     private fun button(value: String, action: () -> Unit) = Ui.button(context, value, Ui.Button.TONAL, action)
     /** A message's or step's images: one large tile, or a row of square ones that scrolls sideways; tap to view larger. */
     fun strip(images: JSONArray): View {
+        val renderedScope = scope()
         val single = images.length() == 1
         val tiles = row()
         for (i in 0 until images.length()) {
             val id = images.getJSONObject(i).optString("id")
             val tile = ConversationImage(context, if (single) dp(240) else dp(112), if (single) dp(180) else dp(112)).apply {
-                isFocusable = true; contentDescription = context.getString(R.string.image_open_description, i + 1); setOnClickListener { showImage(id) }
+                isFocusable = true; contentDescription = context.getString(R.string.image_open_description, i + 1)
+                setOnClickListener { if (active() && renderedScope == scope()) showImage(id) }
             }
             tiles.addView(tile, LinearLayout.LayoutParams(-2, -2).apply { if (i > 0) marginStart = dp(8) })
             fetchImage(id, "thumb") { bitmap -> if (bitmap == null) tile.placeholder = context.getString(R.string.image_unavailable) else tile.bitmap = bitmap }
@@ -58,7 +60,7 @@ internal class ConversationMedia(
         return android.widget.HorizontalScrollView(context).apply { isHorizontalScrollBarEnabled = false; addView(tiles) }
     }
     /** Asks the Mac for an image once, shares the answer with every view waiting for it and keeps thumbnails cached. */
-    private fun imageKey(id: String, size: String) = "${scope().provider}:${scope().thread}:$size:$id:${version(id)}"
+    private fun imageKey(id: String, size: String) = "${scope().authorization}:${scope().provider}:${scope().thread}:$size:$id:${version(id)}"
     private fun cachedImage(key: String, fresh: Boolean = true): android.graphics.Bitmap? = imageCache[key]?.takeIf { !fresh || android.os.SystemClock.elapsedRealtime() - it.at < 10 * 60_000 }?.bitmap
     private fun fetchImage(id: String, size: String, done: (android.graphics.Bitmap?) -> Unit) {
         val key = imageKey(id, size)

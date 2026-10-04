@@ -2,6 +2,7 @@ package io.github.junweiup.vibepier.remote.features.settings
 
 import io.github.junweiup.vibepier.remote.R
 import io.github.junweiup.vibepier.remote.core.ui.IconControl
+import io.github.junweiup.vibepier.remote.core.ui.CanvasLabel
 import io.github.junweiup.vibepier.remote.core.ui.Ui
 import io.github.junweiup.vibepier.remote.core.ui.protectControls
 import io.github.junweiup.vibepier.remote.features.remote.Palette
@@ -52,7 +53,7 @@ internal class SettingsSheet(private val context: Context) {
             background = Ui.roundRect(context, 0xFFE45B65.toInt(), 4)
             importantForAccessibility = View.IMPORTANT_FOR_ACCESSIBILITY_NO
         }
-        val text = Ui.label(context, "", Ui.CAPTION, Palette.muted)
+        val text = Ui.label(context, "", Ui.CAPTION, Palette.muted).apply { importantForAccessibility = View.IMPORTANT_FOR_ACCESSIBILITY_NO }
         val footer = LinearLayout(context).apply {
             gravity = Gravity.CENTER; minimumHeight = dp(64); isFocusable = true
             addView(dot, LinearLayout.LayoutParams(dp(8), dp(8)).apply { marginEnd = dp(8) })
@@ -61,8 +62,10 @@ internal class SettingsSheet(private val context: Context) {
         }
         body.addView(footer, LinearLayout.LayoutParams(-1, -2).apply { topMargin = dp(20) })
         updates += {
-            text.text = label(); dot.visibility = if (updateAvailable()) View.VISIBLE else View.GONE
-            footer.contentDescription = label()
+            val value = label()
+            if (text.text.toString() != value) text.text = value
+            dot.visibility = if (updateAvailable()) View.VISIBLE else View.GONE
+            if (footer.contentDescription != value) footer.contentDescription = value
         }
     }
 
@@ -96,19 +99,39 @@ internal class SettingsSheet(private val context: Context) {
                 }, LinearLayout.LayoutParams(dp(20), -2))
                 container.setOnClickListener { item.action() }
                 updates += {
-                    summary.text = item.summary()
-                    container.contentDescription = context.getString(R.string.setting_open_description, item.title, summary.text)
+                    val value = item.summary()
+                    if (summary.text.toString() != value) summary.text = value
+                    val description = context.getString(R.string.setting_open_description, item.title, value)
+                    if (container.contentDescription != description) container.contentDescription = description
                 }
             }
             is Choice -> {
                 val holder = FrameLayout(context)
                 if (inlineChoices) line.addView(holder, LinearLayout.LayoutParams(dp(56) * item.options.size, dp(48)).apply { marginStart = dp(8) })
                 else container.addView(holder, LinearLayout.LayoutParams(-1, dp(48)).apply { topMargin = dp(6) })
+                val choices = Ui.segmented(context, item.options, item.current(), item.title, Ui.CAPTION, 34) { item.select(it) }
+                holder.addView(choices, FrameLayout.LayoutParams(-1, -1))
+                item.options.forEachIndexed { index, (id, _) ->
+                    choices.getChildAt(index).setOnClickListener { if (item.current() != id) item.select(id) }
+                }
+                var renderedChoice: String? = null
                 updates += {
-                    summary.text = item.summary()
-                    holder.removeAllViews()
-                    holder.addView(Ui.segmented(context, item.options, item.current(), item.title, Ui.CAPTION, 34) { item.select(it) },
-                        FrameLayout.LayoutParams(-1, -1))
+                    val value = item.summary()
+                    if (summary.text.toString() != value) summary.text = value
+                    val current = item.current()
+                    if (renderedChoice != current) {
+                        renderedChoice = current
+                        item.options.forEachIndexed { index, (id, name) ->
+                            val selected = id == current
+                            (choices.getChildAt(index) as CanvasLabel).apply {
+                                isSelected = selected
+                                typeface = if (selected) Typeface.DEFAULT_BOLD else Ui.medium
+                                setTextColor(if (selected) Palette.text else Palette.muted)
+                                background = if (selected) Ui.roundRect(context, Palette.surface4, 9) else null
+                                contentDescription = context.getString(if (selected) R.string.choice_selected else R.string.choice_switch, name, item.title)
+                            }
+                        }
+                    }
                 }
             }
         }

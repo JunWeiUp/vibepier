@@ -34,6 +34,13 @@ internal class DeviceKeys(context: Context) {
     }
 
     val authorized: Boolean get() = synchronized(lock) { cachedKeys() != null }
+    /** Identifies this authorization binding without exposing key material or a Mac identifier. */
+    val authorizationIdentity: String? get() = synchronized(lock) {
+        if (cachedKeys() == null) return null
+        prefs.getString("authorizationIdentity", null) ?: UUID.randomUUID().toString().also {
+            check(prefs.edit().putString("authorizationIdentity", it).commit())
+        }
+    }
     fun sessionKey(): SecretKey = synchronized(lock) { checkNotNull(cachedKeys()).session }
     fun controlKeys(): SecureControlKeys? = synchronized(lock) { cachedKeys()?.control }
 
@@ -51,6 +58,8 @@ internal class DeviceKeys(context: Context) {
         ++block.next
     }
 
+    // Publish/roll back the binding epoch synchronously so Activity or process restoration cannot use an old token.
+    @android.annotation.SuppressLint("ApplySharedPref")
     fun install(root: ByteArray) = synchronized(lock) {
         require(root.size == 32)
         cache.remove(device)
@@ -73,8 +82,10 @@ internal class DeviceKeys(context: Context) {
             }
             // The final alias is the enrollment commit marker; readers hold the same lock.
             vault.setEntry(prefix + "session", KeyStore.SecretKeyEntry(SecretKeySpec(root, "AES")), aes)
+            check(prefs.edit().putString("authorizationIdentity", UUID.randomUUID().toString()).commit())
         } catch (error: Exception) {
             for (name in names) runCatching { vault.deleteEntry(prefix + name) }
+            prefs.edit().remove("authorizationIdentity").commit()
             throw error
         }
     }
@@ -83,6 +94,7 @@ internal class DeviceKeys(context: Context) {
         cache.remove(device)
         val vault = store()
         for (name in names) vault.deleteEntry(prefix + name)
+        prefs.edit().remove("authorizationIdentity").commit()
     }
 
     private data class CachedKeys(val session: SecretKey, val control: SecureControlKeys)

@@ -30,3 +30,5 @@ These decisions follow [Android's documented support for scoped Lint configurati
 ## 中文说明
 
 已消除绘图临时对象分配、重复定时追赶及忽略持久化结果等问题。自绘视图、按键点击和方向布局的少量注解逐处说明原因；四条工具链升级提示继续保留在报告中。CI 只接受上表列出的明确位置和版本声明，新增警告仍会失败。API 35 是当前 beta 的目标版本，不代表满足未来应用商店的新提交规则。
+
+`BinaryFileClient.route` locally suppresses `CustomX509TrustManager`: direct HTTPS trusts only the exact certificate digest delivered through the authorized encrypted session, checks certificate validity, and verifies the same pin in the connection hostname verifier. Public HTTPS keeps platform trust validation. Invalid-pin refusal is exercised by the synthetic binary network probe. No global trust policy is changed.

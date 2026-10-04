@@ -281,7 +281,6 @@
         <item quantity="other">%1$d 个项目</item>
     </plurals>
     <string name="session_retry_original_request">重试原请求</string>
-    <string name="session_cancel_task">取消当前任务</string>
     <string name="session_stop_waiting">停止等待</string>
     <string name="session_stop_waiting_detail">停止等待只退出当前页面，Mac 可能仍在执行；草稿和待确认回执会保留。</string>
     <string name="session_wait_disconnected">连接已中断，暂时无法确认执行结果。</string>

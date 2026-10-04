@@ -15,7 +15,7 @@ final class LocalizationPreviewTests: XCTestCase {
                 return .init(
                     exitCode: 0,
                     stdout:
-                        #"{"ok":true,"dongleConnected":false,"micLinked":false,"accessibilityTrusted":true,"remoteListening":true,"remotePort":47800,"remoteConnectedAddresses":[],"bluetooth":{"state":"Ready","connectedCount":1},"relay":{"state":"Connected","connectedCount":1,"url":"wss://relay.example.com/vibepier/relay","room":"demo-room","dnsRecovery":false},"taskActivity":{"runningCount":0,"unreadCount":0,"sessions":[]}}"#,
+                        #"{"ok":true,"dongleConnected":false,"micLinked":false,"accessibilityTrusted":true,"remoteListening":true,"remotePort":47800,"remoteConnectedAddresses":[],"connectedPhoneIDs":["demo-phone"],"bluetooth":{"state":"Ready","connectedCount":1},"relay":{"state":"Connected","connectedCount":1,"url":"wss://relay.example.com/vibepier/relay","room":"demo-room","dnsRecovery":false},"taskActivity":{"runningCount":0,"unreadCount":0,"sessions":[]}}"#,
                     stderr: "")
             case "info", "settings": return .init(exitCode: 0, stdout: "{}", stderr: "")
             case "buttons", "hooks": return .init(exitCode: 0, stdout: "", stderr: "")

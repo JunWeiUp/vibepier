@@ -1,5 +1,12 @@
 name: Android device checks
 on:
+  pull_request:
+    paths:
+      - 'apps/android/app/src/main/java/**'
+      - 'apps/android/app/src/main/res/**'
+      - 'apps/android/app/src/androidTest/**'
+      - 'scripts/check/android-emulator.py'
+      - '.github/workflows/android-emulator.yml'
   workflow_dispatch:
     inputs:
       api:
@@ -15,7 +22,7 @@ on:
 permissions:
   contents: read
 concurrency:
-  group: android-device-${{ github.ref }}-${{ inputs.api }}-${{ inputs.suite }}
+  group: android-device-${{ github.ref }}-${{ inputs.api || '35' }}-${{ inputs.suite || 'smoke' }}
   cancel-in-progress: false
 
 jobs:
@@ -26,7 +33,7 @@ jobs:
       fail-fast: false
       max-parallel: 2
       matrix:
-        api: ${{ fromJSON(inputs.api == 'all' && '[33,35,36]' || format('[{0}]', inputs.api)) }}
+        api: ${{ fromJSON(inputs.api == 'all' && '[33,35,36]' || format('[{0}]', inputs.api || '35')) }}
     steps:
       - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
         with:
@@ -57,8 +64,8 @@ jobs:
       - name: Run real Android API checks
         env:
           API: ${{ matrix.api }}
-          SUITE: ${{ inputs.suite }}
-        run: python3 scripts/check/android-emulator.py --api "$API" --suite "$SUITE" --output "dist/emulator-${API}"
+          SUITE: ${{ inputs.suite || 'smoke' }}
+        run: python3 scripts/check/android-emulator.py --api "$API" --suite "$SUITE" --extra-probes 'audit-runtime,audit-conversation,apk' --output "dist/emulator-${API}"
       - uses: actions/upload-artifact@330a01c490aca151604b8cf639adc76d48f6c5d4 # v5
         if: always()
         with:

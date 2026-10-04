@@ -21,22 +21,23 @@ class BindingSync(private val prefs: SharedPreferences, private val send: (JSONO
         }
     }
     fun disconnected() { ready = false }
-    fun edit(key: String, value: String?, name: String) {
+    fun edit(key: String, value: String?, name: String, label: String = "") {
         // Once sent, retain that operation until acknowledged. A second edit follows it.
         val previous = pending.optJSONObject(key)
         if (previous != null && previous.optBoolean("sent")) {
-            previous.put("next", value ?: JSONObject.NULL).put("nextName", name)
-        } else enqueue(key, value, name)
+            previous.put("next", value ?: JSONObject.NULL).put("nextName", name).put("nextLabel", label)
+        } else enqueue(key, value, name, label)
         beforeChange()
         val editor = persist()
         if (value == null) editor.remove(key) else editor.putString(key, value)
+        if (value == null || label.isBlank()) editor.remove("label.$key") else editor.putString("label.$key", label)
         editor.apply()
         changed()
         flush()
     }
-    private fun enqueue(key: String, value: String?, name: String) {
+    private fun enqueue(key: String, value: String?, name: String, label: String = "") {
         pending.put(key, JSONObject().put("type", "vibepier-binding-set1").put("key", key)
-            .put("value", value ?: JSONObject.NULL).put("name", name)
+            .put("value", value ?: JSONObject.NULL).put("name", name).put("label", label)
             .put("version", versions.optJSONObject(key)?.optString("version") ?: "")
             .put("operation", UUID.randomUUID().toString()))
     }
@@ -55,7 +56,7 @@ class BindingSync(private val prefs: SharedPreferences, private val send: (JSONO
             versions.keys().asSequence().toList().forEach(versions::remove)
             beforeChange()
             val editor = prefs.edit()
-            prefs.all.keys.filter(::validKey).filter { !pending.has(it) }.forEach(editor::remove)
+            prefs.all.keys.filter(::validKey).filter { !pending.has(it) }.forEach { editor.remove(it); editor.remove("label.$it") }
             editor.apply()
         }
         server = incomingServer
@@ -93,13 +94,17 @@ class BindingSync(private val prefs: SharedPreferences, private val send: (JSONO
         val latest = versions.optJSONObject(key)
         val canonical = if (latest != null && latest.optLong("generation") > (acknowledged?.optLong("generation") ?: -1)) latest else acknowledged
         if (canonical != null) applyEntry(key, canonical, editor)
-        else { editor.remove(key); versions.remove(key) }
+        else { editor.remove(key); editor.remove("label.$key"); versions.remove(key) }
         editor.apply()
         val accepted = message.optBoolean("accepted") && canonical?.optString("version") == acknowledged?.optString("version")
         if (accepted && operation.has("next")) {
             val value = if (operation.isNull("next")) null else operation.getString("next")
-            enqueue(key, value, operation.optString("nextName"))
-            prefs.edit().apply { if (value == null) remove(key) else putString(key, value) }.apply()
+            enqueue(key, value, operation.optString("nextName"), operation.optString("nextLabel"))
+            prefs.edit().apply {
+                if (value == null) remove(key) else putString(key, value)
+                val label = operation.optString("nextLabel")
+                if (value == null || label.isBlank()) remove("label.$key") else putString("label.$key", label)
+            }.apply()
         }
         persist().apply()
         changed()
@@ -111,7 +116,10 @@ class BindingSync(private val prefs: SharedPreferences, private val send: (JSONO
         if (previous != null && previous.optLong("generation") > entry.optLong("generation")) return false
         val value = if (entry.isNull("value")) null else entry.optString("value").takeIf { it.isNotEmpty() }
         if (value != null && Keys.normalize(value) == null) return false
-        val updated = prefs.getString(key, null) != value
+        val label = entry.optString("label").takeIf { value != null && it.isNotBlank() }.orEmpty()
+        if (label.length > 200) return false
+        val updated = prefs.getString(key, null) != value || prefs.getString("label.$key", "") != label
+        if (label.isEmpty()) editor.remove("label.$key") else editor.putString("label.$key", label)
         versions.put(key, entry)
         if (value == null) editor.remove(key) else editor.putString(key, value)
         val app = appID(key)

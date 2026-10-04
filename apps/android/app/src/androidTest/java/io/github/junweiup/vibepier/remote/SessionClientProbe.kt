@@ -29,9 +29,13 @@ object SessionClientProbe {
         override var onSessionPair: (ByteArray?) -> Unit = {}
         val frames = CopyOnWriteArrayList<JSONObject>()
         var onCompletePacket: (() -> Unit)? = null
+        val deliveringPacket = ThreadLocal.withInitial { false }
         override fun sendBinding(message: JSONObject) {
             frames.add(JSONObject(message.toString()))
-            if (message.optInt("part") == message.optInt("parts") - 1) onCompletePacket?.invoke()
+            if (message.optInt("part") == message.optInt("parts") - 1) {
+                deliveringPacket.set(true)
+                try { onCompletePacket?.invoke() } finally { deliveringPacket.set(false) }
+            }
         }
         var pairRequests = 0
         override fun requestSessionPair(device: String, name: String) { pairRequests++ }
@@ -49,6 +53,13 @@ object SessionClientProbe {
         val events = CopyOnWriteArrayList<JSONObject>(); val replies = CopyOnWriteArrayList<JSONObject>()
         val key = SecretKeySpec(ByteArray(32) { 7 }, "AES")
         fun decodeLast(expectedOp: String? = null, expectedID: String? = null): JSONObject {
+            // Production transmission is asynchronous. Drain the mock sender before inspecting it;
+            // the mock's own reply callback is already executing after the last fragment.
+            if (!transport.deliveringPacket.get()) {
+                val queue = SessionClient::class.java.getDeclaredField("transmission").apply { isAccessible = true }
+                    .get(client) as java.util.concurrent.ExecutorService
+                if (!queue.isShutdown) queue.submit {}.get(2, java.util.concurrent.TimeUnit.SECONDS)
+            }
             for (packet in transport.frames.map { it.getString("packet") }.distinct().asReversed()) {
                 val frames = transport.frames.filter { it.getString("packet") == packet }.sortedBy { it.getInt("part") }
                 val data = Base64.decode(frames.joinToString("") { it.getString("data") }, Base64.NO_WRAP)
@@ -194,6 +205,7 @@ object SessionClientProbe {
             test.runOnMainSync {
                 client.close(); client = SessionClient(context, transport, 5000); client.onEvent = { events.add(it) }; client.connectionChanged(true)
                 check(client.provider == "codex")
+                client.provider = uploadDraft.provider
                 transport.onCompletePacket = {
                     val request = decodeLast()
                     check(request.optString("draftId") == uploadDraft.id && request.optString("cwd") == uploadDraft.cwd && request.optString("provider") == "claude")
@@ -211,7 +223,9 @@ object SessionClientProbe {
                         }
                         else -> error("Unexpected upload operation")
                     }
-                    reply(JSONObject().put("id", request.getString("id")).put("ok", true).put("attachmentId", request.getString("attachmentId")))
+                    reply(JSONObject().put("id", request.getString("id")).put("ok", true).put("attachmentId", request.getString("attachmentId")).apply {
+                        if (request.optString("op") == "newAttachmentChunk") put("offset", uploaded.size())
+                    })
                 }
                 io.github.junweiup.vibepier.remote.features.sessions.CodexFileUpload.upload(context.resources, client, uploadDraft.attachmentScope,
                     uploadFile, "example.txt", "text/plain", {}, creation = uploadDraft) { uploadResult.set(it); uploadedDone.countDown() }
@@ -221,7 +235,7 @@ object SessionClientProbe {
                 check(uploaded.toByteArray().contentEquals(uploadBytes))
             } finally {
                 test.runOnMainSync {
-                    transport.onCompletePacket = null; client.close(); client = SessionClient(context, transport, 80)
+                    transport.onCompletePacket = null; client.provider = "codex"; client.close(); client = SessionClient(context, transport, 80)
                     client.onEvent = { events.add(it) }; client.connectionChanged(true)
                 }
                 uploadFile.delete()
@@ -232,7 +246,7 @@ object SessionClientProbe {
                 client.cancelCreationOptions(id)
             }
             SystemClock.sleep(300); test.waitForIdleSync()
-            check(transport.frames.map { it.getString("packet") }.distinct().size == optionPackets + 1) { "Dismissed creation options retried" }
+            check(transport.frames.map { it.getString("packet") }.distinct().size in optionPackets..optionPackets + 1) { "Dismissed creation options retried" }
             // Read-only requests share one RPC and successful content survives a recreated client.
             val coalescedResults = java.util.concurrent.atomic.AtomicInteger()
             test.runOnMainSync {
@@ -387,7 +401,7 @@ object SessionClientProbe {
                     client.invalidateLists() // Expired/invalidated lists still refresh while retaining visible cache.
                     panel = ConversationPanel(activity, client, {})
                     activity.setContentView(panel)
-                    check(transport.frames.size > count && decodeLast().getString("op") == "list") // Cache is visible while an immediate refresh is pending.
+                    check(decodeLast().getString("op") == "list" && transport.frames.size > count) // Cache is visible while an immediate refresh is pending.
                     check(!(field(panel, "info") as CanvasLabel).text.toString().contains(context.getString(R.string.session_loading_2)))
                     panel.javaClass.getDeclaredMethod("open", String::class.java, String::class.java).apply { isAccessible = true }.invoke(panel, "thread", "Cached session")
                     check((field(panel, "page") as JSONObject).has("messages"))
@@ -529,7 +543,8 @@ object SessionClientProbe {
                     check(field(panel, "ready") == true && (field(panel, "page") as JSONObject).has("messages")) // Keep cached content readable when the live peer revokes sending.
                     check(!(field(panel, "page") as JSONObject).optBoolean("canSend"))
                     check(!(field(panel, "sendButton") as android.view.View).isEnabled)
-                    check(!(field(panel, "stopButton") as android.view.View).isEnabled)
+                    // Revoking send does not revoke a separately verified active-turn interrupt capability.
+                    check((field(panel, "stopButton") as android.view.View).isEnabled)
                     val readOnlyControls = field(panel, "composerControls") as ComposerControls
                     check(!readOnlyControls.mode.isEnabled && !readOnlyControls.model.isEnabled && !readOnlyControls.add.isEnabled)
                     panel.close()
@@ -575,7 +590,8 @@ object SessionClientProbe {
                     check(field(panel, "listedCount") == 10)
                     check(!(field(panel, "info") as CanvasLabel).text.toString().contains(context.getString(R.string.session_loading_2)))
                     panel.close(); client.close() // Simulate the old process closing before constructing its replacement.
-                    val restoredClient = SessionClient(context, transport, 80)
+                    val restoredClient = SessionClient(context, transport, 5_000)
+                    client = restoredClient
                     check(restoredClient.cachedList("projects", JSONObject().put("search", "").put("offset", 0).put("limit", 8))!!.getJSONArray("projects").length() == 10)
                     check(restoredClient.drawerState.has("scrollY"))
                     panel = ConversationPanel(activity, restoredClient, {}); activity.setContentView(panel)

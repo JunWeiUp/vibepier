@@ -85,7 +85,15 @@ object ControlsLocalizationProbe {
                         profiles = { listOf(KeyConfigPage.Profile(null, context.getString(R.string.general_bindings), "")) },
                         profileName = { context.getString(R.string.general_bindings) },
                         resolve = { key, _ -> Keys.defaults.getValue(key) }, overridden = { _, _ -> false },
-                        save = { key, value, scope -> check(scope == null); saved = key to value })
+                        title = { key, _ -> context.getString(when (key) {
+                            "knob-left" -> R.string.rotate_left
+                            "knob-right" -> R.string.rotate_right
+                            "cancel" -> R.string.cancel
+                            "confirm" -> R.string.confirm
+                            "talk" -> R.string.voice
+                            else -> R.string.delete
+                        }) },
+                        save = { key, value, scope, _ -> check(scope == null); saved = key to value })
                     page.show()
                     page.dialog.window!!.setLayout((width * context.resources.displayMetrics.density).toInt(), height)
                 }
@@ -111,7 +119,7 @@ object ControlsLocalizationProbe {
                         val initialSave = children.filterIsInstance<CanvasLabel>().single { it.isClickable && it.text.toString() == context.getString(R.string.save) }
                         val initialVisible = android.graphics.Rect()
                         check(initialSave.getGlobalVisibleRect(initialVisible) && initialVisible.height() == initialSave.height) { "Fixed Save action must be visible before scrolling: $locale $width $scale" }
-                        val input = children.filterIsInstance<EditText>().single()
+                        val input = children.filterIsInstance<EditText>().single { it.text.toString() == "wheel-up" }
                         check(input.text.toString() == "wheel-up")
                         val space = children.filterIsInstance<CanvasLabel>().single { it.isClickable && it.text.toString() == context.getString(R.string.key_space) }
                         val textLayout = field(space, "layout") as Layout

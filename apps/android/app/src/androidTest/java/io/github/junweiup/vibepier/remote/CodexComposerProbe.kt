@@ -28,15 +28,27 @@ object CodexComposerProbe {
         fun views(root: View): List<View> = listOf(root) + if (root is ViewGroup) (0 until root.childCount).flatMap { views(root.getChildAt(it)) } else emptyList()
         val prefs = io.github.junweiup.vibepier.remote.core.security.PrivatePreferences.open(test.targetContext, "sessions")
         var pendingID = ""
+        val client = activity.javaClass.getDeclaredMethod("getCodex").apply { isAccessible = true }.invoke(activity) as SessionClient
+        val originalProvider = client.provider
+        fun main(block: () -> Unit) {
+            var failure: Throwable? = null
+            test.runOnMainSync { try { block() } catch (error: Throwable) { failure = error } }
+            failure?.let { throw it }
+        }
         try {
+            main {
+                (activity as MainActivity).sessionNavigation.close()
+                client.provider = "codex"
+                activity.sessionNavigation.show()
+            }
             SystemClock.sleep(250); test.waitForIdleSync()
             lateinit var panel: ConversationPanel
-            test.runOnMainSync {
+            main {
                 panel = (activity as MainActivity).sessionNavigation.panel as ConversationPanel
                 (views(panel).firstOrNull { it.contentDescription?.toString()?.startsWith(activity.getString(R.string.session_open_session) + "优化手机语音与快捷控制，VibePier") == true } ?: error("Fixture session row missing")).performClick()
             }
             SystemClock.sleep(250); test.waitForIdleSync()
-            test.runOnMainSync {
+            main {
                 // Returning from a picker must preserve an already-watched transport and the panel.
                 val sender = activity.javaClass.getDeclaredMethod("getSender").apply { isAccessible = true }.invoke(activity) as RemoteSender
                 set(sender, "watching", true)
@@ -102,7 +114,7 @@ object CodexComposerProbe {
             return "PASS: Activity background/foreground retains panel, timeline and draft; unchanged icon and binding caches survive watch stop; picker cancel/resume preserves panel and watched transport without reset, pending settings blocks send, unknown settings blocks send/model/mode, stop works with draft, upload blocks send, remove disabled while sending, thread switch clears transient settings/upload and invalidates callbacks\n"
         } finally {
             if (pendingID.isNotEmpty()) prefs.edit().remove("pending.$pendingID").commit()
-            test.runOnMainSync { activity.finish() }
+            main { client.provider = originalProvider; activity.finish() }
         }
     }
 }

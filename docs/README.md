@@ -28,3 +28,9 @@ Protocol maintainers should read the [secure control contract](../protocol/specs
 - [Task completion notifications / 任务完成通知](TASK-NOTIFICATIONS.md)：开启方式、后台接收、隐私与离线边界。
 
 - [Android versions and update indicators / Android 版本与更新红点](ANDROID-UPDATES.md)
+
+- [Project improvements / 项目改进](PROJECT-IMPROVEMENTS.md): build 11 reliability, interaction and validation boundaries.
+
+- [Attachment transfer / 附件传输](ATTACHMENT-TRANSFER.md) — Wi-Fi upload, background processing, encryption and completion.
+
+- [Binary file transfer / 二进制文件传输](BINARY-FILE-TRANSFER.md)

@@ -8,6 +8,7 @@ import android.app.PendingIntent
 import android.content.Context
 import android.content.Intent
 import android.content.pm.PackageManager
+import android.net.Uri
 import io.github.junweiup.vibepier.remote.MainActivity
 import io.github.junweiup.vibepier.remote.R
 import io.github.junweiup.vibepier.remote.core.security.PrivatePreferences
@@ -35,6 +36,8 @@ class TaskCompletionNotifications(context: Context) {
         val manager = context.getSystemService(NotificationManager::class.java)
         if (!manager.areNotificationsEnabled() || manager.getNotificationChannel(CHANNEL)?.importance == NotificationManager.IMPORTANCE_NONE) return
         val open = PendingIntent.getActivity(context, 47802, Intent(context, MainActivity::class.java)
+            .setData(Uri.parse("vibepier://completed/${identity.provider}"))
+            .putExtra(EXTRA_PROVIDER, identity.provider)
             .addFlags(Intent.FLAG_ACTIVITY_SINGLE_TOP or Intent.FLAG_ACTIVITY_CLEAR_TOP),
             PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE)
         val notification = Notification.Builder(context, CHANNEL)
@@ -47,7 +50,15 @@ class TaskCompletionNotifications(context: Context) {
         // Keep at most one visible result per provider; each new completion may alert.
         try { manager.notify(identity.provider, 47802, notification) } catch (_: SecurityException) { /* Permission changed concurrently. */ }
     }
-    companion object { const val CHANNEL = "task_completion" }
+    companion object {
+        const val CHANNEL = "task_completion"
+        private const val EXTRA_PROVIDER = "io.github.junweiup.vibepier.completedProvider"
+        fun takeProvider(intent: Intent): String? {
+            val value = intent.getStringExtra(EXTRA_PROVIDER)
+            intent.removeExtra(EXTRA_PROVIDER)
+            return value?.takeIf { it in SessionProvider.ids }
+        }
+    }
 }
 
 internal data class TaskCompletionIdentity(val id: String, val provider: String) {

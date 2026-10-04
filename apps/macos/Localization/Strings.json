@@ -3626,5 +3626,81 @@
   "updates.send_latest": {
     "en": "Send latest update",
     "zh-Hans": "发送最新更新"
+  },
+  "updates.preparation_cancelled": {
+    "en": "APK preparation was cancelled.",
+    "zh-Hans": "APK 准备已取消。"
+  },
+  "updates.preparation_busy": {
+    "en": "APK preparation is busy. Try again after the current preparation finishes.",
+    "zh-Hans": "正在准备 APK，请等待当前准备完成后再试。"
+  },
+  "updates.active_transfer": {
+    "en": "This phone already has an active installation task. Finish or cancel it before sending another APK.",
+    "zh-Hans": "这台手机已有进行中的安装任务，请先完成或取消，再发送其他 APK。"
+  },
+  "updates.no_newer_release": {
+    "en": "The registered release is not newer than the version on this phone.",
+    "zh-Hans": "已登记版本不高于这台手机当前版本。"
+  },
+  "updates.registered_release": {
+    "en": "VibePier update release",
+    "zh-Hans": "VibePier 更新版本"
+  },
+  "updates.registration_hint": {
+    "en": "Registration makes this release available to authorized phones. Sending an APK is a separate step.",
+    "zh-Hans": "登记后，已授权手机可获取此版本；发送 APK 需单独操作。"
+  },
+  "updates.choose_phone": {
+    "en": "Choose a receiving phone",
+    "zh-Hans": "请选择接收手机"
+  },
+  "updates.phone_offline": {
+    "en": "Phone is offline. The task waits until VibePier reconnects.",
+    "zh-Hans": "手机离线，任务将等待 VibePier 重新连接。"
+  },
+  "updates.finish_on_phone": {
+    "en": "Complete the permission or installation prompt on the receiving phone.",
+    "zh-Hans": "请在接收手机上完成权限或系统安装确认。"
+  },
+  "mac.operation": {
+    "en": "Operation",
+    "zh-Hans": "操作"
+  },
+  "mac.operation_failed": {
+    "en": "Failed",
+    "zh-Hans": "失败"
+  },
+  "mac.details": {
+    "en": "Details",
+    "zh-Hans": "详情"
+  },
+  "provider.claude_history_unavailable": {
+    "en": "This history could not be read safely. Reopen the session.",
+    "zh-Hans": "暂时无法安全读取这段历史，请重新打开会话。"
+  },
+  "provider.claude_history_page_too_large": {
+    "en": "This turn is too large to load safely on the phone. Its complete history is preserved on the Mac.",
+    "zh-Hans": "这一轮内容过大，暂时无法在手机安全加载；完整历史仍保留在 Mac。"
+  },
+  "provider.claude_history_busy": {
+    "en": "Too many Claude histories are open. Close another session and try again.",
+    "zh-Hans": "同时打开的 Claude 历史过多，请关闭其他会话后重试。"
+  },
+  "mac.key_name": {
+    "en": "Key name",
+    "zh-Hans": "按键名称"
+  },
+  "mac.key_name_required": {
+    "en": "Enter a key name (up to 200 characters).",
+    "zh-Hans": "请输入按键名称（最多 200 个字符）。"
+  },
+  "files.video_workspace_only": {
+    "en": "Only MP4 files inside this session workspace can be played.",
+    "zh-Hans": "仅支持播放此会话项目目录内的 MP4 文件。"
+  },
+  "files.video_size_limit": {
+    "en": "Video preview supports non-empty MP4 files up to 128 MB.",
+    "zh-Hans": "视频预览支持非空且不超过 128 MB 的 MP4 文件。"
   }
 }

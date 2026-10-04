@@ -283,7 +283,6 @@
         <item quantity="other">%1$d projects</item>
     </plurals>
     <string name="session_retry_original_request">Retry original request</string>
-    <string name="session_cancel_task">Cancel current task</string>
     <string name="session_stop_waiting">Stop waiting</string>
     <string name="session_stop_waiting_detail">This closes the waiting view. The Mac may still be working; the draft and unconfirmed receipt are kept.</string>
     <string name="session_wait_disconnected">Connection interrupted. The current result cannot be confirmed.</string>

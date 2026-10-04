@@ -8,6 +8,13 @@ import org.junit.Assert.assertTrue
 import org.junit.Test
 
 class MarkdownFileLinksTest {
+    @Test fun extractsVideoLinksAndEmbedsWithoutGrantingCodeOrNetworkPaths() {
+        val text = "[成片](<videos/My Movie.MP4>) ![视频](/demo/movie.mp4) " +
+            "![图片](image.png) `[示例](hidden.mp4)` [外链](https://example.com/video.mp4)"
+        assertEquals(listOf("videos/My Movie.MP4", "/demo/movie.mp4"), MarkdownFileLinks.find(text, anyFile = true).map { it.path })
+        assertTrue(MarkdownFileLinks.find(text).isEmpty())
+        assertTrue(io.github.junweiup.vibepier.remote.features.files.ProjectFiles.isVideo("demo.MP4"))
+    }
     @Test fun acceptsRelativeAndAbsoluteMarkdownFiles() {
         assertEquals(MarkdownFileLinks.Link("设计", "docs/app-usage-design.md"),
             MarkdownFileLinks.parseTarget("docs/app-usage-design.md", "设计"))

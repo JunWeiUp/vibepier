@@ -4,11 +4,13 @@ import hashlib
 import json
 from pathlib import Path
 import sys
+from provenance import source
 
 apk = Path(sys.argv[1]).resolve()
 metadata = json.loads((apk.parent / 'output-metadata.json').read_text())
 assert metadata['applicationId'] == 'io.github.junweiup.vibepier.remote'
 element = next(v for v in metadata['elements'] if v['outputFile'] == apk.name)
 value = {'packageName': metadata['applicationId'], 'versionCode': element['versionCode'],
-         'versionName': element['versionName'], 'sha256': hashlib.file_digest(apk.open('rb'), 'sha256').hexdigest()}
+         'versionName': element['versionName'], 'sha256': hashlib.file_digest(apk.open('rb'), 'sha256').hexdigest(),
+         'source': source()}
 apk.with_suffix('.apk.json').write_text(json.dumps(value, indent=2) + '\n')

@@ -10,6 +10,7 @@ enum SecureControlEnvelope {
     static let ready = "vibepier-secure-ready2"
     static let incompatible = "vibepier-secure-incompatible2"
     static let frame = "vibepier-secure1"
+    static let bulk = "vibepier-bulk1"
     static let maximumPlaintext = 8192
     static let maximumFrame = 16_384
 
@@ -72,6 +73,41 @@ enum SecureControlEnvelope {
         return try AES.GCM.open(
             AES.GCM.SealedBox(combined: data), using: direction == "phone" ? keys.phone : keys.mac, authenticating: aad)
     }
+    static func openPhone(_ fields: [String], capabilities: UInt32, keys: Keys) throws -> Data {
+        if fields.first == bulk {
+            guard capabilities & ControlProtocol.bulkAuth != 0 else { throw Failure.invalidFrame }
+            return try openBulk(fields, keys: keys)
+        }
+        return try open(fields, direction: "phone", keys: keys)
+    }
+
+    /// The fragment body is already AES-GCM ciphertext inside SessionEnvelope. Only
+    /// this narrowly validated upload shape may use the negotiated MAC-only wrapper.
+    static func openBulk(_ fields: [String], keys: Keys) throws -> Data {
+        guard fields.count == 6, fields[0] == bulk, let sequence = Int64(fields[3]), sequence > 0,
+            let payload = Data(base64Encoded: fields[4]), payload.count <= maximumPlaintext,
+            let object = try? JSONSerialization.jsonObject(with: payload) as? [String: Any],
+            Set(object.keys) == ["type", "sender", "device", "packet", "part", "parts", "data", "upload"]
+                || Set(object.keys) == [
+                    "type", "sender", "device", "packet", "part", "parts", "data", "upload", "fragmentChars",
+                ],
+            object["type"] as? String == "vibepier-session1",
+            object["sender"] as? String == fields[1], object["device"] as? String == fields[1],
+            let upload = object["upload"] as? String, UUID(uuidString: upload) != nil,
+            let packet = object["packet"] as? String, UUID(uuidString: packet) != nil,
+            let body = object["data"] as? String, (1...7200).contains(body.utf8.count)
+        else { throw Failure.invalidFrame }
+        let material = HMAC<SHA256>.authenticationCode(
+            for: Data(["vibepier-bulk-key-v1", "phone", fields[1], fields[2]].joined(separator: "|").utf8),
+            using: keys.handshake)
+        guard
+            verify(
+                fields[5], fields: ["vibepier-bulk-frame-v1", "phone"] + Array(fields.prefix(5)),
+                key: SymmetricKey(data: material))
+        else { throw Failure.invalidFrame }
+        return payload
+    }
+
 }
 
 /// Baseline controls/configuration/session RPC are required. Phone audio is optional per transport.
@@ -82,7 +118,8 @@ enum ControlProtocol {
     static let sessions: UInt32 = 4
     static let phoneAudio: UInt32 = 8
     static let required: UInt32 = controls | configuration | sessions
-    static let all: UInt32 = required | phoneAudio
+    static let bulkAuth: UInt32 = 16
+    static let all: UInt32 = required | phoneAudio | bulkAuth
 
     static func versions(_ field: String) -> [Int]? {
         let fields = field.split(separator: ",", omittingEmptySubsequences: false)
@@ -120,8 +157,11 @@ struct ControlReplayWindow {
     private var received: Set<Int64> = []
     private let width: Int64 = 1024
 
+    func wouldAccept(_ sequence: Int64) -> Bool {
+        sequence > 0 && sequence > highest - width && !received.contains(sequence)
+    }
     mutating func accept(_ sequence: Int64) -> Bool {
-        guard sequence > 0, sequence > highest - width, !received.contains(sequence) else { return false }
+        guard wouldAccept(sequence) else { return false }
         highest = max(highest, sequence)
         received = received.filter { $0 > highest - width }
         received.insert(sequence)
@@ -181,7 +221,7 @@ final class SecureControlServer: @unchecked Sendable {
                 return .rejected
             }
             let fields = text.split(separator: " ", omittingEmptySubsequences: false).map(String.init)
-            guard fields.count == 5 || fields.count == 7, UUID(uuidString: fields[1]) != nil,
+            guard fields.count == 5 || fields.count == 6 || fields.count == 7, UUID(uuidString: fields[1]) != nil,
                 let root = keyForDevice(fields[1]), root.count == 32
             else { return .rejected }
             let now = clock()
@@ -190,10 +230,13 @@ final class SecureControlServer: @unchecked Sendable {
             if fields[0] == SecureControlEnvelope.hello {
                 return acceptHello(fields, peer: peer, root: root, now: now)
             }
-            guard fields[0] == SecureControlEnvelope.frame, var session = sessions[peer],
+            guard [SecureControlEnvelope.frame, SecureControlEnvelope.bulk].contains(fields[0]),
+                var session = sessions[peer],
                 session.device == fields[1], session.id == fields[2],
                 session.fingerprint == Data(SHA256.hash(data: root)), let sequence = Int64(fields[3]),
-                let payload = try? SecureControlEnvelope.open(fields, direction: "phone", keys: session.keys),
+                session.received.wouldAccept(sequence),
+                let payload = try? SecureControlEnvelope.openPhone(
+                    fields, capabilities: session.capabilities, keys: session.keys),
                 session.received.accept(sequence), ControlProtocol.permits(payload, capabilities: session.capabilities)
             else { return .rejected }
             session.expires = now + idleLifetime

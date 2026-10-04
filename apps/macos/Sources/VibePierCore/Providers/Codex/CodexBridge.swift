@@ -324,7 +324,7 @@ final class CodexBridge: @unchecked Sendable {
                     limit: request["limit"] as? Int ?? 20)
                 : try store.projects(
                     search: search, offset: request["offset"] as? Int ?? 0, limit: request["limit"] as? Int ?? 100)
-            value["capabilities"] = ["markdownFiles": true, "projectFiles": true]
+            value["capabilities"] = ["markdownFiles": true, "projectFiles": true, "videoFiles": true]
             return value
         }
         let viewVersion = (request["viewVersion"] as? NSNumber)?.int64Value ?? -1
@@ -793,6 +793,7 @@ final class CodexBridge: @unchecked Sendable {
         var capabilities = page["capabilities"] as? [String: Any] ?? [:]
         capabilities["markdownFiles"] = true
         capabilities["projectFiles"] = true
+        capabilities["videoFiles"] = true
         page["capabilities"] = capabilities
         page["queuedMessages"] = CodexFollowUps.project((try? followUps.messages(thread)) ?? [])
         return ConversationReply.versioned(page)

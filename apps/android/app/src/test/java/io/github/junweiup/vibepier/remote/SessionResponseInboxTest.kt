@@ -14,12 +14,12 @@ class SessionResponseInboxTest {
     private val device = "00000000-0000-4000-8000-000000000001"
     private val key = SecretKeySpec(ByteArray(32) { 31 }, "AES")
     private fun message(text: String = "fixture") = JSONObject().put("id", UUID.randomUUID().toString()).put("ok", true).put("text", text)
-    private fun frames(clear: ByteArray, packet: String = UUID.randomUUID().toString()): List<JSONObject> {
+    private fun frames(clear: ByteArray, packet: String = UUID.randomUUID().toString(), request: String? = null): List<JSONObject> {
         val cipher = Cipher.getInstance("AES/GCM/NoPadding"); cipher.init(Cipher.ENCRYPT_MODE, key)
         cipher.updateAAD("vibepier-session-v1|mac|$device|$packet".toByteArray())
-        val parts = Base64.getEncoder().encodeToString(cipher.iv + cipher.doFinal(clear)).chunked(900)
+        val parts = Base64.getEncoder().encodeToString(cipher.iv + cipher.doFinal(clear)).chunked(if (request == null) 900 else 7200)
         return parts.mapIndexed { i, text -> JSONObject().put("type", "vibepier-session1").put("sender", device).put("device", device)
-            .put("packet", packet).put("part", i).put("parts", parts.size).put("data", text) }
+            .put("packet", packet).put("part", i).put("parts", parts.size).put("data", text).apply { if (request != null) put("request", request) } }
     }
     private fun frames(value: JSONObject) = frames(value.toString().toByteArray())
     private fun decrypt(packet: String, bytes: ByteArray): ByteArray {
@@ -122,4 +122,30 @@ class SessionResponseInboxTest {
             for ((field, value) in listOf("accountId" to "other", "creditId" to "other", "outcome" to "unknown", "accepted" to !reply.getBoolean("accepted"))) assertFalse(SessionResponseInbox.confirms(changed(reply, field, value), request))
         }
     }
+    @Test fun fastFramesRequirePendingRequestAndMatchAuthenticatedID() {
+        val value = message("x".repeat(174764)); val id = value.getString("id")
+        val parts = frames(value.toString().toByteArray(), request = id)
+        assertEquals(33, parts.size)
+        val inbox = SessionResponseInbox(device, { 0 })
+        assertNull(inbox.receive(parts[0], ::decrypt))
+        assertNull(inbox.receive(changed(parts[0], "parts", 57), ::decrypt) { it == id })
+        for (part in parts.drop(1).reversed()) assertNull(inbox.receive(part, ::decrypt) { it == id }?.message)
+        assertEquals(value.toString(), inbox.receive(parts[0], ::decrypt) { it == id }?.message.toString())
+        assertNull(inbox.receive(parts[0], ::decrypt) { it == id })
+        val wrongID = UUID.randomUUID().toString()
+        val wrong = frames(message().toString().toByteArray(), request = wrongID).single()
+        assertThrows(IllegalStateException::class.java) { inbox.receive(wrong, ::decrypt) { it == wrongID } }
+    }
+    @Test fun cancelledFastRequestCannotFinishAndOtherMessagesStillPass() {
+        val value = message("y".repeat(12000)); val id = value.getString("id")
+        val parts = frames(value.toString().toByteArray(), request = id)
+        val inbox = SessionResponseInbox(device, { 0 })
+        assertNotNull(inbox.receive(parts[0], ::decrypt) { it == id })
+        for (part in parts.drop(1)) assertNull(inbox.receive(part, ::decrypt) { false })
+        val ordinary = message("control receipt")
+        assertEquals(ordinary.toString(), inbox.receive(frames(ordinary).single(), ::decrypt)?.message.toString())
+        inbox.clearPartial()
+        assertNull(inbox.receive(parts.last(), ::decrypt))
+    }
+
 }

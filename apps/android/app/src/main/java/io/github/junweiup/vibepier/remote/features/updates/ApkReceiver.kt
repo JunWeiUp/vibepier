@@ -16,21 +16,47 @@ import android.os.Handler
 import android.os.Looper
 import android.provider.Settings
 import android.util.Base64
+import io.github.junweiup.vibepier.remote.core.files.BinaryFileClient
 import android.widget.Toast
 import org.json.JSONObject
 import java.io.File
-import java.io.RandomAccessFile
 import java.security.MessageDigest
 import java.util.concurrent.Executors
 
-/** Pulls one authenticated chunk at a time. Files stay private, and resume by their actual durable length. */
-class ApkReceiver(private val activity: Activity, private val client: SessionClient) {
+/** Bounded authenticated download window; only contiguous, synced bytes become resumable progress. */
+class ApkReceiver(
+    private val activity: Activity,
+    private val client: SessionClient,
+    private val showResultNotice: (String) -> Unit = { Toast.makeText(activity, it, Toast.LENGTH_LONG).show() }
+) {
     private val prefs = PrivatePreferences.open(activity, "apk-install")
     private val root = File(activity.filesDir, "apk-install").apply { mkdirs() }
     private val main = Handler(Looper.getMainLooper())
     private val io = Executors.newSingleThreadExecutor()
-    private var foreground = false
-    @Volatile private var generation = 0
+    @Volatile private var foreground = false
+    private val fileGuard = ApkDownloadGuard()
+    private var download: ApkDownloadWindow? = null
+    private var binaryTransfer: BinaryFileClient? = null
+    private var binaryTicket: String? = null
+    private var writing = false
+    private var downloadStarted = 0L
+    private var downloadStartOffset = 0L
+    @Volatile private var downloadConnection: String? = null
+    private fun invalidateDownload() {
+        binaryTransfer?.cancel(); binaryTransfer = null
+        if (binaryTicket != null && client.online && downloadConnection == client.versionConnectionID)
+            client.request("fileCancel", JSONObject().put("ticket", binaryTicket)) {}
+        binaryTicket = null
+        fileGuard.cancel()
+        download = null; writing = false; busy = false
+        client.cancelAPKReads()
+    }
+    private fun downloadActive(token: Int) = active(token) && downloadConnection != null && downloadConnection == client.versionConnectionID
+    private fun interruptDownload() {
+        invalidateDownload()
+        dialog?.dismiss(); dialog = null
+    }
+    private val generation get() = fileGuard.generation
     private var busy = false
     private var lastCheck = 0L
     private var dialog: AlertDialog? = null
@@ -48,8 +74,7 @@ class ApkReceiver(private val activity: Activity, private val client: SessionCli
         check(true)
     }
     fun pause() {
-        foreground = false; generation++; busy = false; installing = false
-        client.cancelAPKReads()
+        foreground = false; invalidateDownload(); installing = false
         dialog?.dismiss(); dialog = null
         statusDialog?.dismiss(); statusDialog = null
         ApkInstallResult.changed = null
@@ -68,7 +93,7 @@ class ApkReceiver(private val activity: Activity, private val client: SessionCli
         if (!force && now - lastCheck < 8_000) return
         lastCheck = now; busy = true
         val token = generation
-        client.request("apkOffer") { value ->
+        client.request("apkOffer", JSONObject().apply { if (client.relayDownload) put("downloadVersion", 1) }) { value ->
             if (!active(token)) return@request
             busy = false
             if (!value.optBoolean("ok") || value.optString("transfer").isEmpty() || value.optString("transfer") == handled) return@request
@@ -79,12 +104,12 @@ class ApkReceiver(private val activity: Activity, private val client: SessionCli
                 require(value.getString("sha256").matches(Regex("[a-fA-F0-9]{64}")))
                 val previous = savedOffer()
                 if (previous?.optString("transfer") != value.getString("transfer")) {
-                    root.listFiles()?.forEach { it.delete() }
+                    synchronized(fileGuard) { root.listFiles()?.forEach { it.delete() } }
                     require(prefs.edit().putString("offer", value.toString()).putString("state", "receiving").remove("session").remove("confirmation").commit())
                 }
                 installing = false
                 showProgress(value)
-                next(value, token)
+                startDownload(value, token)
             } catch (error: Exception) { fail(value, error.message ?: activity.getString(R.string.apk_invalid_task)) }
         }
     }
@@ -95,39 +120,140 @@ class ApkReceiver(private val activity: Activity, private val client: SessionCli
             .setTitle(activity.getString(R.string.apk_receiving))
             .setMessage(value.optString("name") + activity.getString(R.string.apk_preparing))
             .setNegativeButton(activity.getString(R.string.apk_cancel_receive)) { _, _ ->
-                generation++; busy = false; client.cancelAPKReads()
+                invalidateDownload()
                 finish(value, "cancelled", activity.getString(R.string.apk_receive_cancelled))
             }.setCancelable(false).showProtected()
     }
-    private fun next(value: JSONObject, token: Int) {
-        if (!active(token)) return
-        val path = file(value); val size = value.getLong("size"); val offset = path.length()
-        if (offset > size) { fail(value, activity.getString(R.string.apk_invalid_length)); return }
-        dialog?.setMessage("${value.optString("name")}\n${offset * 100 / size}% · ${offset / 1024} / ${size / 1024} KB" + if (client.bluetooth) activity.getString(R.string.apk_ble_hint) else "")
-        if (offset == size) { verify(value, token); return }
+    private fun startDownload(value: JSONObject, token: Int) {
+        downloadConnection = client.versionConnectionID
+        val path = file(value)
         busy = true
-        client.request("apkChunk", JSONObject().put("transfer", value.getString("transfer")).put("offset", offset).put("limit", client.attachmentChunkBytes)) { reply ->
-            if (!active(token)) return@request
-            if (!reply.optBoolean("ok")) {
-                busy = false; dialog?.dismiss(); dialog = null
-                if (reply.optBoolean("cancelled")) { finish(value, "cancelled", activity.getString(R.string.apk_mac_cancelled)); return@request }
-                Toast.makeText(activity, reply.optString("error", activity.getString(R.string.apk_interrupted)), Toast.LENGTH_LONG).show()
-                // Keep durable partial bytes. Next connection/status resumes without trusting a remote offset.
-                return@request
+        io.execute {
+            val result = runCatching {
+                fileGuard.durableLength(token, path) { downloadActive(token) }
             }
-            io.execute {
-                val error = runCatching {
-                    require(reply.getString("transfer") == value.getString("transfer") && reply.getLong("offset") == offset)
-                    val bytes = Base64.decode(reply.getString("data"), Base64.NO_WRAP)
-                    require(bytes.isNotEmpty() && bytes.size <= 128 * 1024 && offset + bytes.size <= size)
-                    RandomAccessFile(path, "rw").use { out -> out.seek(offset); out.write(bytes); out.fd.sync() }
-                }.exceptionOrNull()
-                main.post {
-                    if (active(token)) {
-                        busy = false
-                        if (error != null) fail(value, error.message ?: activity.getString(R.string.apk_write_failed)) else next(value, token)
+            main.post {
+                if (!active(token)) return@post
+                if (!downloadActive(token)) { interruptDownload(); return@post }
+                val offset = result.getOrElse { fail(value, activity.getString(R.string.apk_write_failed)); return@post }
+                if (offset > value.getLong("size")) { fail(value, activity.getString(R.string.apk_invalid_length)); return@post }
+                if (offset == value.getLong("size")) { verify(value, token); return@post }
+                if (!client.bluetooth && value.optInt("binaryVersion") == 1) {
+                    client.request("apkBinary", JSONObject().put("transfer", value.getString("transfer")).put("offset", offset)) binaryOffer@{ response ->
+                        if (!downloadActive(token)) return@binaryOffer
+                        val profile = response.optJSONObject("binary")
+                        if (response.optBoolean("ok") && profile != null) startBinary(value, token, offset, profile)
+                        else if (response.optBoolean("binaryUnavailable")) startLegacy(value, token, offset)
+                        else fail(value, activity.getString(R.string.apk_invalid_length))
+                    }
+                    return@post
+                }
+                startLegacy(value, token, offset)
+            }
+        }
+    }
+    private fun startLegacy(value: JSONObject, token: Int, offset: Long) {
+        val fast = client.relayDownload && value.optJSONObject("download")?.optInt("version") == 1
+        download = ApkDownloadWindow(value.getLong("size"), offset, client.attachmentChunkBytes, if (fast) 4 else 1)
+        downloadStarted = android.os.SystemClock.elapsedRealtime(); downloadStartOffset = offset
+        pump(value, token)
+        watchConnection(token)
+    }
+    private fun startBinary(value: JSONObject, token: Int, offset: Long, profile: JSONObject) {
+        val transfer = BinaryFileClient { downloadActive(token) }; binaryTransfer = transfer; binaryTicket = profile.getString("id")
+        val host = client.binaryHost
+        downloadStarted = android.os.SystemClock.elapsedRealtime(); downloadStartOffset = offset
+        watchConnection(token)
+        var lastReport = 0L
+        io.execute {
+            var committed = offset
+            val result = runCatching {
+                transfer.download(profile, host, value.getLong("size"), offset) { bytes ->
+                    fileGuard.append(token, file(value), committed, bytes) { downloadActive(token) }
+                    committed += bytes.size
+                    val confirmed = committed
+                    main.post {
+                        if (!downloadActive(token)) return@post
+                        val now = android.os.SystemClock.elapsedRealtime()
+                        if (now - lastReport >= 500) {
+                            lastReport = now
+                            client.request("apkProgress", JSONObject().put("transfer", value.getString("transfer"))
+                                .put("binaryTicket", profile.getString("id")).put("durableOffset", confirmed)) {}
+                        }
+                        val elapsed = (android.os.SystemClock.elapsedRealtime() - downloadStarted).coerceAtLeast(1)
+                        val rate = (confirmed - downloadStartOffset) * 1000 / elapsed
+                        val speed = if (rate > 0) activity.getString(R.string.apk_transfer_speed, rate / 1024, (value.getLong("size") - confirmed + rate - 1) / rate) else ""
+                        dialog?.setMessage("${value.optString("name")}\n${confirmed * 100 / value.getLong("size")}% · ${confirmed / 1024} / ${value.getLong("size") / 1024} KB" + speed)
                     }
                 }
+            }
+            main.post {
+                if (!downloadActive(token)) return@post
+                binaryTransfer = null
+                if (result.isSuccess) verify(value, token)
+                else fail(value, activity.getString(R.string.file_transfer_interrupted))
+            }
+        }
+    }
+    private fun watchConnection(token: Int) {
+        main.postDelayed({
+            if (active(token) && (download != null || binaryTransfer != null)) {
+                if (!downloadActive(token)) interruptDownload() else watchConnection(token)
+            }
+        }, 250)
+    }
+    private fun pump(value: JSONObject, token: Int) {
+        if (!active(token)) return
+        if (!downloadActive(token)) { interruptDownload(); return }
+        val window = download ?: return
+        val offset = window.durableOffset
+        val elapsed = (android.os.SystemClock.elapsedRealtime() - downloadStarted).coerceAtLeast(1)
+        val rate = (offset - downloadStartOffset) * 1000 / elapsed
+        val speed = if (rate > 0) activity.getString(R.string.apk_transfer_speed, rate / 1024, (window.size - offset + rate - 1) / rate) else ""
+        dialog?.setMessage("${value.optString("name")}\n${offset * 100 / window.size}% · ${offset / 1024} / ${window.size / 1024} KB" + speed + if (client.bluetooth) activity.getString(R.string.apk_ble_hint) else "")
+        if (window.complete) { download = null; verify(value, token); return }
+        while (downloadActive(token) && download === window) {
+            val requested = window.reserve() ?: break
+            val fields = JSONObject().put("transfer", value.getString("transfer")).put("offset", requested).put("limit", window.chunkBytes)
+            value.optJSONObject("download")?.let { profile ->
+                if (window.capacity == 4) fields.put("downloadToken", profile.getString("token")).put("durableOffset", window.durableOffset)
+            }
+            client.request("apkChunk", fields) { reply ->
+                if (!active(token) || download !== window) return@request
+                if (!downloadActive(token)) { interruptDownload(); return@request }
+                if (!reply.optBoolean("ok")) {
+                    interruptDownload()
+                    if (reply.optBoolean("cancelled")) finish(value, "cancelled", activity.getString(R.string.apk_mac_cancelled))
+                    else Toast.makeText(activity, reply.optString("error", activity.getString(R.string.apk_interrupted)), Toast.LENGTH_LONG).show()
+                    return@request
+                }
+                try {
+                    require(reply.getString("transfer") == value.getString("transfer") && reply.getLong("offset") == requested)
+                    val encoded = reply.getString("data")
+                    require(encoded.length <= 4 * ((window.chunkBytes + 2) / 3))
+                    window.accept(requested, Base64.decode(encoded, Base64.NO_WRAP))
+                    drain(value, token, window)
+                } catch (_: Exception) { fail(value, activity.getString(R.string.apk_invalid_length)) }
+            }
+        }
+    }
+    private fun drain(value: JSONObject, token: Int, window: ApkDownloadWindow) {
+        if (writing || !downloadActive(token) || download !== window) return
+        val bytes = window.ready() ?: return
+        val offset = window.durableOffset
+        writing = true
+        io.execute {
+            val error = runCatching {
+                fileGuard.append(token, file(value), offset, bytes) { downloadActive(token) }
+            }.exceptionOrNull()
+            main.post {
+                if (!active(token) || download !== window) return@post
+                writing = false
+                if (!downloadActive(token)) { interruptDownload(); return@post }
+                if (error != null) { fail(value, activity.getString(R.string.apk_write_failed)); return@post }
+                window.committed(offset, bytes)
+                pump(value, token)
+                drain(value, token, window)
             }
         }
     }
@@ -143,7 +269,10 @@ class ApkReceiver(private val activity: Activity, private val client: SessionCli
                 require(digest.digest().joinToString("") { "%02x".format(it) }.equals(value.getString("sha256"), true)) { activity.getString(R.string.apk_digest_failed) }
                 @Suppress("DEPRECATION") val info = activity.packageManager.getPackageArchiveInfo(file(value).path, 0)
                 require(info != null && info.splitNames.isNullOrEmpty()) { activity.getString(R.string.apk_invalid_file) }
-                require(prefs.edit().putString("package", info.packageName).commit())
+                synchronized(fileGuard) {
+                    check(active(token))
+                    require(prefs.edit().putString("package", info.packageName).commit())
+                }
             }.exceptionOrNull()
             main.post {
                 if (active(token)) {
@@ -212,8 +341,7 @@ class ApkReceiver(private val activity: Activity, private val client: SessionCli
     }
     private fun store(editor: android.content.SharedPreferences.Editor): Boolean {
         if (editor.commit()) return true
-        generation++; busy = false; installing = false
-        client.cancelAPKReads()
+        invalidateDownload(); installing = false
         dialog?.dismiss(); dialog = null
         Toast.makeText(activity, activity.getString(R.string.apk_state_save_failed), Toast.LENGTH_LONG).show()
         return false
@@ -231,12 +359,12 @@ class ApkReceiver(private val activity: Activity, private val client: SessionCli
         val completed = value.optString("transfer")
         if (!store(prefs.edit().putString("handled", completed).putString("state", state).putString("detail", detail))) return
         handled = completed
-        file(value).delete(); result()
+        synchronized(fileGuard) { file(value).delete() }; result()
     }
     private fun fail(value: JSONObject, detail: String) {
+        invalidateDownload()
         dialog?.dismiss(); dialog = null; busy = false; installing = false
         finish(value, "failed", detail)
-        Toast.makeText(activity, activity.getString(R.string.apk_install_failed, detail), Toast.LENGTH_LONG).show()
     }
     private fun result() {
         if (!foreground) return
@@ -249,18 +377,41 @@ class ApkReceiver(private val activity: Activity, private val client: SessionCli
             return
         }
         val state = prefs.getString("state", "") ?: ""
-        if (state in setOf("success", "failed", "cancelled") && prefs.getString("reported", "") != value.optString("transfer") && !reporting) {
+        if (state !in setOf("success", "failed", "cancelled")) return
+        val completed = value.optString("transfer")
+        // Local presentation is independent of the network receipt, including across process restarts.
+        val notice = "$completed:$state"
+        if (prefs.getString("notified", "") != notice) {
+            if (!store(prefs.edit().putString("notified", notice))) return
+            showResultNotice(when (state) {
+                "success" -> activity.getString(R.string.apk_installed)
+                "cancelled" -> activity.getString(R.string.apk_install_cancelled)
+                else -> activity.getString(R.string.apk_install_failed, prefs.getString("detail", ""))
+            })
+        }
+        if (prefs.getString("reported", "") != completed && !reporting) {
             installing = false; reporting = true
-            val completed = value.optString("transfer")
             if (!store(prefs.edit().putString("handled", completed))) { reporting = false; return }
             handled = completed
-            file(value).delete()
+            synchronized(fileGuard) { file(value).delete() }
             report(value, state, prefs.getString("detail", "") ?: "") { ok ->
                 reporting = false
                 if (ok) store(prefs.edit().putString("reported", value.optString("transfer")))
             }
-            Toast.makeText(activity, when (state) { "success" -> activity.getString(R.string.apk_installed); "cancelled" -> activity.getString(R.string.apk_install_cancelled); else -> activity.getString(R.string.apk_install_failed, prefs.getString("detail", "")) }, Toast.LENGTH_LONG).show()
         }
+    }
+    fun statusSummary(): String {
+        val state = prefs.getString("state", "") ?: ""
+        return activity.getString(when (state) {
+            "receiving" -> if (busy) R.string.apk_receiving else R.string.apk_waiting_resume
+            "received" -> R.string.audit_update_ready_to_install
+            "permission" -> R.string.audit_update_waiting_permission
+            "installing" -> R.string.apk_awaiting_system
+            "success" -> R.string.apk_last_success
+            "failed" -> R.string.apk_last_failed
+            "cancelled" -> R.string.apk_last_cancelled
+            else -> R.string.apk_no_task
+        })
     }
     fun showStatus() {
         if (statusDialog?.isShowing == true) return

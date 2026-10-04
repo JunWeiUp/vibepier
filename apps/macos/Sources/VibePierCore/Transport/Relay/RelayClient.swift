@@ -237,7 +237,8 @@ final class RelayClient: @unchecked Sendable {
         handler: @escaping @Sendable (RemoteEvent) -> Void
     ) {
         self.sessionRemote = sessionRemote
-        self.security = SecureControlServer(keyForDevice: keyForDevice, capabilities: ControlProtocol.required)
+        self.security = SecureControlServer(
+            keyForDevice: keyForDevice, capabilities: ControlProtocol.required | ControlProtocol.bulkAuth)
         self.settings = settings
         self.leaseSeconds = leaseSeconds
         self.application = application
@@ -248,15 +249,18 @@ final class RelayClient: @unchecked Sendable {
     var status: [String: Any] {
         queue.sync {
             [
-                "state": label, "connectedCount": connectedCount,
+                "state": label, "connectedCount": connectedCount, "deviceIDs": connectedDeviceIDs,
                 "url": settings.url.absoluteString, "room": settings.room, "dnsRecovery": settings.dnsRecovery,
             ] as [String: Any]
         }
     }
 
     private var connectedCount: Int {
+        connectedDeviceIDs.count
+    }
+    private var connectedDeviceIDs: [String] {
         let now = ProcessInfo.processInfo.systemUptime
-        return phones.values.filter { $0.confirmed && $0.expires > now }.count
+        return Array(Set(phones.values.filter { $0.confirmed && $0.expires > now }.map(\.sender))).sorted()
     }
 
     private static func codexPeer(_ route: String) -> String { "relay:\(route)" }

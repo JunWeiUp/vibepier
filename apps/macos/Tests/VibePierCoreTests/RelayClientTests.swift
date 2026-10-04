@@ -97,6 +97,9 @@ final class RelayClientTests: XCTestCase {
         try client.dispatch("vibepier-ack1 00000000-0000-4000-8000-000000000001", peer: a)
         try client.dispatch("vibepier-ack1 00000000-0000-4000-8000-000000000002", peer: b)
         XCTAssertEqual(client.status["connectedCount"] as? Int, 2)
+        XCTAssertEqual(
+            client.status["deviceIDs"] as? [String],
+            ["00000000-0000-4000-8000-000000000001", "00000000-0000-4000-8000-000000000002"])
         XCTAssertEqual(frames.all.map { $0.0 }, [a, b])
         for (peer, data) in frames.all {
             let json = try XCTUnwrap(try JSONSerialization.jsonObject(with: data) as? [String: Any])

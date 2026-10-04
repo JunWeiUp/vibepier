@@ -43,8 +43,13 @@ object SessionResponseProbe {
         val events = CopyOnWriteArrayList<JSONObject>()
         val replies = CopyOnWriteArrayList<JSONObject>()
         fun create(timeout: Long = 80) {
-            client?.close(); client = SessionClient(context, transport, timeout).apply { onEvent = { events.add(it) }; connectionChanged(true) }
+            client?.let { old ->
+                val executor = old.javaClass.getDeclaredField("transmission").apply { isAccessible = true }.get(old) as java.util.concurrent.ExecutorService
+                old.close(); check(executor.awaitTermination(2, java.util.concurrent.TimeUnit.SECONDS))
+            }
+            client = SessionClient(context, transport, timeout).apply { onEvent = { events.add(it) }; connectionChanged(true) }
         }
+        fun pendingRequests(): Int = (client!!.javaClass.getDeclaredField("pending").apply { isAccessible = true }.get(client) as Map<*, *>).size
         fun send(value: JSONObject, reverse: Boolean = false) {
             val packet = UUID.randomUUID().toString(); val cipher = Cipher.getInstance("AES/GCM/NoPadding")
             cipher.init(Cipher.ENCRYPT_MODE, key); cipher.updateAAD("vibepier-session-v1|mac|${client!!.device}|$packet".toByteArray())
@@ -81,19 +86,19 @@ object SessionResponseProbe {
             test.runOnMainSync {
                 create(100_000); transport.frames.clear(); replies.clear()
                 repeat(65) { client!!.request("list", JSONObject().put("search", "fixture-$it")) { value -> replies.add(value) } }
-                check(transport.packets() == 64 && replies.size == 1 && !replies[0].getBoolean("ok"))
+                check(pendingRequests() == 64 && replies.size == 1 && !replies[0].getBoolean("ok"))
                 client!!.cancelPageReads(); transport.frames.clear(); replies.clear()
                 var coalescedID = ""
                 repeat(17) { coalescedID = client!!.request("list", JSONObject().put("search", "coalesced")) { value -> replies.add(value) } }
-                check(transport.packets() == 1 && replies.size == 1)
+                check(pendingRequests() == 1 && replies.size == 1)
                 client!!.request("send", JSONObject().put("id", coalescedID).put("threadId", "fixture").put("text", "conflicting")) { replies.add(it) }
-                check(transport.packets() == 1 && replies.size == 2 && client!!.uncertain("fixture").isEmpty())
+                check(pendingRequests() == 1 && replies.size == 2 && client!!.uncertain("fixture").isEmpty())
                 client!!.cancelPageReads(); transport.frames.clear(); replies.clear()
                 repeat(11) { client!!.request("fixture-read", JSONObject().put("padding", "x".repeat(200_000))) { value -> replies.add(value) } }
-                check(transport.packets() == 10 && replies.size == 1)
-                val before = transport.packets()
+                check(pendingRequests() == 10 && replies.size == 1)
+                val before = pendingRequests()
                 client!!.request("send", JSONObject().put("threadId", "fixture").put("text", "x".repeat(300_001))) { replies.add(it) }
-                check(transport.packets() == before && !replies.last().getBoolean("ok"))
+                check(pendingRequests() == before && !replies.last().getBoolean("ok"))
                 create(100_000); transport.frames.clear(); replies.clear()
                 val editor = prefs.edit()
                 repeat(128) {

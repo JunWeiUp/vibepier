@@ -126,7 +126,7 @@ class SecureControlClientTest {
         assertSame(SecureControlClient.Result.Incompatible, peer.receive(ready(offer, version = "2")))
         assertTrue(peer.incompatible)
         assertNull(peer.seal("confirm".toByteArray()))
-        for ((version, capabilities) in listOf("1" to "1", "1" to "31", "1,2" to "15")) {
+        for ((version, capabilities) in listOf("1" to "1", "1" to "63", "1,2" to "15")) {
             assertSame(SecureControlClient.Result.Incompatible, peer.receive(ready(peer.hello()!!, version = version, capabilities = capabilities)))
             assertFalse(peer.ready)
         }
@@ -161,6 +161,22 @@ class SecureControlClientTest {
         assertNull(peer.seal("{\"type\":\"vibepier-mic1\"}".toByteArray()))
         assertSame(SecureControlClient.Result.Rejected, peer.receive(hostFrame(session, 9000, "{\"type\":\"vibepier-mic-state1\"}")))
         assertTrue(peer.receive(hostFrame(session, 1)) is SecureControlClient.Result.Message)
+    }
+
+    @Test fun bulkAuthenticationUsesIndependentVectorAndOnlyNegotiatedEncryptedUploads() {
+        val fixture = org.json.JSONObject(javaClass.classLoader!!.getResourceAsStream("control-bulk-v1.json")!!.bufferedReader().use { it.readText() })
+        val peer = client(); val offer = peer.hello()!!
+        assertSame(SecureControlClient.Result.Ready, peer.receive(ready(offer, session = fixture.getString("session"), capabilities = "31")))
+        val payload = fixture.getString("payload").toByteArray()
+        assertEquals(fixture.getString("wire"), peer.seal(payload))
+        val udp = org.json.JSONObject(fixture.getString("payload")).put("data", "a".repeat(512)).put("fragmentChars", 512).put("parts", 256)
+        assertTrue(peer.seal(udp.toString().toByteArray())!!.toByteArray().size <= 1280)
+        assertTrue(peer.seal("confirm".toByteArray())!!.startsWith(SecureControlClient.FRAME))
+        peer.disconnect(); assertNull(peer.seal(payload))
+        assertSame(SecureControlClient.Result.Ready, peer.receive(ready(peer.hello()!!, capabilities = "15")))
+        assertTrue(peer.seal(payload)!!.startsWith(SecureControlClient.FRAME))
+        val changed = org.json.JSONObject(fixture.getString("payload")).put("type", "vibepier-mic1")
+        assertFalse(SecureControlClient.isBulkUpload(changed.toString().toByteArray(), device))
     }
 
     @Test fun legacyAndMalformedRepliesNeverDowngradeTheHandshake() {

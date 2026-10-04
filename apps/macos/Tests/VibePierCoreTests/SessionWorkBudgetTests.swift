@@ -161,6 +161,7 @@ final class SessionWorkBudgetTests: XCTestCase {
         XCTAssertTrue(cache.reserve("a:1", device: "a", hash: "old", now: 0))
         cache.remove(device: "a")
         XCTAssertTrue(cache.reserve("a:1", device: "a", hash: "new", now: 1))
+        cache.abandon("a:1", hash: "old")
         cache.complete("a:1", hash: "old", result: Data("old".utf8))
         guard case .pending = cache.lookup("a:1", hash: "new", now: 2) else {
             return XCTFail("Stale completion replaced new request")
@@ -173,6 +174,19 @@ final class SessionWorkBudgetTests: XCTestCase {
         cache.complete("a:2", hash: "hash", result: Data("ok".utf8))
         guard case .missing = cache.lookup("a:2", hash: "hash", now: 181) else {
             return XCTFail("Completed cache never expired")
+        }
+    }
+    func testAbandonedAPKPreparationFreesOnlyMatchingPendingReply() {
+        var cache = SessionReadReplies(limits: .init(perDevice: 1, total: 2, bytesPerDevice: 10, bytesTotal: 20))
+        XCTAssertTrue(cache.reserve("phone:request", device: "phone", hash: "apk", now: 0))
+        cache.abandon("phone:request", hash: "wrong")
+        XCTAssertFalse(cache.reserve("phone:next", device: "phone", hash: "next", now: 1))
+        cache.abandon("phone:request", hash: "apk")
+        XCTAssertTrue(cache.reserve("phone:next", device: "phone", hash: "next", now: 1))
+        cache.complete("phone:next", hash: "next", result: Data("ok".utf8))
+        cache.abandon("phone:next", hash: "next")
+        guard case .complete = cache.lookup("phone:next", hash: "next", now: 2) else {
+            return XCTFail("Known result must remain idempotent")
         }
     }
 }

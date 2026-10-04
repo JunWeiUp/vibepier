@@ -16,7 +16,7 @@ import android.widget.EditText
 import android.widget.HorizontalScrollView
 import android.widget.LinearLayout
 
-/** Desktop-style composer that keeps every action at least 48dp on small screens. */
+/** Stable model/settings toolbar with a separately labelled submit action. */
 @android.annotation.SuppressLint("ViewConstructor") // Created in code with required model/callback arguments, never XML-inflated.
 internal class ComposerControls(context: Context, editor: EditText, onAdd: () -> Unit, onMode: () -> Unit, onModel: () -> Unit, onSend: () -> Unit, onContext: () -> Unit) : LinearLayout(context) {
     val attachments = LinearLayout(context).apply { orientation = HORIZONTAL }
@@ -34,8 +34,8 @@ internal class ComposerControls(context: Context, editor: EditText, onAdd: () ->
     val mode = chip(context.getString(R.string.approval_mode), onMode)
     val contextUsage = IconControl(context, IconControl.Icon.CONTEXT, context.getString(R.string.context_usage_description), action = onContext).apply { visibility = GONE }
     val model = chip(context.getString(R.string.choose_model), onModel)
-    val send = action("↑", onSend).apply {
-        textSize = 20f; typeface = Typeface.DEFAULT_BOLD; setTextColor(Palette.onAccent)
+    val send = action(context.getString(R.string.conversation_send), onSend).apply {
+        textSize = Ui.LABEL; typeface = Ui.medium; setTextColor(Palette.onAccent)
         background = GradientDrawable().apply { setColor(Palette.accent); cornerRadius = dp(13).toFloat() }
     }
     init {
@@ -44,15 +44,17 @@ internal class ComposerControls(context: Context, editor: EditText, onAdd: () ->
         editor.background = null; editor.setPadding(dp(8), dp(6), dp(8), dp(8)); editor.minimumHeight = dp(48)
         addView(editor, LayoutParams(-1, -2))
         addView(attachmentScroll, LayoutParams(-1, -2).apply { bottomMargin = dp(4) })
-        val compact = resources.configuration.screenWidthDp < 360 || resources.configuration.fontScale > 1.25f
-        if (compact) addView(model, LayoutParams(-1, dp(48)))
+        addView(LinearLayout(context).apply {
+            gravity = Gravity.CENTER_VERTICAL
+            addView(mode, LayoutParams(dp(106), dp(48)))
+            addView(model, LayoutParams(0, dp(48), 1f))
+        }, LayoutParams(-1, -2))
         addView(LinearLayout(context).apply {
             gravity = Gravity.CENTER_VERTICAL
             addView(add, LayoutParams(dp(48), dp(48)))
-            addView(mode, LayoutParams(if (compact) 0 else dp(106), dp(48), if (compact) 1f else 0f))
-            if (!compact) addView(model, LayoutParams(0, dp(48), 1f))
             addView(contextUsage, LayoutParams(dp(48), dp(48)))
-            addView(send, LayoutParams(dp(48), dp(48)).apply { marginStart = dp(4) })
+            addView(View(context), LayoutParams(0, 1, 1f))
+            addView(send, LayoutParams(dp(112), dp(48)).apply { marginStart = dp(4) })
         }, LayoutParams(-1, -2))
     }
 }

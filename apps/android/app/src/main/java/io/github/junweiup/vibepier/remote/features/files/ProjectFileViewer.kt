@@ -209,6 +209,7 @@ internal class ProjectFileViewer(
     private var diffState = ""; private var diffLoading = false; private var untracked = false; private var diffTruncated = false
     private var added = 0; private var removed = 0
     private var image: android.graphics.Bitmap? = null
+    private var videoPreview: VideoFilePreview? = null
     private var htmlPreview: HtmlFilePreview? = null
     private var mode = ""
     private var highlight: Int? = line
@@ -248,6 +249,7 @@ internal class ProjectFileViewer(
             addView(content, LinearLayout.LayoutParams(-1, 0, 1f))
             addView(notice, LinearLayout.LayoutParams(-1, -2).apply { setMargins(dp(12), dp(4), dp(12), 0) })
             addView(LinearLayout(context).apply {
+                visibility = if (ProjectFiles.isVideo(name)) View.GONE else View.VISIBLE
                 setPadding(dp(12), dp(8), dp(12), dp(12))
                 addView(copy, LinearLayout.LayoutParams(0, dp(46), 1f).apply { marginEnd = dp(8) })
                 addView(openMac, LinearLayout.LayoutParams(0, dp(46), 1.2f).apply { marginEnd = dp(8) })
@@ -255,7 +257,7 @@ internal class ProjectFileViewer(
             })
         }
         dialog = AlertDialog.Builder(context, R.style.Theme_VibePier_Dialog).create().apply {
-            setOnDismissListener { if (!closed) { closed = true; epoch++; releaseHtml(); onClose() } }
+            setOnDismissListener { if (!closed) { closed = true; epoch++; releaseHtml(); releaseVideo(); onClose() } }
         }
     }
 
@@ -277,7 +279,7 @@ internal class ProjectFileViewer(
         }
         reload()
     }
-    fun dismiss() { if (closed) return; closed = true; epoch++; releaseHtml(); dialog.dismiss(); onClose() }
+    fun dismiss() { if (closed) return; closed = true; epoch++; releaseHtml(); releaseVideo(); dialog.dismiss(); onClose() }
     private fun current(token: Int) = !closed && host.isCurrent() && epoch == token
     private fun say(text: String) { notice.text = text; notice.visibility = if (text.isEmpty()) View.GONE else View.VISIBLE }
 
@@ -286,12 +288,21 @@ internal class ProjectFileViewer(
         htmlPreview = null
     }
 
+    private fun releaseVideo() { videoPreview?.release(); videoPreview = null }
+
     private fun reload() {
+        releaseVideo()
         releaseHtml()
         epoch++; raw.setLength(0); version = ""; offset = 0; complete = false; error = ""; unavailable = ""; loading = false
         diffRows = null; diffState = ""; diffLoading = false; diffTruncated = false; untracked = false; image = null; lines = emptyList()
-        load()
-        if (status.isNotEmpty()) loadDiff()
+        if (ProjectFiles.isVideo(name)) {
+            mode = "preview"
+            videoPreview = VideoFilePreview(host, target)
+            render()
+        } else {
+            load()
+            if (status.isNotEmpty()) loadDiff()
+        }
     }
 
     private fun load() {
@@ -360,8 +371,8 @@ internal class ProjectFileViewer(
 
     private fun modes(): List<Pair<String, String>> {
         val result = mutableListOf<Pair<String, String>>()
-        if (ProjectFiles.isImage(name) || ProjectFiles.isMarkdown(name) || ProjectFiles.isHtml(name)) result.add("preview" to context.getString(R.string.files_preview))
-        if (!ProjectFiles.isImage(name)) result.add("source" to context.getString(R.string.files_source))
+        if (ProjectFiles.isVideo(name) || ProjectFiles.isImage(name) || ProjectFiles.isMarkdown(name) || ProjectFiles.isHtml(name)) result.add("preview" to context.getString(R.string.files_preview))
+        if (!ProjectFiles.isImage(name) && !ProjectFiles.isVideo(name)) result.add("source" to context.getString(R.string.files_source))
         if (status.isNotEmpty() || diffRows != null) result.add("diff" to when {
             untracked -> context.getString(R.string.files_changes_new_file)
             diffRows != null && (added > 0 || removed > 0) -> context.getString(R.string.files_changes_1_2 ,added, removed)
@@ -395,6 +406,10 @@ internal class ProjectFileViewer(
         content.removeAllViews()
         htmlPreview?.onPause()
         when {
+            mode == "preview" && ProjectFiles.isVideo(name) -> videoPreview?.let {
+                (it.parent as? ViewGroup)?.removeView(it)
+                content.addView(it, FrameLayout.LayoutParams(-1, -1))
+            }
             mode == "diff" -> when {
                 untracked && complete -> showLines(added = true)
                 untracked -> state(context.getString(R.string.files_reading_from_mac), error)

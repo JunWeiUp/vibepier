@@ -107,7 +107,7 @@ struct PhoneRemoteView: View {
         case .shortcuts: ApplicationShortcutsView(model: model)
         case .access: CodexAccessView()
         case .relay: RelayView(model: model)
-        case .apk: PhoneAPKView()
+        case .apk: PhoneAPKView(model: model)
         }
     }
 }

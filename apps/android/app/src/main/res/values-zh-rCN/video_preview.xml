@@ -1,0 +1,8 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="video_loading">正在下载视频…</string>
+    <string name="video_progress">正在下载视频 · %1$d%%</string>
+    <string name="video_download_failed">视频下载失败，请重新打开重试。</string>
+    <string name="video_playback_failed">此视频无法播放，请尝试导出为 H.264/AAC 编码的 MP4。</string>
+    <string name="video_update_mac">请更新 Mac 端 VibePier 以播放会话视频。</string>
+</resources>

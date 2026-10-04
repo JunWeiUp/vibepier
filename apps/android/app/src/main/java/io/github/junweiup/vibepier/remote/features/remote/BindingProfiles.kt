@@ -17,6 +17,13 @@ object BindingProfiles {
     fun key(control: String, app: String?) =
         if (app.isNullOrBlank()) "keys.$control" else "app.$app.keys.$control"
 
+    fun labelKey(control: String, app: String?) = "label.${key(control, app)}"
+
+    fun resolveLabel(control: String, app: String?, fallback: String, read: (String) -> String?): String =
+        read(labelKey(control, app))?.takeIf { it.isNotBlank() }
+            ?: read(labelKey(control, null))?.takeIf { it.isNotBlank() }
+            ?: fallback
+
     fun resolve(control: String, app: String?, read: (String) -> String?): String =
         read(key(control, app))?.let(Keys::normalize)
             ?: read(key(control, null))?.let(Keys::normalize)

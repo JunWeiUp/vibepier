@@ -55,6 +55,7 @@ struct DaemonStatusJSON: Decodable {
     let heartbeatEnabled: Bool?
     let heartbeatInterval: Double?
     let heartbeatMode: String?
+    let connectedPhoneIDs: [String]?
     let remoteConnectedAddresses: [String]?
     let remoteListening: Bool?
     let remotePort: Int?
@@ -101,6 +102,7 @@ final class DeviceModel: ObservableObject {
     @Published var heartbeatEnabled = true
     @Published var heartbeatInterval: Double = 1
     @Published var heartbeatMode = "on"
+    @Published var connectedPhoneIDs: [String] = []
     @Published var remoteConnectedAddresses: [String] = []
     @Published var remoteListening = false
     @Published var remotePort = 47800
@@ -220,6 +222,7 @@ final class DeviceModel: ObservableObject {
             heartbeatEnabled = status.heartbeatEnabled ?? true
             heartbeatInterval = status.heartbeatInterval ?? 1
             heartbeatMode = status.heartbeatMode ?? "on"
+            connectedPhoneIDs = Array(Set(status.connectedPhoneIDs ?? [])).sorted()
             remoteConnectedAddresses = status.remoteConnectedAddresses ?? []
             remoteListening = status.remoteListening ?? false
             remotePort = status.remotePort ?? 47800
@@ -241,6 +244,7 @@ final class DeviceModel: ObservableObject {
             chargeFull = chargeFull && batteryPercent == 100 && charging
         } else {
             daemonRunning = false
+            connectedPhoneIDs = []
             remoteConnectedAddresses = []
             remoteListening = false
             bluetoothConnectedCount = 0
@@ -350,8 +354,8 @@ final class DeviceModel: ObservableObject {
         defaultInputUID = AudioManager.defaultInputDevice()?.uid
     }
 
-    private func recordError(_ result: AppCommands.Result) {
-        AppCommands.lastError = result.stderr.isEmpty ? result.stdout : result.stderr
+    private func recordError(_ result: AppCommands.Result, operation: String = L10n.text("mac.refresh_device_status")) {
+        AppCommands.report(result, operation: operation)
     }
 
     /// Switch the system default audio input device.
@@ -374,6 +378,7 @@ final class DeviceModel: ObservableObject {
     }
     private func changeApplicationShortcut(_ args: [String]) async {
         await perform { model in
+            AppCommands.clearError()
             let result = await model.runCommand(args)
             if result.success {
                 model.applicationShortcutError = ""
@@ -388,6 +393,7 @@ final class DeviceModel: ObservableObject {
     func setRelay(url: String, room: String, secret: String, dnsRecovery: Bool = false) async -> Bool {
         var success = false
         await perform { model in
+            AppCommands.clearError()
             let result = await model.runCommand(["relay-config", url, room, secret, dnsRecovery ? "alidns" : "system"])
             success = result.success
             model.relayError = success ? "" : result.stderr
@@ -409,6 +415,7 @@ final class DeviceModel: ObservableObject {
         openingTask = session.key
         defer { openingTask = nil }
         await perform { model in
+            AppCommands.clearError()
             let result = await model.runCommand(["task-open", session.provider, session.id])
             guard result.success else {
                 let error = result.stderr.isEmpty ? result.stdout : result.stderr
@@ -429,6 +436,7 @@ final class DeviceModel: ObservableObject {
         clearingUnread = true
         defer { clearingUnread = false }
         await perform { model in
+            AppCommands.clearError()
             let result = await model.runCommand(["task-clear-unread"] + keys)
             guard result.success else {
                 let error = result.stderr.isEmpty ? result.stdout : result.stderr
@@ -444,6 +452,7 @@ final class DeviceModel: ObservableObject {
 
     func setHeartbeatEnabled(_ enabled: Bool) async {
         await perform { model in
+            AppCommands.clearError()
             let result = await model.runCommand(["heartbeat", enabled ? "on" : "off"])
             guard result.success else {
                 model.recordError(result)
@@ -456,9 +465,10 @@ final class DeviceModel: ObservableObject {
     func setHeartbeatMode(_ mode: String) async {
         await perform { model in
             model.deviceSettingError = ""
+            AppCommands.clearError()
             let result = await model.runCommand(["heartbeat-mode", mode])
             guard result.success else {
-                model.recordError(result)
+                model.recordError(result, operation: L10n.text("mac.au05_device_settings"))
                 model.deviceSettingError = (AppCommands.lastError ?? L10n.text("mac.the_device_did_not_respond"))
                     .trimmingCharacters(
                         in: .whitespacesAndNewlines)
@@ -471,9 +481,10 @@ final class DeviceModel: ObservableObject {
     func applySetting(_ arguments: [String]) async {
         await perform { model in
             model.deviceSettingError = ""
+            AppCommands.clearError()
             let result = await model.runCommand(arguments)
             guard result.success else {
-                model.recordError(result)
+                model.recordError(result, operation: L10n.text("mac.au05_device_settings"))
                 model.deviceSettingError = (AppCommands.lastError ?? L10n.text("mac.the_device_did_not_respond"))
                     .trimmingCharacters(
                         in: .whitespacesAndNewlines)
@@ -491,18 +502,31 @@ final class DeviceModel: ObservableObject {
     func setBinding(control: String, keys: String) async -> Bool {
         var success = false
         await perform { model in
+            AppCommands.clearError()
             let result = await model.runCommand(["bind", control, keys])
             success = result.success
-            if success { await model.readBindings() } else { model.recordError(result) }
+            if success {
+                await model.readBindings()
+            } else {
+                model.recordError(result, operation: L10n.text("mac.key_bindings"))
+            }
         }
         return success
     }
 
-    func resetBindings() async {
+    func resetBindings() async -> Bool {
+        var success = false
         await perform { model in
+            AppCommands.clearError()
             let result = await model.runCommand(["reset-buttons"])
-            if result.success { await model.readBindings() } else { model.recordError(result) }
+            success = result.success
+            if result.success {
+                await model.readBindings()
+            } else {
+                model.recordError(result, operation: L10n.text("mac.restore_all_firmware_defaults"))
+            }
         }
+        return success
     }
 
     var statusIcon: String {
@@ -551,8 +575,8 @@ final class DeviceModel: ObservableObject {
         return linkState == .linked
             ? L10n.text(
                 "mac.0_phones_1", statusText,
-                remoteConnectedAddresses.count + bluetoothConnectedCount + relayConnectedCount)
+                connectedRemoteCount)
             : L10n.text("mac.phone_connected")
     }
-    var connectedRemoteCount: Int { remoteConnectedAddresses.count + bluetoothConnectedCount + relayConnectedCount }
+    var connectedRemoteCount: Int { Set(connectedPhoneIDs).count }
 }

@@ -69,6 +69,11 @@ You need **macOS 14+ on Apple silicon** and **Android 13+**. Keep the Mac app ru
 
 The preview Mac package is not notarized. Use macOS's normal explicit approval flow; do not disable Gatekeeper. Each phone must be approved separately. Details: [installation and permissions](docs/SETUP.md), [connections and troubleshooting](docs/CONNECTIONS.md).
 
+
+Current source build 11 (not included in the published build 8) fixes recording-path cleanup, attachment restoration, task controls, update stages and indexed Claude history; see [improvements](docs/PROJECT-IMPROVEMENTS.md).
+
+APK delivery over the cloud relay requires build 9+ on both apps and supports negotiated larger fragments and four concurrent chunks, with download speed and remaining-time estimates. Both apps must be upgraded; see [Android updates](docs/ANDROID-UPDATES.md).
+
 ## Deploy your own relay
 
 The relay is optional. It is a small Go service behind Nginx HTTPS, with no database. VibePier does not provide a hosted relay.
@@ -168,7 +173,7 @@ System DNS is the default. Optional Android AliDNS HTTPS recovery requires expli
 
 ## Build and contribute
 
-Mac: Xcode with Swift 6. Android: JDK 17 and Android SDK 35. Relay: Go 1.22+. Build/package commands create artifacts without installing them or changing your system settings.
+Mac: Xcode with Swift 6 and Go 1.22+ for the bundled file helper. Android: JDK 17 and Android SDK 35. Relay: Go 1.22+. Build/package commands create artifacts without installing them or changing your system settings.
 
 ```sh
 make test
@@ -184,6 +189,7 @@ The Mac app is staged at `dist/staging/VibePier.app`. Install it explicitly if n
 swift build --package-path apps/macos -c release --product vibepier
 mkdir -p "$HOME/.local/bin"
 install -m 0755 "$(swift build --package-path apps/macos -c release --show-bin-path)/vibepier" "$HOME/.local/bin/vibepier"
+go -C services/relay build -trimpath -o "$HOME/.local/bin/VibePierFileServer" ./cmd/vibepier-file-server
 export PATH="$HOME/.local/bin:$PATH"
 ```
 

@@ -36,7 +36,7 @@ struct PreferencesArchive: Codable {
             }, hardware: config.settings, applicationShortcuts: config.applicationShortcuts,
             heartbeatMode: config.heartbeatMode, replayBindings: config.replayBindings)
         phoneBindings = bindings.entries.compactMapValues { entry in
-            entry.value.map { PhoneBindings.PortableEntry(value: $0, name: entry.name) }
+            entry.value.map { PhoneBindings.PortableEntry(value: $0, name: entry.name, label: entry.label) }
         }
     }
 

@@ -345,7 +345,8 @@ class TalkPad(context: Context) : Pad(context, R.drawable.ic_mic, context.getStr
         }
 
         val size = min(r * 0.53f, 52 * density).toInt()
-        val iconY = cy - r * 0.44f
+        val contentOffset = r * 0.20f
+        val iconY = cy - r * 0.44f + contentOffset
         icon.setBounds((cx - size / 2).toInt(), (iconY - size / 2).toInt(), (cx + size / 2).toInt(), (iconY + size / 2).toInt())
         icon.setTint(Palette.onAccent)
         icon.draw(canvas)
@@ -361,7 +362,7 @@ class TalkPad(context: Context) : Pad(context, R.drawable.ic_mic, context.getStr
                 .setAlignment(Layout.Alignment.ALIGN_CENTER).setIncludePad(false).build()
         }
         val caption = checkNotNull(captionLayout)
-        val top = cy - r * 0.12f
+        val top = cy - r * 0.12f + contentOffset
         canvas.save(); canvas.translate(cx - textWidth / 2f, top); caption.draw(canvas); canvas.restore()
         drawBinding(canvas, cx, top + caption.height + 6 * density, Palette.onAccent, r * 1.4f, onPrimary = true)
     }

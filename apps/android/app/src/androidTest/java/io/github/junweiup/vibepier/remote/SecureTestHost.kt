@@ -23,7 +23,7 @@ internal class SecureTestHost(private val device: String, root: ByteArray, priva
         val fields = line.split(' ')
         if (fields.size !in listOf(5, 7) || fields[1] != device) return null
         if (fields[0] == SecureControlClient.HELLO) {
-            if (fields.size != 7 || fields[4] != "1" || fields[5] != "15") return null
+            if (fields.size != 7 || fields[4] != "1" || fields[5].toIntOrNull()?.let { it and 7 != 7 } != false) return null
             val timestamp = fields[3].toLongOrNull() ?: return null
             if (kotlin.math.abs(System.currentTimeMillis() / 1000 - timestamp) > 120 ||
                 !keys.verify(fields[6], fields.take(6))) return null

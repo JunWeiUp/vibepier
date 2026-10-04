@@ -77,6 +77,10 @@ The Mac `L10n` layer lives in the dependency-only `VibeLocalization` target, wit
 
 ## Android ownership
 
+`HomeViewport` measures the complete home controls at their natural height and scales the canvas uniformly to fit the available width and height (minimum unscaled width: 360 dp). When height limits the scale, the logical canvas width expands inversely to keep rows filling the window without side gutters. System-bar and cutout insets stay outside the canvas. Native child transforms preserve touch hit testing; the home has no vertical scroll container, while the app dock keeps horizontal scrolling.
+
+首页由 `HomeViewport` 统一测量和等比缩放，空间不足时保持全部控件可见，同时扩大逻辑画布宽度，使缩放后的各行铺满窗口，避免额外左右留白；系统栏和刘海区域不参与缩放，触摸坐标随视图变换映射。首页移除纵向滚动，应用栏仍可横向滑动。
+
 `MainActivity` composes the remote-control screen, permission prompts and settings. It attaches to `RemoteConnectionService` rather than owning a second transport. The service uses `ConnectionLifetime` to keep one `RemoteSender` across Activity recreation, and only stays alive after the user opens the app.
 
 - `ConversationNavigation` owns the session overlay and document-picker lifecycle. Entering it releases input; the underlying controls are hidden from accessibility while the overlay is visible. A cancelled picker preserves the panel and draft.
@@ -90,7 +94,11 @@ The Mac `L10n` layer lives in the dependency-only `VibeLocalization` target, wit
 - `PrivatePreferences` authenticates private cache values and entry names, wrapping store keys with Android Keystore. `RelaySettingsStore` owns encrypted relay setup; `DeviceKeys` owns the stable device identity and Keystore control keys.
 - `RelayWriteQueue` bounds pending encrypted writes; each write retains its original output stream identity. `TransportLog` accepts fixed event/error categories so parser exceptions cannot copy private network content into diagnostics.
 
+Attachment uploads use background encoding/encryption, a negotiated three-chunk window and authenticated direct Wi-Fi routing; capability 16 avoids encrypting already encrypted fragments twice. Mac completion synchronizes once after full coverage and SHA-256 validation; see [attachment transfer](ATTACHMENT-TRANSFER.md).
+
 Page/attachment callbacks carry generation and scope. Hiding a page cancels pending reads before cleanup can create a new request; late decoded images cannot update another conversation. Backgrounding releases keys and recording but keeps the shared connection. Review builds stay isolated unless the explicit encrypted-loopback lifecycle probe enables the connection service.
+Android conversation history keeps the first visible message and its pixel offset when earlier messages are inserted, excluding the pagination hint from anchors. Restoration runs after layout, before drawing; multiple snapshots in one frame share the original anchor, and restoration cannot trigger another history request. Earlier reply-part expansion captures the current viewport when the response arrives rather than when the request starts.
+
 
 ## Storage and configuration
 
@@ -151,3 +159,19 @@ Codex configured creation bootstraps an empty native thread with validated setti
 任务完成检测通过既有授权加密会话通道向手机发送去重事件；Android 会话客户端由连接持有，Activity 销毁不影响前台服务接收通知。协议、权限与离线边界见 [任务完成通知](TASK-NOTIFICATIONS.md)。
 
 Android version reports and registered update artifacts are managed by `PhoneAppVersions` on the authenticated SessionRemote queue; see [Android updates](ANDROID-UPDATES.md). 手机版本按设备保存，可用 APK 通过独立本地操作登记。
+
+APK relay transfer profiles are negotiated by `PhoneAPK` per authorized device, transfer and relay peer. `SessionRemote` emits large frames only for the corresponding APK request; the existing secure-control size limits remain unchanged. Android's `SessionResponseInbox` admits them only against a live request on the negotiated connection. `ApkDownloadWindow` reserves four slots across network/buffer/disk work, and `ApkDownloadGuard` serializes cancellation with contiguous synced writes. Mac progress uses the explicit durable offset. See the [APK wire contract](../protocol/README.md).
+
+APK 并发下发独立于普通会话消息：四块窗口包含在途、缓冲及写盘数据；授权、重放保护、设备隔离、摘要验证及系统安装回执均保留。
+
+### Build 11 ownership / 本轮职责
+
+`ClaudeHistoryIndex` streams metadata into a private disposable SQLite index and reads selected turn ranges from the original JSONL. The shared serialized-body cache is 4 MiB, single pages are at most 8 MiB, and active indexes/summary entries have explicit count limits. Original old messages and image identities remain queryable; oversized turns fail explicitly. `ClaudeTranscript` owns projection, not storage. Late native-send evidence is independent of body cache eviction.
+
+`ConversationViewState`, `ConversationActions`, `ConversationTimeline` and `ConversationTimelineContent` separate Android route identity, action semantics and view reconciliation. Pending picker state binds a durable authorization epoch/provider/thread; verified-page readiness gates adding restored attachments. `ZCodeDesktopCache` owns bounded native settings/cache retention.
+
+`APKPreparationWorkers` separates two filesystem workers from SessionRemote routing. Per-phone preparation reservations bind the original key and artifact digest; async snapshots expose typed phases to Mac UI. The phone can request only its authorized Mac's registered newer artifact using `androidUpdateStage`. Relay output uses one 12 MiB aggregate budget including in-flight writes; fixed close categories never record room/endpoint/payload.
+
+Claude 历史只索引元数据并按轮读取，正文共享有界缓存，不保留整段投影；旧正文与原生回执证据留在完整 JSONL。Android 导航、动作和消息重用分别有明确归属，附件恢复绑定持久授权身份和原会话。Mac APK 文件处理独立于会话队列，完成前重新验证原钥与版本，异步快照用类型化阶段驱动界面。中继跨房间共享发送额度，计入正在写出数据。
+
+`BinaryFileTransfers` issues scoped file capabilities through a private pipe to the bundled `VibePierFileServer`. Android `BinaryFileClient` uses pinned direct HTTPS or the authenticated relay file stream; both attachment and APK bodies rely on HTTPS and authenticated expected digests. See [binary file transport](BINARY-FILE-TRANSFER.md).

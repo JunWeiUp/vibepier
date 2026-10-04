@@ -24,6 +24,8 @@ internal class ConversationMessageRenderer(
     private val images: (JSONArray) -> View,
     private val markdown: (MarkdownFileLinks.Link) -> Unit,
     private val expand: (JSONObject) -> Unit,
+    private val scope: () -> ConversationRenderScope,
+    private val active: () -> Boolean,
 ) {
     private fun dp(value: Int) = Ui.dp(context, value)
     private fun background(color: Int, radius: Int) = Ui.roundRect(context, color, radius)
@@ -37,9 +39,31 @@ internal class ConversationMessageRenderer(
         val r = dp(18).toFloat(); val tail = dp(6).toFloat()
         cornerRadii = floatArrayOf(r, r, r, r, tail, tail, r, r)
     }
+    private class MessageView(context: Context) : LinearLayout(context) {
+        var process: InlineReplyProcess? = null
+        var user = false
+    }
+    private fun sequence(message: JSONObject): JSONArray? = message.optJSONArray("sequence") ?: message.optJSONArray("parts")?.let { entries ->
+        JSONArray((0 until entries.length()).map { index -> JSONObject(entries.getJSONObject(index).toString()).apply {
+            put("index", index); put("bodyVersion", "${optString("text").hashCode()}|${optString("status")}")
+            if (optString("kind") !in setOf("text", "plan")) { remove("text"); put("bodyDeferred", true) }
+        } })
+    }
+    /** Ordered replies update their existing process view rather than rebuilding the message bubble. */
+    fun update(view: View, message: JSONObject): Boolean {
+        val box = view as? MessageView ?: return false
+        val process = box.process ?: return false
+        if (box.user || message.optString("role") == "user") return false
+        val sequence = sequence(message) ?: return false
+        process.accept(sequence, message.optInt("partCount", sequence.length()))
+        return true
+    }
     fun render(message: JSONObject): View {
+        val renderedScope = scope()
+        val openMarkdown: (MarkdownFileLinks.Link) -> Unit = { if (active() && scope() == renderedScope) markdown(it) }
         val user = message.optString("role") == "user"
-        val box = column().apply {
+        val box = MessageView(context).apply {
+            orientation = LinearLayout.VERTICAL; this.user = user
             if (user) background = userBubble()
             setPadding(dp(if (user) 14 else 4), dp(if (user) 10 else 4), dp(if (user) 14 else 4), dp(if (user) 12 else 4))
             // The bubble already says who wrote it; only the agent's replies carry a name line.
@@ -52,20 +76,14 @@ internal class ConversationMessageRenderer(
                 }, LinearLayout.LayoutParams(dp(20), dp(20)).apply { marginEnd = dp(8) })
                 addView(label(SessionProvider.name(provider()), Ui.LABEL, Palette.muted).apply { typeface = Ui.medium })
             }, LinearLayout.LayoutParams(-1, -2).apply { bottomMargin = dp(8) })
-            val parts = message.optJSONArray("parts")
-            val sequence = message.optJSONArray("sequence") ?: parts?.let { entries -> JSONArray((0 until entries.length()).map { index ->
-                JSONObject(entries.getJSONObject(index).toString()).apply {
-                    put("index", index); put("bodyVersion", "${optString("text").hashCode()}|${optString("status")}")
-                    if (optString("kind") !in setOf("text", "plan")) { remove("text"); put("bodyDeferred", true) }
-                }
-            }) }
+            val sequence = sequence(message)
             val ordered = !user && sequence != null
-            if (ordered) addView(inline(message, sequence!!), LinearLayout.LayoutParams(-1, -2))
-            else if (message.optString("text").isNotEmpty()) addView(ChatMarkdownView(context, markdown, anyFile = true).apply { render(message.optString("text")) }, LinearLayout.LayoutParams(-1, -2))
+            if (ordered) addView(inline(message, sequence!!).also { process = it as? InlineReplyProcess }, LinearLayout.LayoutParams(-1, -2))
+            else if (message.optString("text").isNotEmpty()) addView(ChatMarkdownView(context, openMarkdown, anyFile = true).apply { render(message.optString("text")) }, LinearLayout.LayoutParams(-1, -2))
             if (!ordered) message.optJSONArray("images")?.takeIf { it.length() > 0 }?.let {
                 addView(images(it), LinearLayout.LayoutParams(-1, -2).apply { if (message.optString("text").isNotEmpty()) topMargin = dp(10) })
             }
-            if (!ordered && message.optBoolean("hasMore")) addView(button(context.getString(R.string.expand_message)) { expand(message) }, LinearLayout.LayoutParams(-1, -2).apply { topMargin = dp(10) })
+            if (!ordered && message.optBoolean("hasMore")) addView(button(context.getString(R.string.expand_message)) { if (active() && scope() == renderedScope) expand(message) }, LinearLayout.LayoutParams(-1, -2).apply { topMargin = dp(10) })
             if (!user && !ordered && message.optString("status") == "running") addView(label(context.getString(R.string.provider_working, SessionProvider.name(provider())), Ui.CAPTION, Palette.amber), LinearLayout.LayoutParams(-1, -2).apply { topMargin = dp(10) })
         }
         box.layoutParams = LinearLayout.LayoutParams(if (user) -2 else -1, -2).apply {

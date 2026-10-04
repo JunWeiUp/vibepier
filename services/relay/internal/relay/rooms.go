@@ -7,6 +7,7 @@ import (
 	"encoding/base64"
 	"encoding/hex"
 	"errors"
+	"github.com/JunWeiUp/vibepier/services/relay/internal/filetransfer"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -22,6 +23,9 @@ type room struct {
 
 type relay struct {
 	connections atomic.Int32 // all upgraded connections, including unauthenticated peers
+	buffers     bufferBudget
+	files       filetransfer.Hub
+	closed      [9]atomic.Uint64
 	secret      []byte
 	mu          sync.Mutex
 	rooms       map[string]*room

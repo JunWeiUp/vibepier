@@ -22,6 +22,8 @@ struct MenuPanelLayout<Content: View>: View {
 
 struct PanelView: View {
     @ObservedObject var model: DeviceModel
+    @ObservedObject private var commands = AppCommands.feedback
+    @State private var showCommandError = false
     @Environment(\.openWindow) private var openWindow
     @State private var openedMaximumHeight: CGFloat?
 
@@ -346,9 +348,28 @@ struct PanelView: View {
             .buttonStyle(.plain)
             .font(.caption)
             .foregroundStyle(VibeAppearance.secondary)
-            if let err = AppCommands.lastError {
-                Text(err).lineLimit(1).truncationMode(.tail)
-                    .font(.caption).foregroundStyle(VibeAppearance.danger)
+            if let phase = commands.phase {
+                HStack(spacing: 6) {
+                    if phase == .running { ProgressView().controlSize(.mini) }
+                    Text(
+                        commands.operation + " · "
+                            + L10n.text(
+                                phase == .running
+                                    ? "mac.preparing" : phase == .success ? "mac.saved" : "mac.operation_failed")
+                    )
+                    .font(.caption).foregroundStyle(
+                        phase == .failure ? VibeAppearance.danger : VibeAppearance.secondary)
+                    if commands.error != nil {
+                        Button(L10n.text("mac.details")) { showCommandError = true }.font(.caption)
+                    }
+                }
+                .sheet(isPresented: $showCommandError) {
+                    VStack(alignment: .leading, spacing: 14) {
+                        Text(commands.operation).font(.headline)
+                        Text(commands.error ?? "").textSelection(.enabled)
+                        Button(L10n.text("common.close")) { showCommandError = false }
+                    }.padding(24).frame(width: 480)
+                }
             }
         }
         .padding(.horizontal, 6).padding(.top, 4)
@@ -392,6 +413,7 @@ struct BindingsView: View {
     @ObservedObject var model: DeviceModel
     @State private var drafts: [String: String] = [:]
     @State private var feedback: String?
+    @State private var feedbackFailed = false
     @State private var showKeys = false
     @State private var keyList: [String] = []
 
@@ -410,6 +432,7 @@ struct BindingsView: View {
                         guard let keys = drafts[binding.control], !keys.isEmpty else { return }
                         Task {
                             let ok = await model.setBinding(control: binding.control, keys: keys)
+                            feedbackFailed = !ok
                             if ok {
                                 drafts[binding.control] = nil
                                 feedback = "\(binding.control) → \(keys) ✓"
@@ -425,7 +448,8 @@ struct BindingsView: View {
             }
 
             if let feedback {
-                Text(feedback).font(.caption).foregroundStyle(.blue)
+                Text(feedback).font(.caption).foregroundStyle(
+                    feedbackFailed ? VibeAppearance.danger : VibeAppearance.accent)
             }
 
             Divider()
@@ -433,11 +457,17 @@ struct BindingsView: View {
             HStack {
                 Button(L10n.text("mac.restore_all_firmware_defaults")) {
                     Task {
-                        await model.resetBindings()
-                        drafts = [:]
-                        feedback = L10n.text("mac.firmware_bindings_restored")
+                        if await model.resetBindings() {
+                            feedbackFailed = false
+                            drafts = [:]
+                            feedback = L10n.text("mac.firmware_bindings_restored")
+                        } else {
+                            feedbackFailed = true
+                            feedback = AppCommands.lastError ?? L10n.text("mac.unknown_error")
+                        }
                     }
                 }
+                .disabled(model.refreshing)
                 Spacer()
                 Button(showKeys ? L10n.text("mac.hide_key_names") : L10n.text("mac.show_all_key_names")) {
                     if keyList.isEmpty {

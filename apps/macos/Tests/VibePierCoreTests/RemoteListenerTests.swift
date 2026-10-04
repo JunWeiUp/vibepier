@@ -51,9 +51,11 @@ final class RemoteListenerTests: XCTestCase {
         try phone.send("vibepier-ack1 \(device)")
         wait(for: [connected], timeout: 1)
         XCTAssertEqual(listener.connectedAddresses, ["127.0.0.1"])
+        XCTAssertEqual(listener.connectedDeviceIDs, [device])
         let expired = expectation(forNotification: DriverNotifications.statusChanged, object: listener)
         wait(for: [expired], timeout: 1)
         XCTAssertTrue(listener.connectedAddresses.isEmpty)
+        XCTAssertTrue(listener.connectedDeviceIDs.isEmpty)
         // Soft presence expiry must allow an authorized watch without waiting for crypto expiry.
         try phone.send("vibepier-watch1 \(device)")
         XCTAssertEqual(try phone.receive()["type"] as? String, "vibepier-app1")

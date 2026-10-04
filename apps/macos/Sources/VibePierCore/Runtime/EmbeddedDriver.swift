@@ -58,7 +58,11 @@ public final class EmbeddedDriver: @unchecked Sendable {
         let key = driver.key
         switch args.first {
         case "status", "reload":
-            return try jsonObject(await driver.handle(["cmd": args[0]]))
+            let result = await driver.handle(["cmd": args[0]])
+            guard result["ok"] as? Bool == true else {
+                throw CLIError(result["error"] as? String ?? L10n.text("core.invalid_receipt"))
+            }
+            return try jsonObject(result)
         case "task-open":
             guard args.count == 3 else { throw CLIError(L10n.text("core.missing_task_provider_or_session_id")) }
             let result = await driver.handle(["cmd": "task-open", "provider": args[1], "id": args[2]])

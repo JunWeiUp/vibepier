@@ -14,6 +14,7 @@ bin=$(swift build --package-path "$macos" -c release --arch arm64 --show-bin-pat
 # The destination is a fixed generated path, never a user installation.
 rm -rf "$stage"
 mkdir -p "$stage/Contents/MacOS" "$stage/Contents/Resources"
+CGO_ENABLED=0 GOOS=darwin GOARCH=arm64 go -C "$root/services/relay" build -trimpath -ldflags="-s -w" -o "$stage/Contents/MacOS/VibePierFileServer" ./cmd/vibepier-file-server
 install -m 0755 "$bin/VibePierApp" "$stage/Contents/MacOS/VibePier"
 cp "$macos/Resources/Info.plist" "$stage/Contents/Info.plist"
 cp "$macos/Resources/VibePier.icns" "$stage/Contents/Resources/"
@@ -29,8 +30,10 @@ if [ -n "${MACOS_SIGN_IDENTITY:-}" ]; then
         "Developer ID Application:"*) ;;
         *) echo "Public distribution requires a Developer ID Application identity; omit MACOS_SIGN_IDENTITY for an ad-hoc preview." >&2; exit 1 ;;
     esac
+    codesign --force --timestamp --options runtime --sign "$MACOS_SIGN_IDENTITY" "$stage/Contents/MacOS/VibePierFileServer"
     codesign --force --timestamp --options runtime --entitlements "$macos/Resources/VibePier.entitlements" --sign "$MACOS_SIGN_IDENTITY" "$stage"
 else
+    codesign --force --sign - "$stage/Contents/MacOS/VibePierFileServer"
     codesign --force --sign - "$stage"
 fi
 codesign --verify --deep --strict "$stage"

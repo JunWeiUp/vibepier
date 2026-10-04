@@ -80,7 +80,7 @@ final class DeviceModelTests: XCTestCase {
                 exitCode: 0,
                 stdout: """
                     {"ok":true,"dongleConnected":false,"micLinked":false,
-                     "remoteConnectedAddresses":["192.168.0.204"],"remoteListening":true,"remotePort":47800}
+                     "connectedPhoneIDs":["test-phone"],"remoteConnectedAddresses":["192.168.0.204"],"remoteListening":true,"remotePort":47800}
                     """, stderr: "")
         })
         await model.refreshStatus()
@@ -88,6 +88,7 @@ final class DeviceModelTests: XCTestCase {
         XCTAssertEqual(model.remoteConnectedAddresses.count, 1)
         XCTAssertEqual(model.menuStatusText, L10n.text("mac.phone_connected"))
         XCTAssertEqual(model.statusText, L10n.text("mac.no_receiver_detected"))
+        model.connectedPhoneIDs = []
         model.remoteConnectedAddresses = []
         XCTAssertEqual(model.menuStatusText, L10n.text("mac.no_phone_connected"))
     }
@@ -218,5 +219,58 @@ final class DeviceModelTests: XCTestCase {
                 ["application-shortcut-set", "6", "test.replacement"], ["status"],
                 ["application-shortcut-remove", "6"], ["status"],
             ])
+    }
+    func testFailedRestoreRetainsBindingsAndReturnsFailure() async {
+        let cli = CLI()
+        var failure = true
+        let model = DeviceModel(runCommand: { args in
+            if failure && args.first == "reset-buttons" {
+                return .init(exitCode: 1, stdout: "", stderr: "restore failed")
+            }
+            return await cli.run(args)
+        })
+        await model.refreshBindings()
+        let original = model.bindings
+        let failed = await model.resetBindings()
+        XCTAssertFalse(failed)
+        XCTAssertEqual(model.bindings, original)
+        XCTAssertEqual(AppCommands.lastError, "restore failed")
+        failure = false
+        let restored = await model.resetBindings()
+        XCTAssertTrue(restored)
+        XCTAssertNil(AppCommands.lastError)
+    }
+    func testConnectedPhoneCountUsesIdentitiesAcrossRoutesAndSharedAddress() async {
+        var ids = ["one", "one"]
+        let model = DeviceModel(runCommand: { _ in
+            let value: [String: Any] = [
+                "ok": true, "dongleConnected": false, "micLinked": false, "connectedPhoneIDs": ids,
+                "remoteConnectedAddresses": ["198.51.100.42"],
+                "bluetooth": ["state": "connected", "connectedCount": 1],
+                "relay": ["state": "connected", "connectedCount": 1],
+            ]
+            return .init(
+                exitCode: 0,
+                stdout: String(decoding: try! JSONSerialization.data(withJSONObject: value), as: UTF8.self), stderr: "")
+        })
+        await model.refreshStatus()
+        XCTAssertEqual(model.connectedRemoteCount, 1)
+        ids = ["one", "two"]
+        await model.refreshStatus()
+        XCTAssertEqual(model.connectedRemoteCount, 2)
+    }
+    func testCommandFeedbackClearsRecoveredErrorAndIgnoresOlderCompletion() {
+        let feedback = CommandFeedback()
+        let old = feedback.begin("Old operation")
+        feedback.finish(old, result: .init(exitCode: 1, stdout: "", stderr: "old failure"))
+        XCTAssertEqual(feedback.error, "old failure")
+        let latest = feedback.begin("New operation")
+        XCTAssertNil(feedback.error)
+        feedback.finish(old, result: .init(exitCode: 1, stdout: "", stderr: "late failure"))
+        XCTAssertNil(feedback.error)
+        feedback.finish(latest, result: .init(exitCode: 0, stdout: "ok", stderr: ""))
+        XCTAssertEqual(feedback.phase, .success)
+        XCTAssertEqual(feedback.operation, "New operation")
+        XCTAssertNil(feedback.error)
     }
 }

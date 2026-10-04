@@ -22,3 +22,10 @@ condition = "AND"
 paths = ['''(^|/)protocol/fixtures/control-v1\.properties$''']
 regexTarget = "secret"
 regexes = ['''^(e08e1edc9d02af573951be1ce57dac7e92f4378bb896657ec3f87afa76c971de|a67400b415ffe78759c539929e960753b002c3b4c318df24352e39913c9ee481|ae834fb9d7d6655076790d59ddb1b63e4408a6b6e1bcec9d2cd4d102c6dd3742)$''']
+
+[[allowlists]]
+description = "Public connection-authentication vector derived from the fixed synthetic control root"
+condition = "AND"
+paths = ['''(^|/)protocol/fixtures/control-bulk-v1\.json$''']
+regexTarget = "secret"
+regexes = ['''^9eb146d9086ec9ea23f2d11f5e6b687147b6cd941fbc475cd3c8ea30b27ee992$''']

@@ -1,0 +1,6 @@
+<resources>
+    <string name="conversation_send">Send</string>
+    <string name="conversation_queue_send">Queue send</string>
+    <string name="conversation_attachment_reselect">The attachment no longer matches this session. Please select it again.</string>
+    <string name="conversation_stop_at_header">Use Stop at the top to stop the current task.</string>
+</resources>

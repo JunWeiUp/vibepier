@@ -1,5 +1,28 @@
 # Changelog / 更新记录
 
+## Unreleased — builds 11–21 / 未发布构建 11–21
+
+- Edit phone key names together with shortcuts on Android or macOS; names sync, inherit per application and are included in settings export/import. Android 与 macOS 支持同时编辑手机按键名称和快捷键，名称随配置同步、按应用继承，并纳入设置导出/导入。
+- Preview workspace MP4 links and embeds from Claude Code/Codex conversations on the phone with play/pause/seek, bounded encrypted downloads and temporary-file cleanup (128 MiB maximum; H.264/AAC tested on an emulator). 手机可直接预览 Claude Code/Codex 会话中项目目录内的 MP4 链接与媒体嵌入，支持播放/暂停/拖动、有界加密下载和临时文件清理（最大 128 MiB，模拟器验证 H.264/AAC）。
+- Add an independent pinned HTTPS file helper and streaming self-hosted relay for attachments/APKs, retaining device capabilities, digest verification and cancellation. 新增独立固定证书 HTTPS 文件助手及自建中继流式附件/APK传输，保留设备授权、摘要校验与取消。
+- Preserve conversation scroll anchors when prepending history and partial replies. 加载历史及早期回复片段时保留滚动锚点。
+
+- Tapping a discovered Android update requests the registered APK immediately, without another Mac send action; phone system installation confirmation remains required. 手机点击“发现新版本”直接申请下发已登记 APK，无需在 Mac 再点发送；保留手机系统安装确认。
+- Fix microphone-path cleanup and authorization-bound activity/attachment recovery.
+- Clarify stop/queue/wait actions, reconcile conversation views, preserve focused settings and open the notified provider.
+- Prepare APKs on bounded workers; expose installation stages and request registered updates from an authorized phone.
+- Index Claude history, bound cached bodies, retain old message/image access and late native receipt evidence.
+- Correct restore-defaults feedback and unique online-device counts; add redacted connection diagnostics.
+- Bound aggregate relay output and publish immutable build-scoped source/digest metadata.
+
+修正录音通路、授权绑定的页面与附件恢复、停止/排队/等待语义；会话局部重用、设置焦点和通知入口保持稳定。Mac APK 采用有界工作器与明确安装阶段，手机可申请已登记更新。Claude 历史按索引读取并保留旧消息/图片/迟到回执；恢复默认与在线设备计数准确。中继共享总发送额度，产物按构建号保留源码与摘要追溯。
+
+
+## Local builds 9–10 / 本地构建
+
+- Lowered the home voice control contents toward the center and persisted installation-toast deduplication independently of Mac receipt retries. 首页语音键内容整体下移，安装结果提示持久去重，不再随 Mac 回执重试重复弹出。
+- Accelerated negotiated relay APK downloads with larger fragments, a bounded four-chunk window, durable progress and speed/ETA display; retained legacy/BLE behavior and installation verification. 云中继 APK 下发支持大分片、四块并发、连续落盘进度及速度提示，保留旧端兼容和安装校验。
+
 ## 0.1.0-beta.1 — first public preview
 
 The first public preview ships the applications, CLI, relay and source on `main`, with one consolidated initial commit. Android and Mac package build: **8**. Real first-message acceptance was explicitly skipped; this release does not claim that every native-provider/device flow is verified. See [release notes](https://github.com/JunWeiUp/vibepier/releases/tag/v0.1.0-beta.1) and [remaining work](TODO.md).

@@ -1,0 +1,8 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="video_loading">Downloading video…</string>
+    <string name="video_progress">Downloading video · %1$d%%</string>
+    <string name="video_download_failed">Video download failed. Reopen to retry.</string>
+    <string name="video_playback_failed">This video cannot be played. Try exporting it as H.264/AAC MP4.</string>
+    <string name="video_update_mac">Update VibePier on the Mac to play session videos.</string>
+</resources>

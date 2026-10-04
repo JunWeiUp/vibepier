@@ -15,6 +15,7 @@ struct PhoneBindingsView: View {
         let app: String
         let version: String
         let value: String
+        let label: String
     }
     private let titles = [
         "knob-left": L10n.text("mac.rotate_left"), "knob-right": L10n.text("mac.rotate_right"),
@@ -85,7 +86,7 @@ struct PhoneBindingsView: View {
                             Image(systemName: symbols[control] ?? "keyboard").frame(width: 24).foregroundStyle(
                                 VibeAppearance.secondary)
                             VStack(alignment: .leading, spacing: 3) {
-                                Text(titles[control] ?? control).fontWeight(.medium)
+                                Text(controlTitle(control)).fontWeight(.medium)
                                 Text(
                                     control == "talk"
                                         ? L10n.text("mac.hold_to_press_release_to_stop")
@@ -113,8 +114,9 @@ struct PhoneBindingsView: View {
                                 editing = Editing(
                                     id: control, key: PhoneBindings.key(control, app: profile), app: profile,
                                     version: entry?.version ?? "",
-                                    value: PhoneBindings.shared.resolved(control, app: profile))
-                            }.accessibilityLabel(L10n.text("mac.edit_0_shortcut", titles[control] ?? control))
+                                    value: PhoneBindings.shared.resolved(control, app: profile),
+                                    label: controlTitle(control))
+                            }.accessibilityLabel(L10n.text("mac.edit_0_shortcut", controlTitle(control)))
                         }.padding(.vertical, 12).padding(.horizontal, 14)
                         if control != PhoneBindings.controls.last { Divider().padding(.leading, 50) }
                     }
@@ -135,13 +137,13 @@ struct PhoneBindingsView: View {
         }
         .sheet(item: $editing) { item in
             PhoneKeyEditor(
-                title: titles[item.id] ?? item.id, profile: profileName, value: item.value,
+                title: item.label, profile: profileName, value: item.value, label: item.label,
                 resetTitle: item.app.isEmpty ? L10n.text("mac.restore_defaults") : L10n.text("mac.use_general_profile")
-            ) { value in
+            ) { value, label in
                 do {
                     guard
                         try PhoneBindings.shared.set(
-                            key: item.key, value: value, name: applications[item.app] ?? "",
+                            key: item.key, value: value, name: applications[item.app] ?? "", label: label,
                             expectedVersion: item.version)
                     else {
                         return L10n.text("mac.this_binding_was_changed_on_the_phone_close_and_reopen_the_editor")
@@ -154,6 +156,9 @@ struct PhoneBindingsView: View {
                 } catch { return L10n.text("mac.could_not_save_0", error) }
             }
         }
+    }
+    private func controlTitle(_ control: String) -> String {
+        PhoneBindings.shared.resolvedLabel(control, app: profile, fallback: titles[control] ?? control)
     }
     private func chooseApplication() {
         let panel = NSOpenPanel()
@@ -175,8 +180,9 @@ struct PhoneKeyEditor: View {
     let title: String
     let profile: String
     @State var value: String
+    @State var label: String
     let resetTitle: String
-    let save: (String?) -> String?
+    let save: (String?, String?) -> String?
     @State private var error = ""
     @Environment(\.dismiss) private var dismiss
     var body: some View {
@@ -185,6 +191,9 @@ struct PhoneKeyEditor: View {
                 Text(L10n.text("mac.0_shortcut", title)).font(.title2.bold())
                 Text(profile).font(.subheadline).foregroundStyle(VibeAppearance.secondary)
             }
+            TextField(L10n.text("mac.key_name"), text: $label)
+                .textFieldStyle(.roundedBorder)
+                .accessibilityLabel(L10n.text("mac.key_name"))
             TextField(L10n.text("mac.for_example_cmd_ctrl_cmd_return_rcmd"), text: $value)
                 .textFieldStyle(.roundedBorder).onSubmit { commit(value) }
                 .accessibilityLabel(L10n.text("mac.shortcut_combination"))
@@ -242,5 +251,12 @@ struct PhoneKeyEditor: View {
             }
         }.padding(24).frame(width: 490)
     }
-    private func commit(_ value: String?) { if let message = save(value) { error = message } }
+    private func commit(_ value: String?) {
+        let name = label.trimmingCharacters(in: .whitespacesAndNewlines)
+        if value != nil && (name.isEmpty || name.count > 200) {
+            error = L10n.text("mac.key_name_required")
+            return
+        }
+        if let message = save(value, value == nil ? nil : name) { error = message }
+    }
 }

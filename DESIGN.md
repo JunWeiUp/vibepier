@@ -26,7 +26,7 @@ Use system fonts. Android's shared type scale is title 18sp, headline 16sp, body
 
 Small-looking icons must retain a useful interaction area. Shared Android controls use at least a 48dp target even when the visible pill/icon is smaller. Labels need semantic accessibility text; decorative icons must not produce duplicate announcements. Large-type and screen-reader acceptance remain explicit test work, not a consequence of these rules alone.
 
-The key editor sizes its preset column count from localized label width; large-type modifier controls use two columns. The voice caption and key chip live inside the circular microphone control; the source label sits above it. A separate fixed action row holds the release hint and the 140×48dp Delete target. Use the general portrait layout; only the upper context/shortcut region may scroll when content exceeds its space, while voice, Delete and the application dock stay visible. Do not add small-screen variants or dedicated small-screen acceptance work unless the user requests it (see agent.md). Captions wrap at the system font size; the circular gesture boundary is preserved. Delete shows a single icon and label, with its complete binding retained in accessibility semantics.
+The key editor sizes its preset column count from localized label width; large-type modifier controls use two columns. The voice caption and key chip live inside the circular microphone control; the source label sits above it. The icon, caption and key chip shift down together by 20% of the disc radius, placing the icon closer to the center. A separate fixed action row holds the release hint and the 140×48dp Delete target. Use the general portrait layout; only the upper context/shortcut region may scroll when content exceeds its space, while voice, Delete and the application dock stay visible. Do not add small-screen variants or dedicated small-screen acceptance work unless the user requests it (see agent.md). Captions wrap at the system font size; the circular gesture boundary is preserved. Delete shows a single icon and label, with its complete binding retained in accessibility semantics.
 
 ## Interaction rules
 
@@ -70,6 +70,14 @@ Editorial illustrations use graphite, mint and generous empty space. They commun
 
 图标几何以 Swift 生成器为准，导出 SVG、PNG、ICNS 和 Android 前景/单色层。插画和封面是概念图，不能充当应用截图；截图只使用脱敏演示数据。页面和组件约束见[页面结构](docs/PAGE-STRUCTURE.md)与[组件规范](docs/COMPONENT-GUIDELINES.md)。
 
-首页采用已选第一版：按住说话与快捷键提示放进圆形按钮内，麦克风来源独占圆上方一行；松手提示和140×48dp删除键位于固定操作行。采用通用竖屏布局，顶部内容超出可用空间时仅该区滚动，语音、删除、应用dock不随滚动移动；后续不做小屏专项适配，见 agent.md。
+首页采用已选第一版：按住说话与快捷键提示放进圆形按钮内，麦克风来源独占圆上方一行；圆内图标、标题和快捷键整体下移圆半径的 20%，让图标更靠近圆心；松手提示和140×48dp删除键位于固定操作行。采用统一竖屏画布，首页无纵向滚动；可用屏幕宽度或高度不足时，顶部、语音、删除和应用 dock 的文字、按钮及间距一起等比缩小；画布按缩放比例扩大逻辑宽度，让各行继续铺满可用宽度，避免出现额外左右留白，并保持完整显示。系统栏与刘海安全区域不参与缩放，底部应用 dock 保留横向滑动；常规屏幕保留原有布局。
 
 HTML/HTM project files default to Preview, with Source available in the same tab strip. Keep original document styling and interactive state across tab switches; native actions stay outside the webpage. HTML/HTM 默认预览，源码标签并列，原页面风格与交互状态保留；底部应用操作独立于网页。
+
+Build 11 keeps Stop task in one header location, labels Send/Queue send visibly and reserves Stop waiting for returning to the list while Mac work continues. Message updates retain row identity, expansion and visible-row anchors. Microphone capability changes refresh the effective source and terminate a lost phone-audio path without switching during a hold. Settings update existing choice nodes.
+
+build 11 将停止任务固定在顶部，发送/排队明示；停止等待只返回列表并说明 Mac 任务继续。消息更新保留行身份、展开态与阅读位置，通路失效结束手机录音且不在同一次按住中切换来源，设置刷新不重建焦点选项。
+
+The Mac app picker uses a fixed header, shortcut actions and search field above a scrolling grouped list. App names are left-aligned; bundle IDs use muted caption text. Initial-letter badges identify rows without implying that Mac app icons are available. The selected app has a mint checkmark and tinted row. Shortcut configuration uses numbered rows; all interactive rows retain at least 48dp touch targets.
+
+Mac 应用选择页采用固定标题、快捷栏操作和搜索框，下方应用列表独立滚动。应用名称左对齐，包名使用弱化的辅助文字；首字标识用于区分行，不假装已获取 Mac 应用图标。当前应用用薄荷绿勾选与浅色底标记，快捷栏配置使用位置编号，各操作保留至少 48dp 触摸区域。

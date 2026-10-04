@@ -132,6 +132,7 @@ struct DirectAdmissions {
             return String(fields[1])
         }
         if (fields.count == 5 && ["vibepier-audio1", SecureControlEnvelope.frame].contains(String(fields[0])))
+            || (fields.count == 6 && String(fields[0]) == SecureControlEnvelope.bulk)
             || (fields.count == 7 && String(fields[0]) == SecureControlEnvelope.hello)
         {
             return String(fields[1])
@@ -176,6 +177,7 @@ final class RemoteListener: @unchecked Sendable {
     private var clients: [String: Client] = [:]
     private var expiry: DispatchWorkItem?
     private var lastPublishedPeers: [String] = []
+    private var lastPublishedDevices: [String] = []
     /// Punch tokens learned over the authenticated relay, and the internet sources they admitted.
     private var directAdmissions = DirectAdmissions()
     private var publicAddress: (value: String, at: TimeInterval)?
@@ -185,6 +187,12 @@ final class RemoteListener: @unchecked Sendable {
 
     var connectedAddresses: [String] {
         queue.sync { addresses() }
+    }
+    var connectedDeviceIDs: [String] { queue.sync { deviceIDs() } }
+
+    private func deviceIDs() -> [String] {
+        let now = ProcessInfo.processInfo.systemUptime
+        return Array(Set(clients.values.filter { $0.confirmed && $0.expires > now }.map(\.sender))).sorted()
     }
 
     private func addresses() -> [String] {
@@ -197,8 +205,10 @@ final class RemoteListener: @unchecked Sendable {
         for id in clients.keys.filter({ clients[$0]!.expires <= now || security.device(for: $0) != clients[$0]!.sender }
         ) { dropClient(id, disconnectSecurity: security.device(for: id) != clients[id]?.sender) }
         let peers = addresses()
-        if peers != lastPublishedPeers {
+        let devices = deviceIDs()
+        if peers != lastPublishedPeers || devices != lastPublishedDevices {
             lastPublishedPeers = peers
+            lastPublishedDevices = devices
             NotificationCenter.default.post(name: DriverNotifications.statusChanged, object: self)
         }
         expiry?.cancel()

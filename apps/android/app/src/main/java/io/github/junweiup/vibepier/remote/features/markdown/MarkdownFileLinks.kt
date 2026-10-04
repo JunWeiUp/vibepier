@@ -17,7 +17,7 @@ internal object MarkdownFileLinks {
         // Check after removing a line hint: README.md:12 is a file, not a URL scheme.
         if (Regex("^[a-zA-Z][a-zA-Z0-9+.-]*:").containsMatchIn(path) || path.startsWith("//") || path.any { it == '\u0000' || it == '\n' || it == '\r' }) return null
         if (path.startsWith("#") || path.endsWith("/")) return null
-        if (!isMarkdown(path) && !(anyFile && looksLikeFile(path))) return null
+        if (!isMarkdown(path) && !(anyFile && (looksLikeFile(path) || path.lowercase().endsWith(".mp4")))) return null
         return Link(label.ifBlank { path.substringAfterLast('/') }, path, line)
     }
 
@@ -73,7 +73,8 @@ internal object MarkdownFileLinks {
                 }
                 if (depth != 0) continue
                 index = cursor + 1
-                if (start > 0 && line[start - 1] == '!') continue
+                if (start > 0 && line[start - 1] == '!' && !(anyFile &&
+                    parseTarget(target = line.substring(targetStart, cursor), anyFile = true)?.path?.lowercase()?.endsWith(".mp4") == true)) continue
                 val target = line.substring(targetStart, cursor).replace(Regex("\\\\([()\\\\ ])"), "$1")
                 parseTarget(target, line.substring(start + 1, labelEnd), anyFile)?.let { links[it.path to it.line] = it }
             }

@@ -64,8 +64,6 @@
     <string name="application_slots">App shortcuts</string>
     <string name="usage_and_updates">Usage and updates</string>
     <string name="app_usage">App usage</string>
-    <string name="receive_apk">Receive and install APK</string>
-    <string name="receive_apk_detail">Send from Mac · View progress or continue installation</string>
     <string name="wifi_option_detail">Same network · Discover or enter a Mac address</string>
     <string name="bluetooth_option_detail">Nearby Mac · No shared Wi-Fi needed · Pair first</string>
     <string name="relay_configured_detail">Across networks · Securely configured from Mac</string>
@@ -104,4 +102,7 @@
         <item quantity="one">%1$d app · Choose here; reorder on Mac</item>
         <item quantity="other">%1$d apps · Choose here; reorder on Mac</item>
     </plurals>
+    <string name="key_name">Key name</string>
+    <string name="key_combination">Shortcut combination</string>
+    <string name="key_name_required">Enter a key name</string>
 </resources>

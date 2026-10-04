@@ -26,6 +26,9 @@ import io.github.junweiup.vibepier.remote.features.remote.TalkPad
 import io.github.junweiup.vibepier.remote.features.navigation.ConversationNavigation
 import io.github.junweiup.vibepier.remote.features.settings.SettingsSheet
 import io.github.junweiup.vibepier.remote.features.updates.ApkReceiver
+import io.github.junweiup.vibepier.remote.features.updates.AppUpdatesSheet
+import io.github.junweiup.vibepier.remote.features.settings.ConnectionDiagnosticsSheet
+import io.github.junweiup.vibepier.remote.core.session.TaskCompletionNotifications
 import io.github.junweiup.vibepier.remote.features.usage.AppUsageLabels
 import io.github.junweiup.vibepier.remote.features.usage.AppUsageCache
 import io.github.junweiup.vibepier.remote.features.usage.AppUsagePage
@@ -54,7 +57,6 @@ import android.widget.ImageView
 import android.widget.LinearLayout
 import android.widget.Toast
 import android.widget.CheckBox
-import android.widget.ScrollView
 import android.widget.HorizontalScrollView
 import android.widget.BaseAdapter
 import android.view.ViewGroup
@@ -76,10 +78,12 @@ class MainActivity : Activity() {
         io.github.junweiup.vibepier.remote.features.updates.AppVersionUpdates(codex) {
             settingsUpdateDot?.visibility = if (appVersionsAvailable()) View.VISIBLE else View.GONE
             settingsSheet?.refresh()
+            updateSheet?.refresh()
         }
     }
     private fun appVersionsAvailable(): Boolean = appVersions.available != null
     private val apkReceiver by lazy { ApkReceiver(this, codex) }
+    private var updateSheet: AppUpdatesSheet? = null
     private lateinit var rootHost: FrameLayout
     internal val sessionNavigation by lazy {
         ConversationNavigation(this, { rootHost }, codex, codexFixture) {
@@ -102,7 +106,7 @@ class MainActivity : Activity() {
     private var dockEntries = emptyList<RemoteSender.AppShortcut>()
     private var pendingDockAction = "activate"
     private lateinit var dockCaption: CanvasLabel
-    private lateinit var controlScroll: ScrollView
+    private lateinit var homeViewport: io.github.junweiup.vibepier.remote.features.remote.HomeViewport
     private var pendingApplication: String? = null
     private var switchError = ""
     private var applicationPicker: io.github.junweiup.vibepier.remote.features.remote.ApplicationPickerPage? = null
@@ -141,17 +145,25 @@ class MainActivity : Activity() {
                 override fun post(task: Runnable, delayMs: Long) { handler.postDelayed(task, delayMs) }
                 override fun cancel(task: Runnable) { handler.removeCallbacks(task) }
             },
-            stateChanged = { state -> (pads["talk"] as? TalkPad)?.microphoneHint = when (state) {
-                PhoneVoiceController.State.CONNECTING -> getString(R.string.phone_connecting)
-                PhoneVoiceController.State.RECORDING -> getString(R.string.phone_recording)
-                PhoneVoiceController.State.IDLE -> if (usePhoneMic()) getString(R.string.phone_microphone) else getString(R.string.mac_microphone)
-            } },
+            stateChanged = { state -> phoneVoiceState = state; refreshMicrophoneHint() },
             failed = { message -> pads["talk"]?.releaseIfHeld(); Toast.makeText(this, message, Toast.LENGTH_LONG).show() },
             timeoutMessage = getString(R.string.mic_connection_timeout),
         )
     }
+    private var phoneVoiceState = PhoneVoiceController.State.IDLE
+    private var activeMicrophoneSource: String? = null
     /** The relay carries no audio, so the phone button falls back to the Mac microphone there. */
     private fun usePhoneMic() = prefs.getString("microphoneSource", "mac") == "phone" && sender.phoneAudioSupported
+    private fun refreshMicrophoneHint() {
+        (pads["talk"] as? TalkPad)?.microphoneHint = when {
+            phoneVoiceState == PhoneVoiceController.State.CONNECTING -> getString(R.string.phone_connecting)
+            phoneVoiceState == PhoneVoiceController.State.RECORDING -> getString(R.string.phone_recording)
+            activeMicrophoneSource == "mac" -> getString(R.string.mac_microphone)
+            usePhoneMic() -> getString(R.string.phone_microphone)
+            prefs.getString("microphoneSource", "mac") == "phone" -> getString(R.string.audit_mic_fallback)
+            else -> getString(R.string.mac_microphone)
+        }
+    }
     private fun beginPhoneMic(keys: String, app: String?) {
         if (checkSelfPermission(android.Manifest.permission.RECORD_AUDIO) != PackageManager.PERMISSION_GRANTED) {
             pads["talk"]?.releaseIfHeld()
@@ -175,6 +187,18 @@ class MainActivity : Activity() {
     private fun keys(control: String, profile: String? = profile()): String =
         BindingProfiles.resolve(control, profile) { prefs.getString(it, null) }
 
+    private fun controlTitle(control: String, scope: String?): String {
+        val resource = when (control) {
+            "knob-left" -> R.string.rotate_left
+            "knob-right" -> R.string.rotate_right
+            "cancel" -> R.string.cancel
+            "confirm" -> R.string.confirm
+            "talk" -> R.string.voice
+            else -> R.string.delete
+        }
+        return BindingProfiles.resolveLabel(control, scope, getString(resource)) { prefs.getString(it, null) }
+    }
+
     private fun overridden(control: String, profile: String?) =
         profile != null && prefs.getString(preferenceKey(control, profile), null)?.let(Keys::normalize) != null
 
@@ -182,6 +206,7 @@ class MainActivity : Activity() {
         showTarget()
         val app = profile()
         pads.forEach { (control, pad) ->
+            pad.label = controlTitle(control, app)
             pad.binding = keys(control)
             pad.custom = overridden(control, app)
             pad.isEnabled = application != null && pendingApplication == null
@@ -225,14 +250,7 @@ class MainActivity : Activity() {
         val root = LinearLayout(this).apply {
             orientation = LinearLayout.VERTICAL
             setBackgroundColor(Palette.background)
-            // Set the margins up front: some devices never deliver insets to a view nested in the scroller.
             setPadding(dp(20), dp(4), dp(20), dp(12))
-            // Android 15 draws edge to edge, so keep clear of the status and navigation bars.
-            setOnApplyWindowInsetsListener { v, insets ->
-                @Suppress("DEPRECATION")
-                v.setPadding(dp(20), dp(4), dp(20), dp(12))
-                insets
-            }
         }
         root.addView(header(), LinearLayout.LayoutParams(MATCH, WRAP))
         root.addView(profileHeader(), LinearLayout.LayoutParams(MATCH, WRAP).apply { topMargin = dp(6); bottomMargin = dp(8) })
@@ -248,7 +266,7 @@ class MainActivity : Activity() {
             keyPad(R.drawable.ic_check, getString(R.string.confirm), Palette.green, "confirm"),
         ), LinearLayout.LayoutParams(MATCH, dp(if (resources.configuration.fontScale > 1.2f) 96 else 92)).apply { topMargin = dp(10) })
 
-        // Voice is outside the shortcut scroller: its caption and circular gesture target stay fully visible.
+        // All home controls share the same scale, including the circular voice target.
         val voice = talkPad()
         val talkArea = FrameLayout(this).apply {
             setPadding(dp(20), 0, dp(20), dp(8))
@@ -281,30 +299,24 @@ class MainActivity : Activity() {
                 addView(Ui.button(context, getString(R.string.app_picker_manage), Ui.Button.TEXT) { showApplicationPicker() })
             }, LinearLayout.LayoutParams(MATCH, WRAP).apply { bottomMargin = dp(6) })
             addView(applicationDock(), LinearLayout.LayoutParams(MATCH, dp(68)))
-            setOnApplyWindowInsetsListener { view, insets ->
-                @Suppress("DEPRECATION")
-                view.setPadding(dp(20), dp(8), dp(20), insets.systemWindowInsetBottom + dp(dockBottom))
-                insets
-            }
         }
         val controls = LinearLayout(this).apply {
             orientation = LinearLayout.VERTICAL
             setBackgroundColor(Palette.background)
-            setOnApplyWindowInsetsListener { view, insets ->
-                @Suppress("DEPRECATION")
-                view.setPadding(0, insets.systemWindowInsetTop, 0, 0)
-                insets
-            }
-            controlScroll = ScrollView(context).apply {
-                isFillViewport = true
-                isVerticalScrollBarEnabled = true
-                addView(root, FrameLayout.LayoutParams(MATCH, WRAP))
-            }
-            addView(controlScroll, LinearLayout.LayoutParams(MATCH, 0, 1f))
+            addView(root, LinearLayout.LayoutParams(MATCH, 0, 1f))
             addView(talkArea, LinearLayout.LayoutParams(MATCH, dp(if (resources.configuration.fontScale > 1.2f) 280 else 260)))
             addView(dock, LinearLayout.LayoutParams(MATCH, WRAP))
         }
-        rootHost = FrameLayout(this).apply { addView(controls, FrameLayout.LayoutParams(MATCH, MATCH)) }
+        homeViewport = io.github.junweiup.vibepier.remote.features.remote.HomeViewport(this).apply {
+            addView(controls)
+            // System bars stay outside the scaled canvas, including in edge-to-edge mode.
+            setOnApplyWindowInsetsListener { view, insets ->
+                val bars = insets.getInsets(android.view.WindowInsets.Type.systemBars() or android.view.WindowInsets.Type.displayCutout())
+                view.setPadding(bars.left, bars.top, bars.right, bars.bottom)
+                insets
+            }
+        }
+        rootHost = FrameLayout(this).apply { addView(homeViewport, FrameLayout.LayoutParams(MATCH, MATCH)) }
         setContentView(rootHost)
         refreshBindings()
         codex.onAPKAvailable = { apkReceiver.check(true); appVersions.check() }
@@ -313,7 +325,7 @@ class MainActivity : Activity() {
             if (!isDestroyed) phoneVoice.receive(message.optString("session"), message.optBoolean("ready"),
                 message.optInt("packetMs", 20), message.optString("error", getString(R.string.phone_voice_ended)))
         } }
-        (pads["talk"] as? TalkPad)?.microphoneHint = if (usePhoneMic()) getString(R.string.phone_microphone) else getString(R.string.mac_microphone)
+        refreshMicrophoneHint()
         sender.onBindings = { data -> handler.post { if (!isDestroyed) bindingSync.snapshot(data) } }
         sender.onBindingAck = { data -> handler.post { if (!isDestroyed) bindingSync.acknowledge(data) } }
         sender.onBindingsReady = { handler.post { if (!isDestroyed) bindingSync.flush() } }
@@ -355,13 +367,20 @@ class MainActivity : Activity() {
         if (firstConnection) handler.post { if (!isDestroyed) connectBluetooth() }
         sender.replayUIState()
         appShortcuts = sender.cachedShortcuts; shortcutsSyncing = appShortcuts.isEmpty(); refreshApplicationDock()
-        if (codexFixture.isNotBlank()) handler.post { showCodex() }
+        val completedProvider = TaskCompletionNotifications.takeProvider(intent)
+        if (completedProvider != null) sessionNavigation.showProviderList(completedProvider)
+        else if (!sessionNavigation.restoreState(savedInstanceState) && codexFixture.isNotBlank()) handler.post { showCodex() }
         if (savedInstanceState?.getBoolean("settingsOpen") == true) handler.post {
             if (!isDestroyed && !isFinishing) showConnectionOptions()
         }
     }
 
     private fun showCodex() = sessionNavigation.show()
+    override fun onNewIntent(intent: android.content.Intent) {
+        super.onNewIntent(intent)
+        setIntent(intent)
+        TaskCompletionNotifications.takeProvider(intent)?.let { sessionNavigation.showProviderList(it) }
+    }
     fun pickCodexAttachment(images: Boolean) = sessionNavigation.pickAttachment(images)
     @Deprecated("Deprecated in Java")
     override fun onActivityResult(requestCode: Int, resultCode: Int, data: android.content.Intent?) {
@@ -382,7 +401,7 @@ class MainActivity : Activity() {
                 prefs.edit().putString("microphoneSource", "mac").apply()
                 Toast.makeText(this, getString(R.string.recording_denied), Toast.LENGTH_LONG).show()
             } else prefs.edit().putString("microphoneSource", "phone").apply()
-            (pads["talk"] as? TalkPad)?.microphoneHint = if (usePhoneMic()) getString(R.string.phone_microphone) else getString(R.string.mac_microphone)
+            refreshMicrophoneHint()
         }
         if (code == 41 && pendingBluetoothSelection) {
             pendingBluetoothSelection = false
@@ -409,6 +428,7 @@ class MainActivity : Activity() {
         }
     }
     override fun onPause() {
+        updateSheet?.close()
         apkReceiver.pause()
         appVersions.pause()
         appUsagePage?.suspend()
@@ -423,6 +443,7 @@ class MainActivity : Activity() {
 
     override fun onSaveInstanceState(outState: Bundle) {
         outState.putBoolean("settingsOpen", settingsSheet?.isShowing == true)
+        sessionNavigation.saveState(outState)
         super.onSaveInstanceState(outState)
     }
 
@@ -432,9 +453,10 @@ class MainActivity : Activity() {
         settingsSheet?.dismiss()
         keyConfigPage?.dismiss()
         appUsagePage?.dismiss()
+        updateSheet?.close()
         handler.removeCallbacksAndMessages(null)
         apkReceiver.close()
-        sessionNavigation.close()
+        sessionNavigation.close(preservePendingAttachment = isChangingConfigurations)
         codex.onEvent = {}; codex.onState = {}; codex.onAPKAvailable = {}
         if (!backgroundConnection) codex.close()
         if (backgroundConnection) RemoteConnectionService.release(this) else sender.close()
@@ -669,6 +691,7 @@ class MainActivity : Activity() {
         settingsSheet?.dismiss()
         keyConfigPage = KeyConfigPage(this, profile(), ::keyProfiles, ::profileName,
             resolve = { control, scope -> keys(control, scope) },
+            title = ::controlTitle,
             overridden = ::overridden,
             save = ::saveKeys,
             onDismiss = { keyConfigPage = null }
@@ -699,14 +722,16 @@ class MainActivity : Activity() {
         }
     }
 
-    private fun saveKeys(control: String, keys: String?, scope: String?) {
+    private fun saveKeys(control: String, keys: String?, scope: String?, label: String) {
         val name = preferenceKey(control, scope)
-        bindingSync.edit(name, keys, scope?.let(::profileName) ?: "")
+        bindingSync.edit(name, keys, scope?.let(::profileName) ?: "", label)
     }
 
     private fun showTarget() {
         val connected = application != null && sender.connectedHost != null
         codex.connectionChanged(connected)
+        phoneVoice.transportChanged(connected && usePhoneMic(), getString(R.string.audit_mic_path_lost))
+        refreshMicrophoneHint()
         codex.requestAuthorizationIfNeeded()
         syncRelayFromAuthorizedMac()
         apkReceiver.check()
@@ -728,6 +753,7 @@ class MainActivity : Activity() {
             GradientDrawable().apply { shape = GradientDrawable.OVAL; setColor(color) },
         )).apply { setLayerInset(1, dp(4), dp(4), dp(4), dp(4)) }
         settingsSheet?.refresh()
+        updateSheet?.refresh()
         appUsagePage?.connectionChanged()
     }
 
@@ -786,7 +812,9 @@ class MainActivity : Activity() {
                 sender.watch(true)
                 showTarget()
                 Toast.makeText(this, getString(R.string.reconnecting_via, transportName()), Toast.LENGTH_SHORT).show()
-            })
+            }),
+            SettingsSheet.Row(getString(R.string.audit_diagnostics_title), { getString(R.string.audit_diagnostics_summary) },
+                neutral(R.drawable.ic_monitor)) { ConnectionDiagnosticsSheet.show(this) }
         ))
         sheet.section(getString(R.string.voice), listOf(
             SettingsSheet.Choice(getString(R.string.voice_input), {
@@ -811,18 +839,21 @@ class MainActivity : Activity() {
             SettingsSheet.Row(getString(R.string.task_notifications), { getString(R.string.task_notifications_detail) }, neutral(R.drawable.ic_monitor)) { configureTaskNotifications() },
             SettingsSheet.Row(getString(R.string.app_usage), { AppUsageLabels.summary(this, AppUsageCache(this).summarySnapshot(prefs.getString("bindingSync.server", "") ?: "")) },
                 SettingsSheet.Badge(R.drawable.ic_clock, Palette.violet, Palette.violetContainer), ::showAppUsage),
-            SettingsSheet.Row(getString(R.string.receive_apk), { getString(R.string.receive_apk_detail) }, neutral(R.drawable.ic_download)) { apkReceiver.showStatus() }
+            SettingsSheet.Row(getString(R.string.audit_updates_title), {
+                appVersions.available?.let { getString(R.string.app_version_available, it.name, it.code) } ?: apkReceiver.statusSummary()
+            }, neutral(R.drawable.ic_download)) { showUpdates() }
         ))
         sheet.versionFooter({
             val current = getString(R.string.app_version_current, BuildConfig.VERSION_NAME, BuildConfig.VERSION_CODE)
             appVersions.available?.let { current + "\n" + getString(R.string.app_version_available, it.name, it.code) } ?: current
-        }, ::appVersionsAvailable) {
-            appVersions.check()
-            if (appVersionsAvailable()) Toast.makeText(this, getString(R.string.app_version_send_from_mac), Toast.LENGTH_LONG).show()
-            else Toast.makeText(this, getString(R.string.app_version_checking), Toast.LENGTH_SHORT).show()
-        }
+        }, ::appVersionsAvailable, ::showUpdates)
         appVersions.check()
         sheet.show { if (settingsSheet === sheet) settingsSheet = null }
+    }
+
+    private fun showUpdates() {
+        val sheet = updateSheet ?: AppUpdatesSheet(this, codex, appVersions, apkReceiver).also { updateSheet = it }
+        sheet.show(requestUpdate = appVersions.available != null)
     }
 
     private fun configureTaskNotifications() {
@@ -882,14 +913,14 @@ class MainActivity : Activity() {
                 pads.values.forEach { it.releaseIfHeld() }; stopPhoneMic()
                 prefs.edit().putString("transport", "relay").apply()
                 if (sender.mode == "relay") sender.watch(true) else sender.changeMode("relay")
-                (pads["talk"] as? TalkPad)?.microphoneHint = if (usePhoneMic()) getString(R.string.phone_microphone) else getString(R.string.mac_microphone)
+                refreshMicrophoneHint()
                 showTarget()
             }
             else -> {
                 pads.values.forEach { it.releaseIfHeld() }; stopPhoneMic()
                 prefs.edit().putString("transport", "wifi").apply()
                 if (sender.mode == "wifi") sender.watch(true) else sender.changeMode("wifi")
-                (pads["talk"] as? TalkPad)?.microphoneHint = if (usePhoneMic()) getString(R.string.phone_microphone) else getString(R.string.mac_microphone)
+                refreshMicrophoneHint()
                 showTarget()
             }
         }
@@ -938,7 +969,7 @@ class MainActivity : Activity() {
         prefs.edit().putString("transport", "bluetooth").apply()
         if (sender.mode == "bluetooth") sender.watch(true) else sender.changeMode("bluetooth")
         showTarget()
-        (pads["talk"] as? TalkPad)?.microphoneHint = if (usePhoneMic()) getString(R.string.phone_microphone) else getString(R.string.mac_microphone)
+        refreshMicrophoneHint()
     }
 
     private fun chooseMicrophone(phone: Boolean) {
@@ -948,7 +979,7 @@ class MainActivity : Activity() {
             requestPermissions(arrayOf(android.Manifest.permission.RECORD_AUDIO), 42)
         } else {
             prefs.edit().putString("microphoneSource", if (phone) "phone" else "mac").apply()
-            (pads["talk"] as? TalkPad)?.microphoneHint = if (usePhoneMic()) getString(R.string.phone_microphone) else getString(R.string.mac_microphone)
+            refreshMicrophoneHint()
             showTarget()
         }
     }
@@ -1002,7 +1033,7 @@ class MainActivity : Activity() {
             sender.relaySettings = settings
             prefs.edit().putString("transport", "relay").apply()
             if (sender.mode == "relay") sender.watch(true) else sender.changeMode("relay")
-            (pads["talk"] as? TalkPad)?.microphoneHint = if (usePhoneMic()) getString(R.string.phone_microphone) else getString(R.string.mac_microphone)
+            refreshMicrophoneHint()
             showTarget()
             dialog.dismiss()
         }
@@ -1053,7 +1084,7 @@ class MainActivity : Activity() {
                     prefs.edit().putString("transport", "wifi").apply()
                     if (sender.mode == "wifi") sender.watch(true) else sender.changeMode("wifi")
                 }
-                (pads["talk"] as? TalkPad)?.microphoneHint = if (usePhoneMic()) getString(R.string.phone_microphone) else getString(R.string.mac_microphone)
+                refreshMicrophoneHint()
                 showTarget()
                 dialog.dismiss()
             }
@@ -1124,13 +1155,17 @@ class MainActivity : Activity() {
         onPress = {
             heldKeys = binding; heldApp = application?.bundleID
             heldPhoneMicrophone = usePhoneMic()
+            activeMicrophoneSource = if (heldPhoneMicrophone) "phone" else "mac"
+            refreshMicrophoneHint()
             if (heldPhoneMicrophone) beginPhoneMic(heldKeys, heldApp) else keepAlive.run()
         }
         onRelease = {
             handler.removeCallbacks(keepAlive)
+            activeMicrophoneSource = null
             // Negotiation/path changes during a hold must not change which action this release completes.
             if (heldPhoneMicrophone) stopPhoneMic() else sender.send("talk", "up", heldKeys)
             heldPhoneMicrophone = false
+            refreshMicrophoneHint()
         }
         pads["talk"] = this
     }

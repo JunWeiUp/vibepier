@@ -8,6 +8,31 @@ final class PhoneBindingsTests: XCTestCase {
             url: FileManager.default.temporaryDirectory.appendingPathComponent(
                 "phone-tests-\(UUID().uuidString)/bindings.json"))
     }
+    func testLabelsPersistInheritResetAndRejectConflicts() throws {
+        let url = FileManager.default.temporaryDirectory.appendingPathComponent("phone-label-\(UUID().uuidString).json")
+        defer { try? FileManager.default.removeItem(at: url) }
+        let store = PhoneBindings(url: url)
+        let global = PhoneBindings.key("confirm")
+        let app = PhoneBindings.key("confirm", app: "com.example.editor")
+        try store.set(key: global, value: "return", label: "发送")
+        XCTAssertEqual(store.resolvedLabel("confirm", app: "com.example.editor", fallback: "确认"), "发送")
+        try store.set(key: app, value: "return", name: "Editor", label: "运行")
+        XCTAssertEqual(
+            PhoneBindings(url: url).resolvedLabel("confirm", app: "com.example.editor", fallback: "确认"), "运行")
+        XCTAssertEqual(store.snapshot.entries[app]?.name, "Editor")
+        XCTAssertFalse(try store.set(key: app, value: "return", label: "旧名称", expectedVersion: ""))
+        XCTAssertThrowsError(try store.set(key: app, value: "return", label: String(repeating: "x", count: 201)))
+        try store.set(key: app, value: nil)
+        XCTAssertEqual(store.resolvedLabel("confirm", app: "com.example.editor", fallback: "确认"), "发送")
+        try store.set(key: global, value: nil)
+        XCTAssertEqual(store.resolvedLabel("confirm", fallback: "确认"), "确认")
+    }
+    func testOldEntryWithoutLabelStillDecodes() throws {
+        let data = Data(#"{"value":"return","generation":1,"version":"v","operation":"o","name":"Editor"}"#.utf8)
+        let entry = try JSONDecoder().decode(PhoneBindings.Entry.self, from: data)
+        XCTAssertNil(entry.label)
+        XCTAssertEqual(entry.name, "Editor")
+    }
     func testMigrationTombstonesAndConflict() throws {
         let store = store()
         let key = PhoneBindings.key("talk", app: "com.example.editor")

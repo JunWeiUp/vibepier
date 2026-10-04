@@ -15,6 +15,7 @@ internal object ProjectFiles {
 
     fun extension(name: String) = name.substringAfterLast('/').let { if ('.' in it.drop(1)) it.substringAfterLast('.').lowercase() else "" }
     fun isImage(name: String) = extension(name) in imageExtensions
+    fun isVideo(name: String) = extension(name) == "mp4"
     fun isHtml(name: String) = extension(name) in setOf("html", "htm")
     fun isMarkdown(name: String) = extension(name) in setOf("md", "markdown")
 

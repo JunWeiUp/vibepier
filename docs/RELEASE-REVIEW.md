@@ -15,11 +15,11 @@ This is a maintainer review of the beta's implementation and evidence, not an in
 
 Earlier candidate [CI 37178989284](https://github.com/JunWeiUp/vibepier/actions/runs/37178989284) passed all five jobs. The final source run is linked from the release notes; earlier results are not presented as the final commit's run. Local UI evidence covers the new-session controls and receipt behavior, including a small display with large type. API 35 completed its earlier device suite. The latest API 33 runner failed to boot before executing application cases, and the remaining API 36 run was cancelled when validation was simplified. Those checks are not recorded as passing.
 
-## Open performance finding: local Claude history
+## Indexed local Claude history
 
-[`ClaudeBridge`](../apps/macos/Sources/VibePierCore/Providers/Claude/ClaudeBridge.swift) still reads appended transcript bytes to EOF, retains decoded entries and their projected conversation, and caches session summaries. The summary reader maps a complete local file. Active views and local background runs retain transcripts; subscription cleanup releases idle ones. There is no aggregate byte budget for these history objects.
+Current build 11 streams transcript metadata into a private disposable offset/ID index. It decodes requested turns rather than retaining all history entries and projections. A shared body cache keeps at most 4 MiB of serialized source bytes (not a claim about total process RSS); records and requested pages are bounded to 8 MiB. Older messages, parts, images and native receipt evidence remain in the original JSONL and are read by their indexed identities. Oversized records/turns are explicitly unavailable on the phone instead of silently truncated. The summary reader streams records and its metadata cache is bounded.
 
-The request, receipt and subprocess quotas above **do not bound total process memory**. Very large local Claude histories or many simultaneously retained histories can cause high memory use or slow history projection. No native history is silently truncated to make a test pass. This remains follow-up work: use streaming metadata, indexed history pages and a shared retention budget while preserving older messages, attachment lookup and native receipt evidence. It is distinct from the fixed request-queue blockage and must not be described as already solved.
+Late desktop-send confirmation uses the original file incarnation and completed-byte boundary, checks the complete original prompt and rejects reused native IDs. Missing or ambiguous evidence remains unknown. This implementation must still be distinguished from physical-device and real native-window acceptance. See [project improvements](PROJECT-IMPROVEMENTS.md).
 
 ## Focused release scope
 
@@ -29,6 +29,6 @@ Reuse passing evidence for unchanged code. The manual device workflow defaults t
 
 已核对授权与加密传输、敏感存储、日志、请求隔离、文件预览、Claude 子进程、原生单次操作和回执、签名与分发证据。模拟器、合成测试和真机结果分别记录；Mac 未公证预览包、尚未验收的原生首条发送均有明确说明。
 
-历史资源审查确认了一个尚未解决的性能问题：Claude 会话正文及投影仍整体保存在内存中，摘要映射完整本地文件，没有历史缓存的聚合字节上限。因此，请求与子进程限额不能表述为整个进程的内存上限。超大会话的流式索引、历史分页及总量预算留作后续优化，不能通过静默截断旧消息来规避。
+build 11 已将 Claude 历史改为流式元数据索引和按轮读取，正文缓存共享原始字节预算；旧消息、附件和原生回执证据留在完整 JSONL。超大单轮明确提示手机无法加载，不静默截断。缓存/请求额度仍不能表述为整个进程的内存上限，真实设备与原生窗口验收另记。
 
 按用户要求，后续默认只进行改动相关检查和一次核心冒烟，不重复完整矩阵；本次维护者明确选择跳过真实发送验收后发布；实际原生验收及指定真机安排作为未验证的后续工作保留。

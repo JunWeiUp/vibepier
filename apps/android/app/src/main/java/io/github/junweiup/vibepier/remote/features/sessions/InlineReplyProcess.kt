@@ -102,6 +102,8 @@ internal class InlineReplyProcess(
     private fun visibleRows() = runs().flatMap { if (it.size > 1 && !groupOpen(it)) emptyList() else it }
     /** Called by the conversation's upward scroll/pull, before fetching an earlier whole turn. */
     fun hasEarlier() = (state.ordered().firstOrNull()?.optInt("index") ?: 0) > 0
+    /** A streamed update keeps this view and its expanded bodies/groups in place. */
+    fun accept(sequence: JSONArray, count: Int) { state.accept(sequence, count); state.changed() }
     fun loadEarlier(): Boolean {
         val first = state.ordered().firstOrNull()?.optInt("index") ?: return false
         if (first <= 0) return false
@@ -208,15 +210,26 @@ internal class InlineReplyProcess(
         var ancestor = parent
         while (ancestor != null && ancestor !is android.widget.ScrollView) ancestor = ancestor.parent
         val scrolling = ancestor as? android.widget.ScrollView
-        val anchor = if (before != null) scrolling?.scrollY?.let { it to height } else null
         val epoch = state.epoch; state.loading = true; state.error = ""; state.retryOffset = offset; state.retryBefore = before; state.changed()
         headers(offset, before) { result ->
             if (epoch != state.epoch) return@headers
+            // Capture at receipt time: the user can keep scrolling while the request is in flight.
+            val anchor = if (before != null && result.optBoolean("ok")) scrolling?.scrollY?.let { it to height } else null
             state.loading = false
             if (result.optBoolean("ok")) state.accept(result.optJSONArray("parts") ?: JSONArray(), result.optInt("partCount", state.count))
             else state.error = result.optString("error", context.getString(R.string.content_read_failed))
             state.changed()
-            if (anchor != null && isAttachedToWindow) post { scrolling?.scrollTo(0, (anchor.first + height - anchor.second).coerceAtLeast(0)) }
+            if (anchor != null && isAttachedToWindow && scrolling != null) {
+                val observer = scrolling.viewTreeObserver
+                observer.addOnPreDrawListener(object : android.view.ViewTreeObserver.OnPreDrawListener {
+                    override fun onPreDraw(): Boolean {
+                        if (observer.isAlive) observer.removeOnPreDrawListener(this)
+                        if (epoch == state.epoch && isAttachedToWindow)
+                            scrolling.scrollTo(0, (anchor.first + height - anchor.second).coerceAtLeast(0))
+                        return true
+                    }
+                })
+            }
         }
     }
     private fun loadOutput(row: JSONObject, body: Body) {

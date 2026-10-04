@@ -20,19 +20,25 @@ internal object TransportLog {
         DNS_RECOVERY("relay retrying with validated HTTPS DNS"),
     }
 
-    fun warning(event: Event, error: Exception? = null) { Log.w("VibePier", message(event, error)) }
-    fun info(event: Event) { Log.i("VibePier", message(event)) }
+    fun warning(event: Event, error: Exception? = null) {
+        ConnectionDiagnostics.shared.record(event, error?.let(::category), true)
+        Log.w("VibePier", message(event, error))
+    }
+    fun info(event: Event) {
+        ConnectionDiagnostics.shared.record(event, null, false)
+        Log.i("VibePier", message(event))
+    }
 
     internal fun message(event: Event, error: Exception? = null): String {
         if (error == null) return event.label
-        val category = when (error) {
+        return "${event.label}: ${category(error)}"
+    }
+    private fun category(error: Exception) = when (error) {
             is JSONException -> "invalid-payload"
             is SocketTimeoutException -> "timeout"
             is SSLException -> "tls-failed"
             is IOException -> "io-failed"
             is SecurityException -> "permission-denied"
             else -> "unexpected-error"
-        }
-        return "${event.label}: $category"
     }
 }

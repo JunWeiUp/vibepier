@@ -37,7 +37,7 @@ object SessionBlockerProbe {
                     .put("blocker", JSONObject().put("code", "rateLimit"))
                 apply.invoke(panel, page)
                 checkMessage(R.string.session_wait_rate_limit)
-                check(label("waitCancel").text.toString() == activity.getString(R.string.session_cancel_task))
+                check(label("waitCancel").text.toString() == activity.getString(R.string.session_stop_waiting))
                 (field(panel, "editor").get(panel) as EditText).setText("Keep my draft")
                 check(label("waitCancel").isEnabled)
             }
@@ -48,7 +48,7 @@ object SessionBlockerProbe {
             }
             screenshot.recycle()
             test.runOnMainSync {
-                val button = label("waitCancel"); val bounds = android.graphics.Rect()
+                val button = label("stopButton"); val bounds = android.graphics.Rect()
                 check(button.getGlobalVisibleRect(bounds) && bounds.height() >= button.height - 1) { "Cancel button clipped" }
                 button.performClick()
                 checkMessage(R.string.session_wait_stopping)

@@ -9,7 +9,9 @@ This checklist records implemented work and follow-ups for the first public prev
 - Distribution and verification: [REGISTRY](docs/REGISTRY.md); boundaries and open findings: [RELEASE-REVIEW](docs/RELEASE-REVIEW.md).
 - The release notes record the published artifacts, source commit, checksum verification and CI. Existing passing checks are reused; no expanded emulator or physical-device matrix is required for this preview.
 
-维护者已明确要求跳过真实发送验收并直接发布。下面未勾选的真机、原生发送和长期运行检查作为后续工作保留，不表示已经通过；超大 Claude 历史的内存问题也仍未修复。
+维护者已明确要求跳过真实发送验收并直接发布。下面未勾选的真机、原生发送和长期运行检查作为后续工作保留，不表示已经通过；build 11 源码已修复整段 Claude 历史驻留问题；公开 build 8 不包含这次改动。
+
+Current source build 11 improvements and validation boundaries: [PROJECT-IMPROVEMENTS](docs/PROJECT-IMPROVEMENTS.md). Existing public release artifacts remain unchanged.
 
 ## Repository and architecture
 
@@ -31,7 +33,7 @@ This checklist records implemented work and follow-ups for the first public prev
 - [x] Remove the personal relay/DNS special case; self-hosted relay only, optional explicit DNS recovery.
 - [x] Default AU05 heartbeat to the verified always-on mode; keep experimental behavior clearly identified.
 - [x] Complete the scoped code/resource review of secrets/logging, input bounds, input/audio recovery, transport, native receipts and provider work. Evidence and limitations are recorded in [release review](docs/RELEASE-REVIEW.md). This is not an independent security audit. Aggregate Claude history retention was reviewed and remains an open performance finding below; request quotas do not imply bounded total process memory.
-- [ ] Follow-up: stream/index large Claude transcripts and bound aggregate history retention while preserving old messages, attachment lookup and native receipt evidence. The current full-history reader remains unchanged; do not claim this performance issue is fixed by queue admission limits.
+- [x] Build 11 indexes Claude metadata and requested turns, bounds the shared body cache, preserves old ID/attachment access and native receipt evidence, and reports oversized turns explicitly. Process RSS and real-device performance remain separate measurements.
 
 ## New product identity and migration
 

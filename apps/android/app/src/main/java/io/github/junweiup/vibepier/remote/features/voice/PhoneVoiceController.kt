@@ -73,5 +73,10 @@ internal class PhoneVoiceController(
         stateChanged(State.IDLE)
     }
 
+    /** Losing the audio path ends this gesture; a later path cannot restart or change its microphone. */
+    fun transportChanged(available: Boolean, message: String) {
+        if (!available && current != null) fail(message)
+    }
+
     private fun fail(message: String) { stop(); failed(message) }
 }

@@ -64,8 +64,6 @@
     <string name="application_slots">应用入口</string>
     <string name="usage_and_updates">统计与更新</string>
     <string name="app_usage">App 用时</string>
-    <string name="receive_apk">接收与安装 APK</string>
-    <string name="receive_apk_detail">从 Mac 发送 · 查看接收进度或继续安装</string>
     <string name="wifi_option_detail">同一网络 · 自动发现或填写 Mac 地址</string>
     <string name="bluetooth_option_detail">附近 Mac · 无需同一 Wi-Fi · 首次需配对</string>
     <string name="relay_configured_detail">跨网络连接 · 已从 Mac 安全配置</string>
@@ -102,4 +100,7 @@
     <plurals name="application_slot_count">
         <item quantity="other">%1$d 个 · 可在手机选择，在 Mac 排序</item>
     </plurals>
+    <string name="key_name">按键名称</string>
+    <string name="key_combination">快捷键组合</string>
+    <string name="key_name_required">请输入按键名称</string>
 </resources>

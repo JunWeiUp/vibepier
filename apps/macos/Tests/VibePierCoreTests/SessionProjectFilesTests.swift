@@ -25,6 +25,41 @@ final class SessionProjectFilesTests: XCTestCase {
             op, request, cwd: root.path, rows: { rows }, reader: reader, device: "phone", thread: "thread")
     }
 
+    func testVideoChunksAreBoundedVersionedAndWorkspaceScoped() throws {
+        let (parent, root) = try fixture()
+        defer { try? FileManager.default.removeItem(at: parent) }
+        let video = root.appendingPathComponent("demo.MP4")
+        let original = Data((0..<(SessionVideoFiles.chunkBytes + 17)).map { UInt8($0 % 251) })
+        try original.write(to: video)
+        let first = try reply("readVideoFile", ["path": "demo.MP4"], root)
+        let revision = try XCTUnwrap(first["version"] as? String)
+        XCTAssertEqual(first["size"] as? Int, original.count)
+        XCTAssertEqual(first["nextOffset"] as? Int, SessionVideoFiles.chunkBytes)
+        var bytes = try XCTUnwrap(Data(base64Encoded: try XCTUnwrap(first["video"] as? String)))
+        let last = try reply("readVideoFile", ["path": "demo.MP4", "offset": bytes.count, "version": revision], root)
+        bytes.append(try XCTUnwrap(Data(base64Encoded: try XCTUnwrap(last["video"] as? String))))
+        XCTAssertEqual(bytes, original)
+        XCTAssertEqual(last["nextOffset"] as? Int, -1)
+        XCTAssertLessThan(try JSONSerialization.data(withJSONObject: first).count, 300_000)
+        XCTAssertThrowsError(try reply("readVideoFile", ["path": "demo.MP4", "offset": 1], root))
+        XCTAssertThrowsError(try reply("readVideoFile", ["path": "demo.MP4", "offset": -1], root))
+        try Data([1, 2]).write(to: video, options: .atomic)
+        XCTAssertThrowsError(try reply("readVideoFile", ["path": "demo.MP4", "offset": 1, "version": revision], root))
+        let outside = parent.appendingPathComponent("private.mp4")
+        try Data([1]).write(to: outside)
+        XCTAssertThrowsError(try reply("readVideoFile", ["path": outside.path], root))
+        try FileManager.default.createSymbolicLink(
+            at: root.appendingPathComponent("escape.mp4"), withDestinationURL: outside)
+        XCTAssertThrowsError(try reply("readVideoFile", ["path": "escape.mp4"], root))
+        XCTAssertThrowsError(try reply("readVideoFile", ["path": "../private.mp4"], root))
+        let large = root.appendingPathComponent("large.mp4")
+        FileManager.default.createFile(atPath: large.path, contents: nil)
+        let handle = try FileHandle(forWritingTo: large)
+        try handle.truncate(atOffset: UInt64(SessionVideoFiles.maximumBytes + 1))
+        try handle.close()
+        XCTAssertThrowsError(try reply("readVideoFile", ["path": "large.mp4"], root))
+    }
+
     func testBrowseReportsSizesGitStateAndChangedFolders() throws {
         guard SessionProjectFiles.Git.binary != nil else { throw XCTSkip("git is not installed") }
         let (parent, root) = try fixture()

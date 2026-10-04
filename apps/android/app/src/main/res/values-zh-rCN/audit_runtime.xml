@@ -1,0 +1,40 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="audit_mic_fallback">Mac 麦克风 · 手机音频不可用</string>
+    <string name="audit_mic_path_lost">手机音频连接已中断，录音已停止。重新连接后，再次按住说话。</string>
+    <string name="audit_navigation_changed">已授权的 Mac 已变更，请重新打开当前 Mac 上的会话。</string>
+    <string name="audit_attachment_reselect">附件无法返回原会话。草稿已保留，请重新选择文件。</string>
+    <string name="audit_creation_attachment_reselect">新建会话草稿已保留，请重新打开并选择附件。</string>
+    <string name="audit_updates_title">应用版本与更新</string>
+    <string name="audit_update_request">请求 Mac 下发最新 APK</string>
+    <string name="audit_update_requesting">正在请求…</string>
+    <string name="audit_update_status">查看接收与安装状态</string>
+    <string name="audit_update_check">检查 Mac</string>
+    <string name="audit_update_authorization_required">请先在 Mac 上授权这台手机，再请求更新。</string>
+    <string name="audit_update_offline">Mac 未连接，重新连接后才能检查或接收已登记的更新。</string>
+    <string name="audit_update_registered_source">更新仅来自已授权 Mac 登记的最新 APK。</string>
+    <string name="audit_update_no_known_version">当前未发现新版 APK，可向已连接的 Mac 检查登记版本。</string>
+    <string name="audit_update_preparing">已请求 Mac 准备已登记的 APK。接收完成后，仍需确认系统安装。</string>
+    <string name="audit_update_connection_changed">连接已变更，请先查看接收状态，再决定是否重新请求。</string>
+    <string name="audit_update_request_unknown">请求结果尚未确认，请查看接收状态或 Mac。本次请求未自动重发。</string>
+    <string name="audit_update_request_failed">Mac 未能准备更新，请检查已登记的 APK 后重试。</string>
+    <string name="audit_update_requested">Mac 已接受更新请求，请查看接收与安装状态并继续。</string>
+    <string name="audit_update_ready_to_install">APK 已接收，等待继续安装。</string>
+    <string name="audit_update_waiting_permission">等待允许 VibePier 安装应用。</string>
+    <string name="audit_diagnostics_title">连接诊断</string>
+    <string name="audit_diagnostics_summary">当前通道、恢复次数与脱敏错误分类</string>
+    <string name="audit_diagnostics_copy">复制诊断信息</string>
+    <string name="audit_diagnostics_copied">诊断信息已复制</string>
+    <string name="audit_diagnostics_scope">仅统计本次应用进程。诊断信息包含固定分类与计数，不含地址、设备身份、配对码、消息或附件。</string>
+    <string name="audit_diagnostics_wifi">Wi-Fi</string>
+    <string name="audit_diagnostics_direct">直连</string>
+    <string name="audit_diagnostics_unknown">未知</string>
+    <string name="audit_diagnostics_authorized">已授权</string>
+    <string name="audit_diagnostics_unauthorized">未授权</string>
+    <string name="audit_diagnostics_path">当前通道：%1$s</string>
+    <string name="audit_diagnostics_state">状态：%1$s · %2$s</string>
+    <string name="audit_diagnostics_restorations">连接恢复次数：%1$d</string>
+    <string name="audit_diagnostics_last">最近事件：%1$s\n最近警告分类：%2$s</string>
+    <string name="audit_diagnostics_warnings">已记录警告：%1$d</string>
+    <string name="audit_diagnostics_recovery">断开时先检查所选连接方式的配置，再重新连接。授权失效时，请通过蓝牙连接并在 Mac 上批准这台手机。</string>
+</resources>

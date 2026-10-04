@@ -11,6 +11,8 @@ VibePier 由原生 Android 遥控器、macOS 菜单栏应用和可选的自建�
 
 当前为早期预览版。本次按维护者决定跳过真实首条发送验收，未验收项与已知限制见[发布检查](docs/RELEASE-REVIEW.md)和[后续计划](TODO.md)。本文插画表达产品概念，并非应用截图。
 
+当前源码 build 11 的修复与验证边界见[改进说明](docs/PROJECT-IMPROVEMENTS.md)，已发布 build 8 不包含这些改动；中继 APK 提速需要双端 build 9+。
+
 ## 能做什么
 
 | 功能 | 说明 |
@@ -176,12 +178,13 @@ make lint
 make package-relay
 ```
 
-Mac 应用产物为 `dist/staging/VibePier.app`。CLI 可单独构建、安装：
+Mac 打包还需要 Go 1.22+ 来构建文件传输助手。Mac 应用产物为 `dist/staging/VibePier.app`。CLI 可单独构建、安装：
 
 ```sh
 swift build --package-path apps/macos -c release --product vibepier
 mkdir -p "$HOME/.local/bin"
 install -m 0755 "$(swift build --package-path apps/macos -c release --show-bin-path)/vibepier" "$HOME/.local/bin/vibepier"
+go -C services/relay build -trimpath -o "$HOME/.local/bin/VibePierFileServer" ./cmd/vibepier-file-server
 export PATH="$HOME/.local/bin:$PATH"
 ```
 
@@ -230,3 +233,6 @@ docs/             产品、开发与部署文档
 支持在已连接的 Android 手机上接收任务完成通知，切到后台也可提醒；请在手机设置中开启「任务完成通知」。[使用说明与限制](docs/TASK-NOTIFICATIONS.md)。
 
 - [Android versions and update indicators / Android 版本与更新红点](docs/ANDROID-UPDATES.md)
+
+
+云中继下发 APK 支持协商大分片及四块并发，显示下载速度与预计剩余时间；双方升级后生效，详见 [Android 更新](docs/ANDROID-UPDATES.md)。

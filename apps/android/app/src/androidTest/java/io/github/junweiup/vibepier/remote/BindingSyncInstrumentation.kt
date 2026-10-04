@@ -11,6 +11,7 @@ import org.json.JSONObject
 /** Runs against Android SharedPreferences/JSON; uses only an isolated test preference file. */
 class BindingSyncInstrumentation : Instrumentation() {
     private var probeName = "binding-sync"
+    private var uploadPort = 0
     private var responseOnly = false
     private var privateStorageOnly = false
     private var controlsLocalizationOnly = false
@@ -36,6 +37,7 @@ class BindingSyncInstrumentation : Instrumentation() {
     override fun onCreate(arguments: Bundle?) {
         super.onCreate(arguments)
         probeName = arguments?.getString("test") ?: "binding-sync"
+        uploadPort = arguments?.getString("port")?.toIntOrNull() ?: 0
         responseOnly = arguments?.getString("test") == "session-response"
         privateStorageOnly = arguments?.getString("test") == "private-storage"
         controlsLocalizationOnly = arguments?.getString("test") == "controls-localization"
@@ -68,16 +70,23 @@ class BindingSyncInstrumentation : Instrumentation() {
             check(probeName in setOf("binding-sync", "session-response", "private-storage", "controls-localization",
                 "screen-controls", "new-session-receipts", "new-session-composer", "relay-store", "enrollment", "background-connection",
                 "protocol-negotiation", "relay-framing", "apk", "composer", "microphone", "controls", "dock",
-                "codex", "codex-panel", "providers", "tool-groups", "markdown", "app-usage", "conversation-images", "codex-usage", "application-picker", "brand-icons", "codec-compatibility", "readme-previews", "session-blocker", "voice-layout", "task-notifications", "app-versions", "html-preview")) {
+                "codex", "codex-panel", "providers", "tool-groups", "markdown", "app-usage", "conversation-images", "codex-usage", "application-picker", "brand-icons", "codec-compatibility", "readme-previews", "session-blocker", "voice-layout", "conversation-scroll", "binary-files", "attachment-upload", "attachment-network-upload", "task-notifications", "app-versions", "html-preview", "video-preview", "audit-runtime", "audit-conversation")) {
                 "Unknown instrumentation probe"
             }
             if (probeName == "codec-compatibility") { result.putString("stream", CodecCompatibilityProbe.run()); finish(Activity.RESULT_OK, result); return }
+            if (probeName == "video-preview") { result.putString("stream", VideoPreviewProbe.run(this)); finish(Activity.RESULT_OK, result); return }
             if (probeName == "html-preview") { result.putString("stream", HtmlPreviewProbe.run(this)); finish(Activity.RESULT_OK, result); return }
             if (probeName == "app-versions") { result.putString("stream", AppVersionProbe.run(this)); finish(Activity.RESULT_OK, result); return }
             if (probeName == "task-notifications") { result.putString("stream", TaskNotificationProbe.run(this)); finish(Activity.RESULT_OK, result); return }
             if (probeName == "session-blocker") { result.putString("stream", SessionBlockerProbe.run(this)); finish(Activity.RESULT_OK, result); return }
+            if (probeName == "attachment-network-upload") { result.putString("stream", AttachmentNetworkUploadProbe.run(this, uploadPort)); finish(Activity.RESULT_OK, result); return }
+            if (probeName == "attachment-upload") { result.putString("stream", AttachmentUploadProbe.run(this)); finish(Activity.RESULT_OK, result); return }
+            if (probeName == "binary-files") { result.putString("stream", BinaryFileProbe.run(this)); finish(Activity.RESULT_OK, result); return }
+            if (probeName == "conversation-scroll") { result.putString("stream", ConversationScrollProbe.run(this)); finish(Activity.RESULT_OK, result); return }
             if (probeName == "voice-layout") { result.putString("stream", VoiceLayoutProbe.run(this)); finish(Activity.RESULT_OK, result); return }
             if (probeName == "readme-previews") { result.putString("stream", ReadmePreviewProbe.run(this)); finish(Activity.RESULT_OK, result); return }
+            if (probeName == "audit-runtime") { result.putString("stream", AuditRuntimeProbe.run(this)); finish(Activity.RESULT_OK, result); return }
+            if (probeName == "audit-conversation") { result.putString("stream", ConversationAuditProbe.run(this)); finish(Activity.RESULT_OK, result); return }
             if (probeName == "brand-icons") { result.putString("stream", BrandAssetsProbe.run(this)); finish(Activity.RESULT_OK, result); return }
             if (probeName == "application-picker") { result.putString("stream", ApplicationPickerProbe.run(this)); finish(Activity.RESULT_OK, result); return }
             if (probeName == "codex-usage") { result.putString("stream", CodexUsageProbe.run(this)); finish(Activity.RESULT_OK, result); return }

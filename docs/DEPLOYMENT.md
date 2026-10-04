@@ -145,7 +145,7 @@ export ANDROID_KEYSTORE_PATH='/private/path/android-release.jks'
 ./scripts/release/android.sh
 ```
 
-The output is `dist/VibePier-<VERSION>-android.apk`. Keep the release key and a secure independent backup: Android updates require the same signing identity. `designReview` is a separate debug-signed application with a `.review` suffix and is not a public release artifact.
+The output is `dist/build-<VERSION_CODE>/VibePier-<VERSION>-android.apk`. Keep the release key and a secure independent backup: Android updates require the same signing identity. `designReview` is a separate debug-signed application with a `.review` suffix and is not a public release artifact.
 
 ## Relay archives
 
