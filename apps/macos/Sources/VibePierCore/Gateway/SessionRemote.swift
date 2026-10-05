@@ -67,26 +67,26 @@ struct SessionEnvelope {
 public final class SessionRemote: @unchecked Sendable {
     public static let shared = SessionRemote()
     public static let accessChanged = DeviceTrustStore.changed
-    private struct Route {
+    struct Route {
         let peer: String
         let sender: String
         let send: @Sendable ([Data]) -> Void
     }
-    private let queue = DispatchQueue(label: "vibepier.codex-remote")
-    private let apk = PhoneAPK()
-    private let appVersions = PhoneAppVersions()
-    private let apkWorkers = APKPreparationWorkers()
-    private var apkReservations = APKStageReservations()
-    private var publishingAPK: APKPreparationJob?
-    private let codexUsage = CodexUsage()
-    private let coordinator = AgentSessionCoordinator(
+    let queue = DispatchQueue(label: "vibepier.codex-remote")
+    let apk = PhoneAPK()
+    let appVersions = PhoneAppVersions()
+    let apkWorkers = APKPreparationWorkers()
+    var apkReservations = APKStageReservations()
+    var publishingAPK: APKPreparationJob?
+    let codexUsage = CodexUsage()
+    let coordinator = AgentSessionCoordinator(
         registry: try! AgentAdapterRegistry(CurrentV1AgentAdapter.production()))
-    private let trust = DeviceTrustStore.shared
-    private let runtimeHost = AgentRuntimeHost()
-    private lazy var agentService: AgentSessionService? = makeAgentService()
-    private var journal: SessionReceiptJournal?
+    let trust = DeviceTrustStore.shared
+    let runtimeHost = AgentRuntimeHost()
+    lazy var agentService: AgentSessionService? = makeAgentService()
+    var journal: SessionReceiptJournal?
     private var inbox = SessionPacketInbox()
-    private var routes: [String: Route] = [:]
+    var routes: [String: Route] = [:]
     private var lastPeer: [String: Double] = [:]
     private var lease: DispatchWorkItem?
     private var pairResults: [String: Data] = [:]
@@ -96,10 +96,10 @@ public final class SessionRemote: @unchecked Sendable {
     /// Final replies produced while the phone had no live route (e.g. its screen locked mid-creation). Bounded and
     /// short-lived; the journal stays authoritative and the phone's read-only operation lookup covers anything dropped.
     private var undelivered: [String: [(data: Data, created: Double)]] = [:]
-    private var readReplies = SessionReadReplies()
-    private var providerPolicy = SessionProviderPolicy()
-    private let executions = SessionWorkBudget(lanes: SessionRequestLane.limits)
-    private let events = SessionWorkBudget()
+    var readReplies = SessionReadReplies()
+    var providerPolicy = SessionProviderPolicy()
+    let executions = SessionWorkBudget(lanes: SessionRequestLane.limits)
+    let events = SessionWorkBudget()
     private let ingress = SessionWorkBudget(
         limits: .init(perDevice: 4096, total: 8192, bytesPerDevice: 4 * 1024 * 1024, bytesTotal: 16 * 1024 * 1024))
     private var taskViews: [String: TaskViewIntent] = [:]
@@ -160,151 +160,6 @@ public final class SessionRemote: @unchecked Sendable {
                 "id": id, "ok": false, "code": "provider_disabled",
                 "error": L10n.text("providers.disabled_on_mac"), "providerAccess": providerPolicy.object,
             ], device: device)
-    }
-    public func phoneAppVersion(_ device: String) -> [String: Any]? { queue.sync { appVersions.installed(device) } }
-    public func latestAndroidVersion() -> [String: Any]? { queue.sync { appVersions.latest } }
-    /// One asynchronous snapshot keeps the main thread out of the session queue.
-    public func apkSnapshot() async -> PhoneAPKSnapshot {
-        await withCheckedContinuation { continuation in
-            queue.async {
-                func label(_ version: [String: Any]?) -> String? {
-                    guard let version, let name = version["versionName"] as? String,
-                        let code = version["versionCode"] as? Int
-                    else { return nil }
-                    return "\(name) (\(code))"
-                }
-                continuation.resume(
-                    returning: PhoneAPKSnapshot(
-                        phones: self.trust.phones.map {
-                            PhoneAPKDeviceSnapshot(
-                                id: $0.id, name: $0.name, installedVersion: label(self.appVersions.installed($0.id)),
-                                status: self.apkReservations.status($0.id) ?? self.apk.status($0.id))
-                        }, latestVersion: label(self.appVersions.latest), publishing: self.publishingAPK != nil))
-            }
-        }
-    }
-    public func publishAndroidUpdate(_ url: URL, completion: @escaping @Sendable (String?) -> Void) {
-        queue.async {
-            guard self.publishingAPK == nil else {
-                completion(L10n.text("updates.preparation_busy"))
-                return
-            }
-            let job = APKPreparationJob()
-            self.publishingAPK = job
-            let root = self.appVersions.root
-            guard
-                self.apkWorkers.submit({
-                    let prepared = Result { try PhoneAppVersions.prepare(url, root: root, job: job) }
-                    self.queue.async {
-                        guard self.publishingAPK === job else {
-                            if case .success(let value) = prepared { value.apk.discard() }
-                            completion(L10n.text("updates.preparation_cancelled"))
-                            return
-                        }
-                        self.publishingAPK = nil
-                        do {
-                            let value = try prepared.get()
-                            do { try self.appVersions.adopt(value) } catch {
-                                value.apk.discard()
-                                throw error
-                            }
-                            for device in self.routes.keys where self.trust.key(for: device) != nil {
-                                self.sendObject(["event": "apkAvailable"], device: device)
-                            }
-                            completion(nil)
-                        } catch { completion(String(describing: error)) }
-                    }
-                })
-            else {
-                self.publishingAPK = nil
-                completion(L10n.text("updates.preparation_busy"))
-                return
-            }
-        }
-    }
-    public func stageLatestAndroidUpdate(device: String, completion: @escaping @Sendable (String?) -> Void) {
-        queue.async {
-            guard let artifact = self.appVersions.artifact else {
-                completion(L10n.text("updates.no_release"))
-                return
-            }
-            self.prepareAPK(artifact.url, device: device, digest: artifact.sha256, completion: completion)
-        }
-    }
-    public func apkStatus(_ device: String) -> PhoneAPKStatus? {
-        queue.sync { apkReservations.status(device) ?? apk.status(device) }
-    }
-    public func stageAPK(_ url: URL, device: String, completion: @escaping @Sendable (String?) -> Void) {
-        queue.async { self.prepareAPK(url, device: device, digest: nil, completion: completion) }
-    }
-    /// Called on the session queue; file work retains its worker until it actually exits.
-    private func prepareAPK(
-        _ url: URL, device: String, digest: String?, completion: @escaping @Sendable (String?) -> Void
-    ) {
-        guard let key = trust.key(for: device) else {
-            completion(L10n.text("control.authorize_this_phone_first"))
-            return
-        }
-        if let digest, apk.matchingActive(digest, device: device) != nil {
-            completion(nil)
-            return
-        }
-        guard apk.status(device)?.phase.isActive != true, apkReservations.reservation(device) == nil else {
-            completion(L10n.text("updates.active_transfer"))
-            return
-        }
-        guard
-            let reservation = apkReservations.begin(
-                device: device, key: key, name: String(url.lastPathComponent.prefix(160)), digest: digest)
-        else {
-            completion(L10n.text("updates.preparation_busy"))
-            return
-        }
-        let root = apk.root
-        guard
-            apkWorkers.submit({
-                let prepared = Result { try PreparedAPK.prepare(url, root: root, job: reservation.job) }
-                self.queue.async {
-                    guard
-                        self.apkReservations.claim(
-                            device: device, reservation: reservation, currentKey: self.trust.key(for: device))
-                    else {
-                        if case .success(let value) = prepared { value.discard() }
-                        completion(L10n.text("updates.preparation_cancelled"))
-                        return
-                    }
-                    do {
-                        let value = try prepared.get()
-                        if let digest, value.sha256 != digest || self.appVersions.artifact?.sha256 != digest {
-                            value.discard()
-                            throw CLIError(L10n.text("updates.invalid_metadata"))
-                        }
-                        do { try self.apk.adopt(value, device: device) } catch {
-                            value.discard()
-                            throw error
-                        }
-                        self.sendObject(["event": "apkAvailable"], device: device)
-                        completion(nil)
-                    } catch { completion(String(describing: error)) }
-                }
-            })
-        else {
-            apkReservations.cancel(device)
-            completion(L10n.text("updates.preparation_busy"))
-            return
-        }
-    }
-    public func cancelAPK(_ device: String) {
-        queue.async {
-            self.apkReservations.cancel(device)
-            // The system owns an installation once it has started; no misleading cancellation then.
-            if self.apk.status(device)?.phase.canCancel == true { self.apk.cancel(device) }
-        }
-    }
-    public func dismissAPKStatus(_ device: String) {
-        queue.async {
-            if self.apk.status(device)?.phase.isActive == false { self.apk.cancel(device) }
-        }
     }
     public func authorizedPhones() -> [AuthorizedPhone] {
         trust.phones
@@ -820,55 +675,6 @@ public final class SessionRemote: @unchecked Sendable {
         lookup["threadId"] = thread
         return lookup
     }
-    private func requestAndroidUpdate(_ request: [String: Any], device: String, id: String, bytes: Int, now: Double) {
-        let receiptKey = device + ":" + id
-        let hash = CodexConversation.fingerprint(request.filter { $0.key != "sentAt" })
-        switch readReplies.lookup(receiptKey, hash: hash, now: now) {
-        case .conflict:
-            sendObject(["id": id, "ok": false, "error": L10n.text("control.operation_id_conflict")], device: device)
-            return
-        case .complete(let reply):
-            send(reply, device: device)
-            return
-        case .pending: return
-        case .missing: break
-        }
-        guard let ticket = beginWork(request, device: device, bytes: bytes) else { return }
-        guard readReplies.reserve(receiptKey, device: device, hash: hash, now: now) else {
-            executions.finish(ticket)
-            sendBusy(id, device: device)
-            return
-        }
-        let originalKey = trust.key(for: device)
-        @Sendable func finish(_ error: String?) {
-            defer { self.executions.finish(ticket) }
-            guard self.trust.key(for: device) == originalKey, originalKey != nil else {
-                self.readReplies.abandon(receiptKey, hash: hash)
-                return
-            }
-            var response: [String: Any] = ["id": id, "ok": error == nil]
-            if let error { response["error"] = error }
-            if error == nil, let status = self.apkReservations.status(device) ?? self.apk.status(device) {
-                response.merge([
-                    "transfer": status.transfer, "name": status.name, "size": status.size,
-                    "phase": status.phase.rawValue,
-                ]) { $1 }
-            }
-            guard let reply = try? JSONSerialization.data(withJSONObject: response) else { return }
-            self.readReplies.complete(receiptKey, hash: hash, result: reply)
-            self.send(reply, device: device)
-        }
-        do {
-            let artifact = try appVersions.requestedUpdate(request)
-            if let pending = apkReservations.reservation(device), pending.digest == artifact.sha256 {
-                finish(nil)
-                return
-            }
-            prepareAPK(artifact.url, device: device, digest: artifact.sha256) { error in
-                self.queue.async { finish(error) }
-            }
-        } catch { finish(String(describing: error)) }
-    }
     private func finishTaskView(_ page: [String: Any], device: String, provider: String) {
         guard routes[device] != nil, let view = taskViews[device], view.isReady(page, provider: provider) else {
             return
@@ -876,10 +682,10 @@ public final class SessionRemote: @unchecked Sendable {
         taskViews.removeValue(forKey: device)
         ConversationActivity.shared.markViewed(provider: provider, id: view.id, completion: view.completion)
     }
-    private func sendBusy(_ id: String, device: String) {
+    func sendBusy(_ id: String, device: String) {
         sendObject(["id": id, "ok": false, "error": L10n.text("control.requests_busy")], device: device)
     }
-    private func beginWork(_ request: [String: Any], device: String, bytes: Int, exclusive: String? = nil) -> UUID? {
+    func beginWork(_ request: [String: Any], device: String, bytes: Int, exclusive: String? = nil) -> UUID? {
         guard let id = request["id"] as? String else { return nil }
         switch executions.begin(
             device: device, id: id, bytes: bytes, exclusive: exclusive, lane: SessionRequestLane.resolve(request))
@@ -907,256 +713,12 @@ public final class SessionRemote: @unchecked Sendable {
         }
         send(data, device: device, provider: provider)
     }
-    private func extendedCapabilities(_ value: [String: Any]) -> [String: Any] {
-        var result = value
-        result["adapters"] =
-            (value["adapters"] as? [[String: Any]] ?? []).map { $0.merging(["default": true]) { $1 } }
-            + runtimeHost.descriptors().map { $0.merging(["default": false]) { $1 } }
-        return result
-    }
-    private func makeAgentService() -> AgentSessionService? {
-        guard
-            let directory = try? AgentSessionDirectory(
-                file: Paths.supportDirectory.appendingPathComponent("agent-sessions.json"))
-        else { return nil }
-        let binding = AgentSessionService.Journal(
-            read: { [weak self] key, done in
-                self?.withAgentJournal(key: key, completion: done) { journal, actual in
-                    journal.receipt(actual).map {
-                        .init(
-                            hash: $0.hash, thread: $0.thread, result: $0.result,
-                            intent: $0.intent, retired: $0.retired == true, evidence: $0.evidence)
-                    }
-                }
-            },
-            reserve: { [weak self] key, hash, scope, intent, done in
-                self?.withAgentJournal(key: key, completion: done) { journal, actual in
-                    switch try journal.reserve(actual, hash: hash, thread: scope, intent: intent) {
-                    case .fresh: return .fresh
-                    case .complete(let data): return .complete(data)
-                    case .unknown: return .unknown
-                    case .conflict: return .conflict
-                    }
-                }
-            },
-            complete: { [weak self] key, data, done in
-                self?.withAgentJournal(key: key, completion: done) { journal, actual in
-                    try journal.complete(actual, result: data)
-                }
-            },
-            recordEvidence: { [weak self] key, data, done in
-                self?.withAgentJournal(key: key, completion: done) { journal, actual in
-                    try journal.recordEvidence(actual, evidence: data)
-                }
-            })
-        let service = AgentSessionService(
-            directory: directory,
-            execute: { [weak self] data, provider, client, done in
-                guard let self else { return }
-                self.queue.async {
-                    guard self.trust.key(for: client) != nil else {
-                        done(AgentSessionProfile.data(["ok": false, "code": "unauthorized_device"]))
-                        return
-                    }
-                    let fields = (try? JSONSerialization.jsonObject(with: data) as? [String: Any]) ?? [:]
-                    if SessionV1Contract.descriptor(fields["op"] as? String ?? "")?.durableMutation == true,
-                        !self.providerPolicy.isEnabled(provider)
-                    {
-                        done(AgentSessionProfile.data(["ok": false, "code": "provider_disabled"]))
-                        return
-                    }
-                    let adapter = fields["agentAdapterId"] as? String ?? provider + ".currentV1"
-                    if adapter == provider + ".currentV1" {
-                        self.perform(data, provider: provider, client: client, completion: done)
-                    } else {
-                        self.runtimeHost.perform(data, adapter: adapter, client: client, completion: done)
-                    }
-                }
-            }, journal: binding,
-            describe: { [weak self] client, done in
-                self?.queue.async { [weak self] in
-                    guard let self else { return }
-                    let current =
-                        self.coordinator.describe(client: client, requestedVersion: 1, policy: self.providerPolicy)
-                        ?? [:]
-                    done(AgentSessionProfile.data(self.extendedCapabilities(current)))
-                }
-            },
-            freshMutationFailure: { [weak self] data, client, done in
-                guard let self else { return }
-                let fields = (try? JSONSerialization.jsonObject(with: data) as? [String: Any]) ?? [:]
-                if let adapter = fields["agentAdapterId"] as? String, !adapter.hasSuffix(".currentV1") {
-                    self.runtimeHost.freshMutationFailure(data, client: client, completion: done)
-                } else {
-                    self.queue.async {
-                        let current = (try? JSONSerialization.jsonObject(with: data) as? [String: Any]) ?? [:]
-                        done(self.coordinator.freshMutationFailure(current, client: client))
-                    }
-                }
-            },
-            eventSink: { [weak self] client, data in
-                guard let self, data.count <= 300_000,
-                    case .accepted(let ticket) = self.events.begin(
-                        device: client, id: UUID().uuidString, bytes: data.count)
-                else { return }
-                self.queue.async {
-                    defer { self.events.finish(ticket) }
-                    guard self.trust.key(for: client) != nil, self.routes[client] != nil,
-                        let object = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
-                        let body = object["body"] as? [String: Any], let event = body["data"] as? [String: Any],
-                        let provider = event["provider"] as? String, SessionV1Contract.providers.contains(provider),
-                        self.providerPolicy.isEnabled(provider)
-                    else { return }
-                    self.send(data, device: client, provider: provider)
-                }
-            }, additionalAdapters: { [weak self] in self?.runtimeHost.adapterProviders() ?? [:] })
-        service.configurePolicy(providerPolicy)
-        return service
-    }
-    private func withAgentJournal<T: Sendable>(
-        key: String, completion: @escaping @Sendable (Result<T, Error>) -> Void,
-        _ work: @escaping @Sendable (SessionReceiptJournal, String) throws -> T
-    ) {
-        queue.async {
-            guard let journal = self.journal, journal.isReliable, let split = key.firstIndex(of: ":") else {
-                completion(.failure(AgentSessionProfile.Failure(code: "agent_receipt_storage_unavailable")))
-                return
-            }
-            let device = String(key[..<split])
-            let operation = String(key[key.index(after: split)...])
-            let actual = journal.existingKey(device: device, operation: operation) ?? key
-            completion(Result { try work(journal, actual) })
-        }
-    }
-    private func acceptAgentRequest(_ outer: [String: Any], clear: Data, device: String) {
-        let id = outer["id"] as? String ?? ""
-        do {
-            let request = try AgentSessionProfile.decode(outer)
-            guard let service = agentService else {
-                rejectAgentBeforeDispatch(
-                    request, code: "agent_index_invalid", device: device, uncertain: request.mutable)
-                return
-            }
-            service.admissionProvider(request, client: device) { [weak self] provider in
-                self?.queue.async { [weak self] in
-                    guard let self, self.trust.key(for: device) != nil else { return }
-                    let lane =
-                        provider.map {
-                            SessionRequestLane.resolve(["provider": $0], receipt: request.method == "operation.get")
-                        }
-                        ?? SessionRequestLane.controls.rawValue
-                    let admission = self.executions.begin(device: device, id: id, bytes: clear.count, lane: lane)
-                    guard case .accepted(let ticket) = admission else {
-                        if case .full = admission {
-                            let recorded =
-                                request.operationID.flatMap { self.journal?.existingKey(device: device, operation: $0) }
-                                != nil
-                            let uncertain = request.mutable && (recorded || self.journal?.isReliable != true)
-                            self.rejectAgentBeforeDispatch(
-                                request, code: "capacity_exceeded", device: device, uncertain: uncertain)
-                        }
-                        return
-                    }
-                    service.perform(request, client: device) { [weak self] result in
-                        guard let self, self.executions.claimCompletion(ticket) else { return }
-                        self.queue.async {
-                            defer { self.executions.finish(ticket) }
-                            let scoped =
-                                !request.mutable
-                                && !["operation.get", "session.unobserve", "agent.describe"].contains(request.method)
-                            if scoped, let provider, !self.providerPolicy.isEnabled(provider) {
-                                self.sendObject(
-                                    [
-                                        "id": id, "ok": false, "code": "provider_disabled",
-                                        "body": ["agentProtocol": 2, "requestId": id, "code": "provider_disabled"],
-                                    ], device: device)
-                            } else {
-                                self.send(result, device: device, provider: scoped ? provider : nil)
-                            }
-                        }
-                    }
-                }
-            }
-        } catch {
-            let code = (error as? AgentSessionProfile.Failure)?.code ?? "agent_request_invalid"
-            // A malformed request cannot invalidate an earlier reservation held by the phone.
-            sendObject(
-                [
-                    "id": id, "ok": false, "code": code,
-                    "body": ["agentProtocol": 2, "requestId": id, "code": code],
-                ], device: device)
-        }
-    }
-    private func rejectAgentBeforeDispatch(
-        _ request: AgentSessionProfile.Request, code: String, device: String, uncertain: Bool
-    ) {
-        var body: [String: Any] = ["agentProtocol": 2, "requestId": request.id, "code": code]
-        if request.mutable {
-            body["operationId"] = request.operationID
-            body["target"] = request.target
-            body["status"] = uncertain ? "unknown" : "rejected"
-            body["result"] = ["code": code]
-        }
-        var reply: [String: Any] = ["id": request.id, "ok": false, "code": code, "body": body]
-        if uncertain { reply["unknown"] = true }
-        sendObject(reply, device: device)
-    }
-    /// All providers share the authorized device channel; older phones default to Codex.
-    private func perform(
-        _ data: Data, provider: String?, client: String, completion: @escaping @Sendable (Data) -> Void
-    ) {
-        if let request = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
-            ["applications", "applicationShortcutSet"].contains(request["op"] as? String ?? "")
-        {
-            // Only these two configuration commands may cross from the authenticated phone to the local runtime.
-            // Rebuild the allowlisted payload; never forward a caller-supplied local command.
-            DispatchQueue.global(qos: .userInitiated).async {
-                let fields = (try? JSONSerialization.jsonObject(with: data) as? [String: Any]) ?? [:]
-                var command: [String: Any] = [
-                    "cmd": fields["op"] as? String == "applications" ? "phone-applications" : "phone-application-set"
-                ]
-                for key in ["index", "bundleID", "revision"] { command[key] = fields[key] }
-                let reply =
-                    ControlSocket.request(command, timeout: 8) ?? [
-                        "ok": false, "error": L10n.text("control.application_selection_unavailable"),
-                    ]
-                completion((try? JSONSerialization.data(withJSONObject: reply)) ?? Data())
-            }
-            return
-        }
-        if let request = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
-            ["codexUsage", "codexUsageReset", "codexUsageResetReceipt"].contains(request["op"] as? String ?? "")
-        {
-            codexUsage.perform(data, client: client, completion: completion)
-            return
-        }
-        if let request = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
-            let operation = request["op"] as? String, ["lockScreen", "unlockScreen"].contains(operation)
-        {
-            DispatchQueue.global(qos: .userInitiated).async {
-                var result: [String: Any]
-                do {
-                    if operation == "lockScreen" { try ScreenLock.lockNow() } else { try ScreenLock.unlockNow() }
-                    result = ScreenLock.status()
-                } catch {
-                    result = [
-                        "ok": false, "error": String(describing: error), "locked": ScreenLock.locked(),
-                        "configured": ScreenLock.configured(),
-                    ]
-                }
-                completion((try? JSONSerialization.data(withJSONObject: result)) ?? Data())
-            }
-            return
-        }
-        coordinator.performCurrentV1(data, provider: provider, trustedClient: client, completion: completion)
-    }
-    private func sendObject(_ value: [String: Any], device: String, fragmentChars: Int = 900, requestID: String? = nil)
-    {
+    func sendObject(_ value: [String: Any], device: String, fragmentChars: Int = 900, requestID: String? = nil) {
         if let data = try? JSONSerialization.data(withJSONObject: value, options: [.withoutEscapingSlashes]) {
             send(data, device: device, fragmentChars: fragmentChars, requestID: requestID)
         }
     }
-    private func send(
+    func send(
         _ data: Data, device: String, fragmentChars: Int = 900, requestID: String? = nil, provider: String? = nil
     ) {
         guard data.count <= 300_000 else {
