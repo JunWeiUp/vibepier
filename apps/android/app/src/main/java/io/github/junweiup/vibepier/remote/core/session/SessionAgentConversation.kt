@@ -14,12 +14,13 @@ internal class SessionAgentConversation(
     private val rememberCapabilities: (JSONObject, JSONObject) -> Unit,
     private val canMutate: (JSONObject, String) -> Boolean,
     private val errorText: (String) -> String,
+    private val scheduleRead: (Long, () -> Unit) -> Unit = { _, block -> block() },
+    private val readClock: () -> Long = { System.nanoTime() / 1_000_000 },
 ) {
     private val leases = mutableMapOf<String, Pair<SessionAgentProtocol.Target.Creation, String>>()
-    private val creationOptions = mutableMapOf<String, JSONObject>()
     private var active: SessionAgentClient.Session? = null
     private var subscriptionId: String? = null
-    fun clearConnection() { leases.clear(); creationOptions.clear(); active = null; subscriptionId = null }
+    fun clearConnection() { leases.clear(); active = null; subscriptionId = null }
     private fun creationKey(source: String, cwd: String, draft: String) = "$source\u0000$cwd\u0000$draft"
     private fun projectionFields(fields: JSONObject, source: String) = JSONObject(fields.toString()).put("provider", source).put("viewVersion", viewVersion())
 
@@ -40,24 +41,34 @@ internal class SessionAgentConversation(
         .put("ok", false).put("code", code).put("error", errorText(code))
 
     /** Renew read-only control evidence before the first write; never invokes an effect or reserves a journal row. */
-    internal fun prepareSessionControl(fields: JSONObject, done: (JSONObject) -> Unit): String {
+    internal fun prepareSessionControl(fields: JSONObject, done: (JSONObject) -> Unit): String = prepareSessionControl(fields, true, done)
+    private fun prepareSessionControl(fields: JSONObject, requireLease: Boolean, done: (JSONObject) -> Unit): String {
         val frozen = JSONObject(fields.toString()).apply { if (optString("id").isBlank()) put("id", SessionAgentProtocol.id()) }
         val scope = scope(frozen)
         val session = scope?.let { agent.session(it.source, it.thread) }
         if (scope == null || session == null || scope.ref == null) { done(failure(frozen, "stale_state")); return frozen.getString("id") }
         val context = projectionFields(frozen, scope.source)
         var attempts = 0
+        val deadline = readClock() + preparationDeadline
         fun fetch() {
             if (!current(scope)) { done(failure(frozen, "stale_state")); return }
+            if (readClock() >= deadline) { done(failure(frozen, "agent_state_not_ready")); return }
             attempts++
+            fun retry(code: String) {
+                val delay = preparationDelays.getOrNull(attempts - 1)
+                if (delay == null || readClock() + delay >= deadline) done(failure(frozen, code))
+                else scheduleRead(delay) { fetch() }
+            }
             val generation = agent.controlGeneration(scope.ref)
             agent.read(SessionAgentProtocol.Method.SNAPSHOT, session.target) { reply ->
                 if (!current(scope)) { done(failure(frozen, "stale_state")); return@read }
+                if (readClock() >= deadline) { done(failure(frozen, "agent_state_not_ready")); return@read }
                 val result = (reply as? SessionAgentProtocol.Reply.Read)?.result
                 val page = result?.optJSONObject("snapshot")
                 if (generation != agent.controlGeneration(scope.ref) || page?.opt("contentState") != "complete") {
                     val code = (reply as? SessionAgentProtocol.Reply.Failure)?.code ?: "content_incomplete"
-                    if (attempts < 2 && (result != null || generation != agent.controlGeneration(scope.ref) || code in retryablePreparation)) fetch()
+                    if (generation != agent.controlGeneration(scope.ref) || page?.opt("contentState") in setOf("partial", "unavailable") ||
+                        page?.opt("opening") == true || result == null && code in retryablePreparation) retry(code)
                     else done(failure(frozen, code))
                     return@read
                 }
@@ -65,12 +76,15 @@ internal class SessionAgentConversation(
                 val lease = result.opt("controlLease") as? String
                 if (row?.opt("sessionRef") != scope.ref || row.opt("nativeThreadId") != scope.thread || row.opt("adapterId") != scope.adapter ||
                     page.opt("threadId") != scope.thread || (page.has("provider") && page.opt("provider") != scope.source) ||
-                    lease.isNullOrBlank() || lease.length > 4096 || '\u0000' in lease) {
+                    lease != null && (lease.isBlank() || lease.length > 4096 || '\u0000' in lease)) {
                     done(failure(frozen, "agent_target_mismatch")); return@read
                 }
-                val verified = agent.rememberSession(scope.source, row, lease)
+                if (requireLease && lease == null) { retry("agent_state_not_ready"); return@read }
+                val verified = agent.rememberSession(scope.source, row, lease, replaceControl = true)
                 if (verified == null) { done(failure(frozen, "agent_protocol_invalid")); return@read }
                 agent.rememberSnapshot(scope.source, scope.thread, page)
+                active = verified
+                renewObservation(verified, result)
                 rememberCapabilities(context, page)
                 if (!current(scope) || generation != agent.controlGeneration(scope.ref)) { done(failure(frozen, "stale_state")); return@read }
                 done(JSONObject(page.toString()).put("ok", true).put("id", frozen.getString("id"))
@@ -87,22 +101,30 @@ internal class SessionAgentConversation(
         if (scope == null || scope.workspace == null || cwd.isBlank() || draft.isBlank()) { done(failure(fields, "stale_state")); return }
         val context = projectionFields(fields, scope.source)
         var attempts = 0
+        val deadline = readClock() + preparationDeadline
         fun fetch() {
             if (!current(scope) || agent.workspace(scope.source, cwd) != scope.workspace) { done(failure(fields, "stale_state")); return }
+            if (readClock() >= deadline) { done(failure(fields, "agent_state_not_ready")); return }
             attempts++
+            fun retry(code: String) {
+                val delay = preparationDelays.getOrNull(attempts - 1)
+                if (delay == null || readClock() + delay >= deadline) done(failure(fields, code)) else scheduleRead(delay) { fetch() }
+            }
             agent.read(SessionAgentProtocol.Method.CREATION_OPTIONS, SessionAgentProtocol.Target.Adapter(scope.adapter),
                 JSONObject().put("workspaceRef", scope.workspace).put("draftId", draft)) { reply ->
                 if (!current(scope) || agent.workspace(scope.source, cwd) != scope.workspace) { done(failure(fields, "stale_state")); return@read }
+                if (readClock() >= deadline) { done(failure(fields, "agent_state_not_ready")); return@read }
                 val result = (reply as? SessionAgentProtocol.Reply.Read)?.result
                 if (result == null) {
                     val code = (reply as? SessionAgentProtocol.Reply.Failure)?.code ?: "agent_protocol_invalid"
-                    if (attempts < 2 && code in retryablePreparation) fetch() else done(failure(fields, code))
+                    if (code in retryablePreparation) retry(code) else done(failure(fields, code))
                     return@read
                 }
                 val creation = result.optJSONObject("creationLease"); val target = creation?.optJSONObject("target")
                 val options = result.optJSONObject("options")
                 val revision = SessionAgentCapabilities.opaque(target?.opt("optionsRevision"))
                 val lease = creation?.opt("controlLease") as? String
+                if (creation == null || lease == null) { retry("agent_state_not_ready"); return@read }
                 if (target?.opt("adapterId") != scope.adapter || target.opt("workspaceRef") != scope.workspace || target.opt("draftId") != draft ||
                     revision == null || options == null || options.opt("draftId") != draft ||
                     lease.isNullOrBlank() || lease.length > 4096 || '\u0000' in lease) {
@@ -110,6 +132,7 @@ internal class SessionAgentConversation(
                 }
                 leases[creationKey(scope.source, cwd, draft)] = SessionAgentProtocol.Target.Creation(scope.adapter, scope.workspace, draft, revision) to lease
                 rememberCapabilities(context, options)
+                if (!current(scope) || agent.workspace(scope.source, cwd) != scope.workspace) { done(failure(fields, "stale_state")); return@read }
                 done(JSONObject(options.toString()).put("ok", true))
             }
         }
@@ -118,6 +141,7 @@ internal class SessionAgentConversation(
 
     fun request(op: String, fields: JSONObject, callback: (JSONObject) -> Unit): String? {
         val source = fields.optString("provider").ifBlank(provider)
+        if (agent.negotiated && op in preparedReads) return prepareItemRead(op, fields, callback)
         if (!agent.negotiated || op !in mutationOperations || legacyPending(source, fields.optString("threadId"))) return requestPrepared(op, fields, callback)
         val frozen = JSONObject(fields.toString()).put("id", fields.optString("id").ifBlank(SessionAgentProtocol::id))
         val id = frozen.getString("id")
@@ -128,22 +152,75 @@ internal class SessionAgentConversation(
         }
         val scope = scope(frozen)
         if (scope == null) { callback(failure(frozen, "stale_state")); return id }
-        val before = if (op == "new") creationOptions[creationKey(source, frozen.optString("cwd"), frozen.optString("draftId"))] else agent.snapshot(source, scope.thread)
-        val intent = SessionControlPreparation.capture(op, frozen, before)
+        val intent = SessionControlPreparation.capture(op, frozen)
         if (intent == null) { callback(failure(frozen, "agent_state_changed")); return id }
         val desired = intent.fields
         val prepared: (JSONObject) -> Unit = { result ->
             if (!result.optBoolean("ok")) callback(result)
             else if (!current(scope)) callback(failure(frozen, "stale_state"))
-            else if (!SessionControlPreparation.validate(intent, result)) callback(failure(frozen, "agent_state_changed"))
-            else if (requestPrepared(op, desired, callback, intent) == null) callback(failure(frozen, "operation_conflict"))
+            else {
+                val resolved = SessionControlPreparation.resolvedFields(intent, result)
+                if (resolved == null) callback(failure(frozen, "agent_state_changed"))
+                else if (requestPrepared(op, resolved, callback) == null) callback(failure(frozen, "operation_conflict"))
+            }
         }
         if (op == "new") prepareCreation(desired, prepared) else prepareSessionControl(desired, prepared)
         return id
     }
 
+    private fun prepareItemRead(op: String, fields: JSONObject, callback: (JSONObject) -> Unit): String {
+        val frozen = JSONObject(fields.toString()).put("id", fields.optString("id").ifBlank(SessionAgentProtocol::id))
+        val scope = scope(frozen)
+        if (scope == null || scope.ref == null) { callback(failure(frozen, "stale_state")); return frozen.getString("id") }
+        prepareSessionControl(frozen, false) { page ->
+            if (!page.optBoolean("ok")) { callback(page); return@prepareSessionControl }
+            if (!current(scope)) { callback(failure(frozen, "stale_state")); return@prepareSessionControl }
+            val params = JSONObject().put("kind", op)
+            val approval = if (op == "approvalDetails") {
+                val rows = page.optJSONArray("approvals") ?: JSONArray()
+                (0 until rows.length()).mapNotNull { rows.optJSONObject(it) }.singleOrNull { it.opt("fingerprint") == frozen.opt("fingerprint") }
+            } else null
+            if (op == "approvalDetails") {
+                if (approval == null || frozen.has("expectedApprovalRevision") && frozen.opt("expectedApprovalRevision") != approval.opt("revision")) {
+                    callback(failure(frozen, "approval_expired")); return@prepareSessionControl
+                }
+                params.put("messageId", approval.opt("id"))
+            }
+            val session = agent.session(scope.source, scope.thread)
+            if (session == null) { callback(failure(frozen, "stale_state")); return@prepareSessionControl }
+            val generation = agent.controlGeneration(scope.ref)
+            agent.read(SessionAgentProtocol.Method.ITEMS, session.target, params) { reply ->
+                if (!current(scope) || generation != agent.controlGeneration(scope.ref)) { callback(failure(frozen, "stale_state")); return@read }
+                if (reply !is SessionAgentProtocol.Reply.Read) { callback(legacyReply(reply, projectionFields(frozen, scope.source))); return@read }
+                val result = JSONObject(reply.result.toString())
+                if (result.has("threadId") && result.opt("threadId") != scope.thread) { callback(failure(frozen, "agent_target_mismatch")); return@read }
+                if (approval != null) {
+                    val details = result.optJSONObject("approval")
+                    if (details == null || details.opt("fingerprint") != approval.opt("fingerprint")) { callback(failure(frozen, "approval_expired")); return@read }
+                    // Full native prose/form data does not override the service's normalized authority.
+                    for (key in listOf("id", "revision", "fingerprint", "nativeRequestId", "nativeRequestFingerprint", "title",
+                        "decisionScope", "kind", "reason", "method", "plan", "planApprovalScope", "toolUseId")) {
+                        if (approval.has(key)) details.put(key, approval.get(key)) else details.remove(key)
+                    }
+                    details.put("canDecide", approval.opt("canDecide") == true)
+                    details.put("allowedDecisions", approval.optJSONArray("allowedDecisions") ?: JSONArray())
+                }
+                callback(result.put("ok", true).put("id", frozen.getString("id")).put("provider", scope.source)
+                    .put("threadId", scope.thread).put("viewVersion", scope.view))
+            }
+        }
+        return frozen.getString("id")
+    }
+
+    private fun renewObservation(session: SessionAgentClient.Session, result: JSONObject) {
+        val id = subscriptionId ?: return
+        val epoch = SessionAgentCapabilities.opaque(result.opt("streamEpoch")) ?: return
+        val through = SessionAgentProtocol.integer(result.opt("throughSequence")) ?: return
+        agent.refreshObservation(id, session.target.sessionRef, epoch, through)
+    }
+
     /** A null return means this is an independent v1 service or an existing v1 pending scope. */
-    private fun requestPrepared(op: String, fields: JSONObject, callback: (JSONObject) -> Unit, intent: SessionControlPreparation.Intent? = null): String? {
+    private fun requestPrepared(op: String, fields: JSONObject, callback: (JSONObject) -> Unit): String? {
         val source = fields.optString("provider").ifBlank(provider)
         val originalOperation = fields.optString("operation")
         val pendingContext = if (op == "receipt") agent.context(originalOperation) else null
@@ -222,7 +299,7 @@ internal class SessionAgentConversation(
             when (op) {
                 "send" -> {
                     val page = agent.snapshot(source, thread) ?: run { fail("stale_state"); return id }
-                    params.put("mode", intent?.mode ?: if (page.opt("status") == "active" && page.optJSONObject("agentCapabilities")?.optJSONObject("actions")?.optJSONObject("queue")?.opt("available") == true) "queue" else "start")
+                    params.put("mode", fields.optString("submissionMode").takeIf { it in setOf("start", "queue") } ?: if (page.opt("status") == "active" && page.optJSONObject("agentCapabilities")?.optJSONObject("actions")?.optJSONObject("queue")?.opt("available") == true) "queue" else "start")
                         .put("content", content(fields))
                 }
                 "new" -> params.put("initialMessage", JSONObject().put("content", content(fields))).put("options", options(fields))
@@ -292,10 +369,6 @@ internal class SessionAgentConversation(
                         }
                     }
                     val options = result.optJSONObject("options")?.let { JSONObject(it.toString()) } ?: JSONObject(result.toString())
-                    if (options.opt("draftId") == draft && leases.containsKey(creationKey(source, cwd, draft))) {
-                        creationOptions[creationKey(source, cwd, draft)] = JSONObject(options.toString())
-                        if (creationOptions.size > 32) creationOptions.keys.firstOrNull { it != creationKey(source, cwd, draft) }?.let(creationOptions::remove)
-                    }
                     options
                 }
                 "open", "sync" -> {
@@ -311,7 +384,7 @@ internal class SessionAgentConversation(
                     active = verified
                     val page = mergePartial(agent.snapshot(source, thread), next)
                     agent.rememberSnapshot(source, thread, page)
-                    if (op == "open") observe(source, thread, result)
+                    if (op == "open") observe(source, thread, result) else if (next.opt("contentState") == "complete") renewObservation(verified, result)
                     page
                 }
                 else -> JSONObject(result.toString())
@@ -386,7 +459,10 @@ internal class SessionAgentConversation(
     }
     companion object {
         private val mutationOperations = setOf("send", "new", "settings", "interrupt", "approve", "queueDelete")
-        private val retryablePreparation = setOf("agent_session_not_open", "agent_session_view_closed", "agent_native_unavailable", "content_incomplete")
+        private val retryablePreparation = setOf("agent_session_not_open", "agent_session_view_closed", "agent_native_unavailable", "content_incomplete", "agent_state_not_ready")
+        private val preparedReads = setOf("composerOptions", "approvalDetails")
+        private val preparationDelays = listOf(250L, 500L, 1_000L, 1_500L, 2_000L, 2_500L)
+        private const val preparationDeadline = 10_000L
         private val routed = setOf("list", "projects", "open", "close", "sync", "history", "parts", "message", "newOptions", "new", "send", "settings", "interrupt", "approve", "queueDelete")
         fun mergePartial(previous: JSONObject?, next: JSONObject): JSONObject {
             val result = JSONObject(next.toString())

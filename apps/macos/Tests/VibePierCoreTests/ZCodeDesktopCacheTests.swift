@@ -4,6 +4,53 @@ import XCTest
 @testable import VibePierCore
 
 final class ZCodeDesktopCacheTests: XCTestCase {
+    private func owner(
+        session: String = "sess_00000000-0000-4000-8000-000000000001", pid: Int32 = 77,
+        launched: TimeInterval = 100, window: Int = 1
+    ) -> ZCodeDesktop.OwnerScope<Int> {
+        .init(session: session, pid: pid, launched: Date(timeIntervalSince1970: launched), window: window)
+    }
+
+    func testOwnerProofExistsOnlyAfterVerifiedBindingAndIsStableAcrossContentReads() throws {
+        let proof = ZCodeDesktop.VerifiedOwner<Int>()
+        XCTAssertNil(proof.current(owner()))
+        let epoch = try XCTUnwrap(proof.bind(owner()))
+        XCTAssertNotNil(UUID(uuidString: epoch))
+        XCTAssertEqual(proof.current(owner()), epoch)
+        XCTAssertEqual(proof.bind(owner()), epoch)
+        proof.invalidate()
+        XCTAssertNil(proof.current(owner()))
+        XCTAssertNotEqual(proof.bind(owner()), epoch)
+    }
+
+    func testProcessReuseAndWindowReplacementInvalidateOldOwnerWithoutRestoringIt() throws {
+        for changed in [owner(pid: 78), owner(launched: 101), owner(window: 2)] {
+            let proof = ZCodeDesktop.VerifiedOwner<Int>()
+            let original = try XCTUnwrap(proof.bind(owner()))
+            XCTAssertNil(proof.current(changed))
+            XCTAssertNil(proof.current(owner()))
+            XCTAssertNotEqual(proof.bind(changed), original)
+        }
+    }
+
+    func testAnotherHistoryReadCannotBorrowOrEraseTheVisibleSessionsOwnerProof() throws {
+        let proof = ZCodeDesktop.VerifiedOwner<Int>()
+        let original = try XCTUnwrap(proof.bind(owner()))
+        let other = owner(session: "sess_00000000-0000-4000-8000-000000000002")
+        XCTAssertNil(proof.current(other))
+        XCTAssertEqual(proof.current(owner()), original)
+        XCTAssertNotEqual(proof.bind(other), original)
+        XCTAssertNil(proof.current(owner()))
+    }
+
+    func testInvalidNativeIdentityOrProcessStartCannotCreateOwnerEvidence() {
+        for invalid in [owner(session: "history-id"), owner(pid: 0), owner(launched: .nan), owner(launched: 0)] {
+            let proof = ZCodeDesktop.VerifiedOwner<Int>()
+            XCTAssertNil(proof.bind(invalid))
+            XCTAssertNil(proof.current(invalid))
+        }
+    }
+
     func testPendingReceiptsRemainIndependentUntilNativeAcceptance() throws {
         let cache = ZCodeDesktop.Cache()
         try cache.record(

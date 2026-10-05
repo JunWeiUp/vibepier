@@ -6,6 +6,67 @@ import XCTest
 @testable import VibePierCore
 
 final class ZCodeBridgeTests: XCTestCase {
+    func testVerifiedDesktopOwnerEpochIsProjectedAndUnsupportedQueueIsExplicitlyEmpty() throws {
+        let fixture = try fixture()
+        defer { try? FileManager.default.removeItem(at: fixture.directory) }
+        let epoch = UUID().uuidString.lowercased()
+        let bridge = ZCodeBridge(
+            store: ZCodeSessionStore(path: fixture.database, indexPath: nil),
+            desktop: .init(
+                snapshot: { _ in ["nativeOwnerEpoch": epoch, "capabilities": ["send": true], "canSend": true] },
+                execute: { _, _, _, _ in [:] }))
+        defer { bridge.stopAll() }
+        let page = try request(bridge, ["op": "open", "threadId": "sess_native", "viewVersion": 1])
+        XCTAssertEqual(page["nativeOwnerEpoch"] as? String, epoch)
+        XCTAssertEqual((page["queuedMessages"] as? [[String: Any]])?.count, 0)
+        XCTAssertEqual((page["capabilities"] as? [String: Bool])?["queue"], false)
+    }
+
+    func testMissingOrMalformedDesktopProofIsNeverSynthesizedFromNativeSessionIdentity() throws {
+        let fixture = try fixture()
+        defer { try? FileManager.default.removeItem(at: fixture.directory) }
+        for proof: Any? in [nil, "", 17] {
+            let observed = Value()
+            observed.value = ["capabilities": ["send": true], "canSend": true]
+            observed.value["nativeOwnerEpoch"] = proof
+            let bridge = ZCodeBridge(
+                store: ZCodeSessionStore(path: fixture.database, indexPath: nil),
+                desktop: .init(
+                    snapshot: { _ in observed.value }, execute: { _, _, _, _ in [:] }))
+            let page = try request(bridge, ["op": "open", "threadId": "sess_native", "viewVersion": 1])
+            XCTAssertNil(page["nativeOwnerEpoch"])
+            XCTAssertNil(page["owner"])
+            bridge.stopAll()
+        }
+    }
+
+    func testOnlyInternalControlPreparationInvokesTheVerifiedOwnerRead() throws {
+        let fixture = try fixture()
+        defer { try? FileManager.default.removeItem(at: fixture.directory) }
+        let seen = Value()
+        let epoch = UUID().uuidString.lowercased()
+        let bridge = ZCodeBridge(
+            store: ZCodeSessionStore(path: fixture.database, indexPath: nil),
+            desktop: .init(
+                snapshot: { _ in ["capabilities": ["send": true], "canSend": true] },
+                execute: { _, _, _, _ in
+                    XCTFail("Read preparation must not submit a native effect")
+                    return [:]
+                },
+                prepareSnapshot: { session in
+                    seen.value = ["session": session]
+                    return ["nativeOwnerEpoch": epoch, "capabilities": ["send": true], "canSend": true]
+                }))
+        defer { bridge.stopAll() }
+        let ordinary = try request(bridge, ["op": "open", "threadId": "sess_native", "viewVersion": 1])
+        XCTAssertNil(ordinary["nativeOwnerEpoch"])
+        XCTAssertTrue(seen.value.isEmpty)
+        let prepared = try request(
+            bridge, ["op": "open", "threadId": "sess_native", "viewVersion": 1, "verifyNativeOwner": true])
+        XCTAssertEqual(prepared["nativeOwnerEpoch"] as? String, epoch)
+        XCTAssertEqual(seen.value["session"] as? String, "sess_native")
+    }
+
     func testNewOptionsAreBoundToTrustedPhoneAndValidDraftBeforeNativeDispatch() throws {
         let fixture = try fixture()
         defer { try? FileManager.default.removeItem(at: fixture.directory) }

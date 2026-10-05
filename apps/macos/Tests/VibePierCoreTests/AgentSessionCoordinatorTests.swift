@@ -69,6 +69,54 @@ final class AgentSessionCoordinatorTests: XCTestCase {
         try XCTUnwrap((capabilities["actions"] as? [String: [String: Any]])?[name])
     }
 
+    func testSameScopeSnapshotDoesNotRevokeCurrentCapabilitiesWhileItsReadIsPending() throws {
+        let probe = Probe()
+        probe.reply = try bytes(page)
+        let value = try coordinator(probe.adapter("codex"))
+        let opened = try perform(value, ["op": "open", "threadId": "session", "viewVersion": 7])
+        let original = try XCTUnwrap(opened["agentCapabilities"] as? [String: Any])
+        let write = request(original)
+        let originalRevision = original["revision"] as? String
+        probe.delayed = true
+        let received = expectation(description: "same view snapshot")
+        value.performCurrentV1(
+            try bytes(["op": "open", "threadId": "session", "viewVersion": 7]), provider: "codex",
+            trustedClient: "phone"
+        ) { data in
+            let next = try? JSONSerialization.jsonObject(with: data) as? [String: Any]
+            let caps = next?["agentCapabilities"] as? [String: Any]
+            XCTAssertEqual(caps?["revision"] as? String, originalRevision)
+            received.fulfill()
+        }
+        XCTAssertNil(value.freshMutationFailure(write, client: "phone"))
+        try XCTUnwrap(probe.callback)(try bytes(page))
+        wait(for: [received], timeout: 2)
+        XCTAssertNil(value.freshMutationFailure(write, client: "phone"))
+    }
+
+    func testSameDraftOptionsReadPreservesCapabilitiesButChangedScopeRevokesImmediately() throws {
+        let probe = Probe()
+        let draft = UUID().uuidString.lowercased()
+        probe.reply = try bytes(["creationVersion": 1, "draftId": draft, "capabilities": ["new": true]])
+        let value = try coordinator(probe.adapter("codex"))
+        let options: [String: Any] = ["op": "newOptions", "cwd": "/synthetic", "draftId": draft]
+        let first = try perform(value, options)
+        let caps = try XCTUnwrap(first["agentCapabilities"] as? [String: Any])
+        let next = try perform(value, options)
+        XCTAssertEqual(
+            (next["agentCapabilities"] as? [String: Any])?["revision"] as? String, caps["revision"] as? String)
+        var write = request(caps, op: "new")
+        write["cwd"] = "/synthetic"
+        write["draftId"] = draft
+        XCTAssertNil(value.freshMutationFailure(write, client: "phone"))
+        probe.delayed = true
+        value.performCurrentV1(
+            try bytes(["op": "newOptions", "cwd": "/another", "draftId": UUID().uuidString]), provider: "codex",
+            trustedClient: "phone"
+        ) { _ in }
+        XCTAssertEqual(value.freshMutationFailure(write, client: "phone"), "agent_capability_unavailable")
+    }
+
     func testRegistryRejectsDuplicateUnknownProviderAndOnlyMissingProviderDefaults() throws {
         let one = Probe().adapter("codex")
         XCTAssertThrowsError(try AgentAdapterRegistry([one, Probe().adapter("codex")]))

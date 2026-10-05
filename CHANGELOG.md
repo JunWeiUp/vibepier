@@ -1,5 +1,10 @@
 # Changelog / 更新记录
 
+## Local build 34 / 本机构建 34
+
+- Accept phone actions from user intent instead of cached control availability. Standard Send resolves the current native start/queue behavior without comparing stale composer settings; explicit operation targets and permission confirmations remain exact. Recover menus through the same adapter, merge concurrent snapshot reads, and preserve control authority during content-only updates.
+- 手机操作不再被旧控制缓存提前拒绝。普通发送按最新原生状态直接发送或入队，不比较旧模型/权限展示；明确选择的操作对象与权限确认保持绑定。设置菜单沿相同后端自动恢复，合并并发快照，正文增量不再撤销操作权限。
+
 ## Local build 33 / 本机构建 33
 
 - Refresh verified control state automatically before a new send, interrupt, approval, queue change, session setting or creation. Keep the original task, approval and selected options; a changed target stops the action. Coalesce native dirty events during synchronization and recover missing same-view Codex state after disconnect. Unknown writes keep their original receipt and are never resent automatically.

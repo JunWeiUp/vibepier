@@ -137,12 +137,15 @@ final class AgentSessionCoordinator: @unchecked Sendable {
         if ["open", "newOptions"].contains(context.operation) {
             lock.withLock {
                 guard expected[key] != nil || expected.count < 512 else { return }
-                expected[key] = Scope(
+                let next = Scope(
                     thread: context.operation == "open" ? context.thread : "",
                     cwd: context.operation == "newOptions" ? context.cwd : "",
                     draft: context.operation == "newOptions" ? context.draft : "",
                     view: context.operation == "open" ? context.view : -1)
-                issued.removeValue(forKey: key)
+                // A read of the same target must not revoke another in-flight action's evidence.
+                // Scope replacement still revokes immediately; enrich also revises changed native capabilities.
+                if expected[key] != next { issued.removeValue(forKey: key) }
+                expected[key] = next
             }
         }
         if context.operation == "close" {

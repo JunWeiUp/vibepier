@@ -11,6 +11,6 @@
     <string name="agent_backend_managed">Managed runtime</string>
     <string name="agent_backend_extension">Desktop extension</string>
     <string name="agent_backend_explanation">Choose the Mac connection for new browsing and actions. Existing requests keep their original connection and receipt.</string>
-    <string name="agent_state_changed">The task, approval or selected options changed. Review the latest state and try again; your draft is kept.</string>
-    <string name="agent_state_not_ready">The session state could not be verified yet. Try again shortly; your draft is kept.</string>
+    <string name="agent_state_changed">The original task, approval or option is no longer available. Your draft is kept.</string>
+    <string name="agent_state_not_ready">The desktop assistant could not be reached yet. Nothing was submitted; your draft is kept.</string>
 </resources>

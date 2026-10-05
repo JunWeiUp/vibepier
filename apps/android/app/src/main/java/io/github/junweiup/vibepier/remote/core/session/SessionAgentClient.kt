@@ -28,6 +28,7 @@ internal class SessionAgentClient(
     internal val currentIdentity get() = identity()
     val negotiated get() = profile != null && negotiatedIdentity == identity()
     var onDirty: (String) -> Unit = {}
+    var onContentChanged: (String) -> Unit = {}
     var onOperation: (String, SessionAgentProtocol.Reply.Mutation, JSONObject?) -> Unit = { _, _, _ -> }
     var beforeComplete: (SessionAgentProtocol.Reply.Mutation, JSONObject?) -> Boolean = { _, _ -> true }
     var onSession: (Session) -> Unit = {}
@@ -62,7 +63,8 @@ internal class SessionAgentClient(
         workspaces[key(provider, cwd, adapterId)] = reference
         return true
     }
-    fun rememberSession(provider: String, row: JSONObject, lease: String? = null, preserveVerifiedControl: Boolean = false): Session? = runCatching {
+    fun rememberSession(provider: String, row: JSONObject, lease: String? = null, preserveVerifiedControl: Boolean = false,
+                        replaceControl: Boolean = false): Session? = runCatching {
         require(provider in SessionV1Contract.providers)
         val adapter = SessionAgentCapabilities.opaque(row.opt("adapterId")) ?: error("Missing adapter")
         require(adapterAllowed(provider, adapter) && adapter == selectedAdapter(provider))
@@ -72,7 +74,7 @@ internal class SessionAgentClient(
         val previous = session(provider, thread)
         if (preserveVerifiedControl && previous?.controlLease != null && snapshot(provider, thread)?.opt("contentState") == "complete") return@runCatching previous
         val controlLease = lease?.takeIf { it.isNotBlank() && it.length <= 4096 && '\u0000' !in it }
-            ?: previous?.takeIf { it.target == target }?.controlLease
+            ?: previous?.takeIf { !replaceControl && it.target == target }?.controlLease
         val session = Session(provider, adapter, thread, target, JSONObject(row.toString()), controlLease)
         sessions[key(provider, thread, adapter)] = session
         onSession(session)
@@ -183,6 +185,10 @@ internal class SessionAgentClient(
         return true
     }
     fun unobserve(subscriptionId: String) { observers.remove(subscriptionId) }
+    fun refreshObservation(subscriptionId: String, ref: String, epoch: String, through: Long): Boolean {
+        val known = observers[subscriptionId]?.takeIf { it.sessionRef == ref } ?: return false
+        return known.snapshot(epoch, through, true)
+    }
     fun event(value: JSONObject): Boolean {
         val event = SessionAgentProtocol.event(value)
         if (event == null) {
@@ -192,7 +198,11 @@ internal class SessionAgentClient(
             onDirty(known.sessionRef); return true
         }
         val observer = observers[event.subscriptionId] ?: return false
-        if (observer.accept(event) != SessionAgentObservation.Decision.IGNORE) onDirty(event.sessionRef)
+        when (observer.accept(event)) {
+            SessionAgentObservation.Decision.IGNORE -> Unit
+            SessionAgentObservation.Decision.APPLY -> if (event.data.opt("controlDirty") == false) onContentChanged(event.sessionRef) else onDirty(event.sessionRef)
+            SessionAgentObservation.Decision.RESYNC -> onDirty(event.sessionRef)
+        }
         return true
     }
 }

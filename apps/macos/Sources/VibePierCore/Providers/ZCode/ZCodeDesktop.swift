@@ -8,7 +8,9 @@ import Foundation
 enum ZCodeDesktop {
     static let bundleID = "dev.zcode.app"
     static var access: ZCodeBridge.DesktopAccess {
-        .init(snapshot: { try snapshot($0) }, execute: { try execute($0, session: $1, cwd: $2, client: $3) })
+        .init(
+            snapshot: { try snapshot($0) }, execute: { try execute($0, session: $1, cwd: $2, client: $3) },
+            prepareSnapshot: { try prepareSnapshot($0) })
     }
     struct Choice: Sendable {
         let id: String
@@ -27,6 +29,56 @@ enum ZCodeDesktop {
         }
     }
     private static let cache = Cache()
+    private static let ownership = VerifiedOwner<DesktopAXTraversal.Identity>()
+    struct OwnerScope<Window: Equatable>: Equatable {
+        let session: String
+        let pid: Int32
+        let launched: Date
+        let window: Window
+    }
+    /// Pure cache: production binds only after the native Copy session ID result was verified.
+    final class VerifiedOwner<Window: Equatable>: @unchecked Sendable {
+        private let lock = NSLock()
+        private var scope: OwnerScope<Window>?
+        private var epoch: String?
+        func bind(_ next: OwnerScope<Window>) -> String? {
+            lock.withLock {
+                guard Self.valid(next) else {
+                    scope = nil
+                    epoch = nil
+                    return nil
+                }
+                if scope != next {
+                    scope = next
+                    epoch = UUID().uuidString.lowercased()
+                }
+                return epoch
+            }
+        }
+        func current(_ observed: OwnerScope<Window>) -> String? {
+            lock.withLock {
+                guard Self.valid(observed), let verified = scope else { return nil }
+                guard verified.pid == observed.pid, verified.launched == observed.launched,
+                    verified.window == observed.window
+                else {
+                    scope = nil
+                    epoch = nil
+                    return nil
+                }
+                return verified.session == observed.session ? epoch : nil
+            }
+        }
+        func invalidate() {
+            lock.withLock {
+                scope = nil
+                epoch = nil
+            }
+        }
+        private static func valid(_ value: OwnerScope<Window>) -> Bool {
+            ZCodeDesktop.nativeID(value.session) != nil && value.pid > 0
+                && value.launched.timeIntervalSince1970.isFinite && value.launched.timeIntervalSince1970 > 0
+        }
+    }
     static let modeLabels = ["plan": "计划模式", "build": "变更前确认", "edit": "自动编辑", "yolo": "完全访问"]
     /// Permission choices need known semantics; an opaque ordinal must never bypass full-access confirmation.
     static func nativeModeIDs(_ labels: [String]) throws -> [String] {
@@ -336,7 +388,61 @@ enum ZCodeDesktop {
         if busy, let anchor = try? store.window(session, count: 1).turns.last?.userID {
             result["activeTurnId"] = anchor
         }
+        if let app = application(), let owner = ownerScope(app, session: session) {
+            let epoch = ownership.current(owner)
+            if entry.verified, cache.isCurrent(session), visibleTitle(app) == entry.title,
+                composer(app) != nil, let epoch
+            {
+                result["nativeOwnerEpoch"] = epoch
+            }
+        } else {
+            ownership.invalidate()
+        }
         return result
+    }
+
+    /// A fresh action may verify an already visible task; this does not activate, navigate or enter input.
+    static func prepareSnapshot(_ session: String) throws -> [String: Any] {
+        let summary = try ZCodeSessionStore().summary(session)
+        guard !ScreenLock.locked(), AXIsProcessTrusted(), let app = application(), frontmost(app),
+            visibleTitle(app) == summary["title"] as? String, composer(app) != nil,
+            let before = ownerScope(app, session: session)
+        else { return try snapshot(session) }
+        if cache.isCurrent(session), cache.entry(session).verified, ownership.current(before) != nil {
+            return try snapshot(session)
+        }
+        try DesktopInteractions.acquire()
+        defer { DesktopInteractions.lock.unlock() }
+        guard frontmost(app), try copiedSessionID(app) == session,
+            ownerScope(app, session: session) == before,
+            visibleTitle(app) == summary["title"] as? String, composer(app) != nil
+        else {
+            ownership.invalidate()
+            throw CLIError(L10n.text("provider.the_current_native_zcode_session_id_does_not_match_no_action_was_taken"))
+        }
+        _ = remember(app, session, summary["title"] as? String ?? "")
+        return try snapshot(session)
+    }
+
+    private static func ownerScope(_ app: AXUIElement, session: String) -> OwnerScope<DesktopAXTraversal.Identity>? {
+        var pid: pid_t = 0
+        guard AXUIElementGetPid(app, &pid) == .success, pid > 0,
+            let running = NSRunningApplication(processIdentifier: pid), running.bundleIdentifier == bundleID,
+            let launched = running.launchDate, launched.timeIntervalSince1970.isFinite,
+            launched.timeIntervalSince1970 > 0
+        else { return nil }
+        let nativeWindow: AXUIElement
+        if let focused = elementAttribute(app, kAXFocusedWindowAttribute), role(focused) == "AXWindow" {
+            nativeWindow = focused
+        } else {
+            guard let windows = attribute(app, kAXWindowsAttribute) as? [AXUIElement], windows.count == 1,
+                role(windows[0]) == "AXWindow"
+            else { return nil }
+            nativeWindow = windows[0]
+        }
+        var windowPID: pid_t = 0
+        guard AXUIElementGetPid(nativeWindow, &windowPID) == .success, windowPID == pid else { return nil }
+        return OwnerScope(session: session, pid: pid, launched: launched, window: .init(element: nativeWindow))
     }
 
     /// Navigate only; reveal verifies the copied native ID before reporting success.
@@ -393,6 +499,14 @@ enum ZCodeDesktop {
             let previous = NSWorkspace.shared.frontmostApplication
             let app = try reveal(session, summary: summary)
             defer { if frontmost(app), previous?.bundleIdentifier != bundleID { previous?.activate() } }
+            if ["send", "settings", "interrupt"].contains(op), let expected = request["nativeOwnerEpoch"] {
+                guard let expected = expected as? String, !expected.isEmpty,
+                    let current = ownerScope(app, session: session), ownership.current(current) == expected
+                else {
+                    throw CLIError(
+                        L10n.text("provider.the_current_native_zcode_session_id_does_not_match_no_action_was_taken"))
+                }
+            }
             switch op {
             case "composerOptions":
                 return try options(app, session: session, summary: summary)
@@ -842,6 +956,7 @@ enum ZCodeDesktop {
         entry.composer.merge(readControls(app)) { _, fresh in fresh }
         cache.put(entry, id: session)
         cache.verified(session)
+        if let owner = ownerScope(app, session: session) { _ = ownership.bind(owner) } else { ownership.invalidate() }
         return app
     }
     private static func verify(_ app: AXUIElement, _ session: String) throws {
@@ -849,6 +964,7 @@ enum ZCodeDesktop {
             throw CLIError(L10n.text("provider.the_current_native_zcode_session_id_does_not_match_no_action_was_taken"))
         }
         cache.verified(session)
+        if let owner = ownerScope(app, session: session) { _ = ownership.bind(owner) } else { ownership.invalidate() }
     }
     private static func copiedSessionID(_ app: AXUIElement) throws -> String {
         guard frontmost(app),

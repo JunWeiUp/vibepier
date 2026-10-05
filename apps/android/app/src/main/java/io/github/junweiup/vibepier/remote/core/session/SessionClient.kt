@@ -127,6 +127,10 @@ class SessionClient(context: Context, private val sender: SessionTransport, priv
             val target = session(provider, agentActiveThread)
             if (target?.target?.sessionRef == sessionRef) onEvent(JSONObject().put("event", "stale").put("provider", provider).put("threadId", target.nativeThreadId))
         }
+        onContentChanged = { sessionRef ->
+            val target = session(provider, agentActiveThread)
+            if (target?.target?.sessionRef == sessionRef) onEvent(JSONObject().put("event", "stale").put("provider", provider).put("threadId", target.nativeThreadId))
+        }
         beforeComplete = { reply, original ->
             reply.status != SessionAgentProtocol.Status.CONFIRMED || original?.opt("op") != "new" ||
                 reply.result.optJSONObject("session")?.opt("cwd") == original.opt("cwd") && finishCreation(original)
@@ -166,10 +170,12 @@ class SessionClient(context: Context, private val sender: SessionTransport, priv
             "agent_upgrade_required", "protocol_incompatible" -> R.string.agent_upgrade_required
             "receipt_unknown" -> R.string.client_unknown_result
             "agent_protocol_invalid" -> R.string.agent_protocol_invalid
-            "agent_state_changed", "agent_options_changed", "approval_expired", "turn_changed", "queue_changed" -> R.string.agent_state_changed
+            "agent_state_changed", "agent_options_changed", "approval_expired", "turn_changed", "queue_changed", "agent_turn_changed", "agent_queue_changed", "agent_approval_changed" -> R.string.agent_state_changed
             "stale_state", "content_incomplete" -> R.string.agent_state_not_ready
             else -> R.string.agent_capability_unavailable
         }) },
+        scheduleRead = { delay, work -> main.postDelayed({ work() }, delay) },
+        readClock = android.os.SystemClock::elapsedRealtime,
     )
     private var agentActiveThread = ""
     internal val agentCapabilitiesKnown get() = agentNegotiation.host != null
@@ -179,9 +185,13 @@ class SessionClient(context: Context, private val sender: SessionTransport, priv
         else agentNegotiation.target(JSONObject().put("provider", sourceProvider).put("threadId", thread).put("viewVersion", viewVersion))?.let {
             it.adapterId == selectedAgentAdapter(sourceProvider)?.id && it.allows(key)
         } == true
+    /** UI offers supported actions; only the fresh Mac state decides whether this new action can run. */
+    internal fun agentActionSupported(key: String, sourceProvider: String = provider): Boolean =
+        providerEnabled(sourceProvider) && selectedAgentAdapter(sourceProvider)?.actions?.get(key)?.supported == true
+    internal fun sessionControlKnown(thread: String) = if (agent.negotiated) agent.session(provider, thread) != null else agentCapabilitiesKnown
     internal fun creationCapability(key: String, draft: SessionCreationDraft) = agentNegotiation.target(
         JSONObject().put("provider", draft.provider).put("cwd", draft.cwd).put("draftId", draft.id))?.let {
-        it.adapterId == selectedAgentAdapter(draft.provider)?.id && it.allows(key)
+        it.adapterId == selectedAgentAdapter(draft.provider)?.id && it.actions[key]?.supported == true
     } == true
     fun providerEnabled(value: String) = value in enabledProviders
     fun refreshProviderAccess() {
@@ -454,7 +464,9 @@ class SessionClient(context: Context, private val sender: SessionTransport, priv
             else {
                 if (op != "new") onEvent(JSONObject(fresh.toString()).put("event", "snapshot"))
                 // This is the only write call. A failure/unknown after it is handled by the existing journal.
-                if (current()) wireRequest(op, intent.fields.put("id", id).put("provider", source).put("viewVersion", view), callback)
+                val resolved = SessionControlPreparation.resolvedFields(intent, fresh)
+                if (resolved == null) failed("agent_state_changed")
+                else if (current()) wireRequest(op, resolved.put("id", id).put("provider", source).put("viewVersion", view), callback)
                 else failed("stale_state")
             }
         }

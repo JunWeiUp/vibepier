@@ -36,7 +36,26 @@ final class AgentSessionService: @unchecked Sendable {
         let view: Int64
         let page: [String: Any]
         let capabilities: [String: Any]
+        let controlDigest: String?
         let bytes: Int
+    }
+    private final class SnapshotRead: @unchecked Sendable {
+        struct Waiter {
+            let request: AgentSessionProfile.Request
+            let completion: @Sendable (Data) -> Void
+        }
+        let session: AgentSessionDirectory.Session
+        let view: Int64
+        let token = UUID()
+        var waiters: [Waiter]
+        init(
+            session: AgentSessionDirectory.Session, request: AgentSessionProfile.Request,
+            completion: @escaping @Sendable (Data) -> Void
+        ) {
+            self.session = session
+            view = request.viewVersion
+            waiters = [Waiter(request: request, completion: completion)]
+        }
     }
     private struct Creation: @unchecked Sendable {
         let workspace: AgentSessionDirectory.Workspace
@@ -91,6 +110,7 @@ final class AgentSessionService: @unchecked Sendable {
     private var activeOperations = Set<String>()
     private var pendingReads: [Key: UUID] = [:]
     private var pendingViews: [Key: (ref: String, view: Int64)] = [:]
+    private var snapshotReads: [Key: SnapshotRead] = [:]
     private var nativeViews: [Key: (session: AgentSessionDirectory.Session, view: Int64)] = [:]
 
     init(
@@ -209,6 +229,7 @@ final class AgentSessionService: @unchecked Sendable {
                 return !disabled.contains(provider)
             }
             self.pendingViews = self.pendingViews.filter { key, _ in self.pendingReads[key] != nil }
+            self.snapshotReads = self.snapshotReads.filter { key, _ in self.pendingReads[key] != nil }
             self.nativeViews = self.nativeViews.filter { !disabled.contains($0.value.session.provider) }
             self.pruneStreams()
         }
@@ -222,6 +243,7 @@ final class AgentSessionService: @unchecked Sendable {
             self.subscriptions = self.subscriptions.filter { $0.value.client != client }
             self.pendingReads = self.pendingReads.filter { $0.key.client != client }
             self.pendingViews = self.pendingViews.filter { $0.key.client != client }
+            self.snapshotReads = self.snapshotReads.filter { $0.key.client != client }
             self.nativeViews = self.nativeViews.filter { $0.key.client != client }
             self.pruneStreams()
         }
@@ -238,14 +260,17 @@ final class AgentSessionService: @unchecked Sendable {
                 page["threadId"] == nil || page["threadId"] as? String == state.session.nativeID,
                 page["viewVersion"] == nil || AgentSessionProfile.integer(page["viewVersion"]) == state.view
             else { return }
-            self.invalidate(client: client, ref: state.session.ref)
+            let digest = self.controlDigest(page, session: state.session, view: state.view)
+            let controlDirty = digest == nil || state.controlDigest == nil || digest != state.controlDigest
+            if controlDirty { self.invalidate(client: client, ref: state.session.ref) }
             self.appendEvent(
                 ref: state.session.ref,
                 body: [
                     "event": "session.stateChanged", "sessionRef": state.session.ref,
                     "entityRevision": AgentSessionProfile.integer(page["revision"]) ?? 0,
                     "data": [
-                        "dirty": true, "requiresSnapshot": true, "consistency": "reconciled", "provider": provider,
+                        "dirty": true, "controlDirty": controlDirty, "requiresSnapshot": true,
+                        "consistency": "reconciled", "provider": provider,
                     ],
                 ])
         }
@@ -370,9 +395,22 @@ final class AgentSessionService: @unchecked Sendable {
         // Opening uses the phone's monotonic view version, shared with v1 file/media reads.
         let native: [String: Any] = [
             "id": request.id, "op": "open", "threadId": session.nativeID, "viewVersion": request.viewVersion,
+            // Both read methods have the same verification scope, including when they share a pending read.
+            "verifyNativeOwner": true,
         ]
         let key = Key(client: client, adapter: session.adapterID)
-        let token = UUID()
+        if let pending = snapshotReads[key], pending.session.ref == session.ref, pending.view == request.viewVersion,
+            pendingReads[key] == pending.token
+        {
+            guard pending.waiters.count < 16 else {
+                fail(request, code: "capacity_exceeded", completion: completion)
+                return
+            }
+            pending.waiters.append(.init(request: request, completion: completion))
+            return
+        }
+        let read = SnapshotRead(session: session, request: request, completion: completion)
+        let token = read.token
         if let observation = nativeViews[key],
             observation.session.ref != session.ref || observation.view != request.viewVersion
         {
@@ -387,10 +425,11 @@ final class AgentSessionService: @unchecked Sendable {
         }
         pendingReads[key] = token
         pendingViews[key] = (session.ref, request.viewVersion)
+        snapshotReads[key] = read
         call(native, provider: session.provider, client: client, adapter: session.adapterID) { [weak self] result in
             guard let self else { return }
             do {
-                guard self.pendingReads[key] == token,
+                guard self.snapshotReads[key] === read, self.pendingReads[key] == token,
                     self.pendingViews[key]?.ref == session.ref,
                     self.pendingViews[key]?.view == request.viewVersion, self.policy.isEnabled(session.provider)
                 else {
@@ -398,6 +437,7 @@ final class AgentSessionService: @unchecked Sendable {
                 }
                 self.pendingReads.removeValue(forKey: key)
                 self.pendingViews.removeValue(forKey: key)
+                self.snapshotReads.removeValue(forKey: key)
                 var page = try self.nativeRead(result)
                 guard page["threadId"] as? String == session.nativeID,
                     AgentSessionProfile.integer(page["viewVersion"]) == request.viewVersion
@@ -405,14 +445,17 @@ final class AgentSessionService: @unchecked Sendable {
                 else {
                     throw AgentSessionProfile.Failure(code: "agent_target_mismatch")
                 }
-                page = self.normalizedApprovals(page, session: session)
                 page["contentState"] =
                     page["opening"] as? Bool == true || page["messages"] == nil
                     ? "partial" : page["contentState"] ?? "complete"
+                let controlDigest = self.controlDigest(page, session: session, view: request.viewVersion)
+                page = self.normalizedApprovals(page, session: session)
                 let caps = page["agentCapabilities"] as? [String: Any] ?? [:]
                 let state = State(
                     session: session, epoch: self.epoch(session.ref), view: request.viewVersion, page: page,
-                    capabilities: caps, bytes: AgentSessionProfile.data(page).count)
+                    capabilities: caps,
+                    controlDigest: controlDigest,
+                    bytes: AgentSessionProfile.data(page).count)
                 let key = Key(client: client, adapter: session.adapterID)
                 let others = self.states.filter { $0.key != key }
                 guard others.count < 512, others.values.reduce(state.bytes, { $0 + $1.bytes }) <= 8 * 1024 * 1024,
@@ -444,8 +487,19 @@ final class AgentSessionService: @unchecked Sendable {
                 {
                     output["controlLease"] = token
                 }
-                self.success(request, result: output, completion: completion)
-            } catch { self.fail(request, code: self.code(error), completion: completion) }
+                for waiter in read.waiters {
+                    self.success(waiter.request, result: output, completion: waiter.completion)
+                }
+            } catch {
+                if self.snapshotReads[key] === read {
+                    self.snapshotReads.removeValue(forKey: key)
+                    self.pendingReads.removeValue(forKey: key)
+                    self.pendingViews.removeValue(forKey: key)
+                }
+                for waiter in read.waiters {
+                    self.fail(waiter.request, code: self.code(error), completion: waiter.completion)
+                }
+            }
         }
     }
 
@@ -627,6 +681,7 @@ final class AgentSessionService: @unchecked Sendable {
         }
         pendingReads.removeValue(forKey: key)
         pendingViews.removeValue(forKey: key)
+        snapshotReads.removeValue(forKey: key)
         nativeViews.removeValue(forKey: key)
         leases = leases.filter { $0.value.client != client || $0.value.target != session.ref }
         pruneStreams()
@@ -1219,12 +1274,72 @@ final class AgentSessionService: @unchecked Sendable {
         epochs[ref] = value
         return value
     }
+    /// Only a complete control projection can prove that a native event changed content alone. Token counters,
+    /// reply text, revisions and composer usage summaries are deliberately excluded from write authority.
+    private func controlDigest(_ source: [String: Any], session: AgentSessionDirectory.Session, view: Int64)
+        -> String?
+    {
+        // Output normalization bounds cards and supplies an empty list for older read projections. Neither
+        // fallback can prove that the raw native event carried every pending approval.
+        guard let rawApprovals = source["approvals"] as? [[String: Any]], rawApprovals.count <= 128 else {
+            return nil
+        }
+        let page = normalizedApprovals(source, session: session)
+        guard page["event"] as? String != "unavailable", page["opening"] as? Bool != true,
+            AgentSessionProfile.boolean(page["ok"]) != false,
+            page["contentState"] == nil || page["contentState"] as? String == "complete",
+            page["threadId"] as? String == session.nativeID,
+            AgentSessionProfile.integer(page["viewVersion"]) == view,
+            page["provider"] == nil || page["provider"] as? String == session.provider,
+            let canSend = AgentSessionProfile.boolean(page["canSend"]),
+            let status = page["status"] as? String, ["idle", "active"].contains(status),
+            let turn = page["activeTurnId"] as? String, status != "active" || !turn.isEmpty,
+            let composer = page["composer"] as? [String: Any],
+            ["model", "mode", "effort"].allSatisfy({ composer[$0] is String }),
+            let approvals = page["approvals"] as? [[String: Any]], approvals.count <= 128,
+            let caps = page["agentCapabilities"] as? [String: Any],
+            AgentSessionProfile.integer(caps["version"]) == 1,
+            caps["adapterId"] as? String == session.adapterID,
+            caps["provider"] as? String == session.provider,
+            let revision = caps["revision"] as? String, !revision.isEmpty,
+            let actions = caps["actions"] as? [String: [String: Any]],
+            SessionV1Contract.capabilityKeys.allSatisfy({ key in
+                AgentSessionProfile.boolean(actions[key]?["supported"]) != nil
+                    && AgentSessionProfile.boolean(actions[key]?["available"]) != nil
+                    && actions[key]?["reason"] is String
+            }),
+            AgentSessionProfile.bounded(page["nativeOwnerEpoch"] as? String, maximum: 1024)
+                || AgentSessionProfile.bounded(page["owner"] as? String, maximum: 1024)
+        else { return nil }
+        let queued: [[String: Any]]
+        if let nativeQueue = page["queuedMessages"] {
+            guard let rows = nativeQueue as? [[String: Any]] else { return nil }
+            queued = rows
+        } else {
+            // Claude and ZCode omit this Codex field when their adapter explicitly has no queue contract.
+            guard AgentSessionProfile.boolean(actions["queue"]?["supported"]) == false else { return nil }
+            queued = []
+        }
+        let choices = composer.filter {
+            ["model", "mode", "effort", "executionMode", "locked", "executionModePermissionCoupled"].contains($0.key)
+                || $0.key.hasSuffix("Locked")
+        }
+        var controls: [String: Any] = [
+            "session": session.ref, "provider": session.provider, "view": view, "canSend": canSend,
+            "status": status, "activeTurnId": turn, "composer": choices, "approvals": approvals,
+            "queuedMessages": queued, "agentCapabilities": caps,
+        ]
+        for key in ["nativeOwnerEpoch", "owner", "executionModePermissionCoupled"] { controls[key] = page[key] }
+        guard let data = try? AgentSessionProfile.canonical(controls) else { return nil }
+        return AgentSessionProfile.digest(data)
+    }
     private func invalidate(client: String, ref: String) {
         epochs[ref] = UUID().uuidString.lowercased()
         for (key, state) in states where state.session.ref == ref {
             if let pending = pendingViews[key], pending.ref == ref, pending.view == state.view {
                 pendingReads.removeValue(forKey: key)
                 pendingViews.removeValue(forKey: key)
+                snapshotReads.removeValue(forKey: key)
             }
         }
         leases = leases.filter { $0.value.target != ref }

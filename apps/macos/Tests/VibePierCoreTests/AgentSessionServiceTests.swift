@@ -15,6 +15,7 @@ final class AgentSessionServiceTests: XCTestCase {
         var clock: Double = 0
         var holdOpen = false
         var heldOpen: (@Sendable (Data) -> Void)?
+        var heldOpens: [@Sendable (Data) -> Void] = []
         var holdItems = false
         var heldItem: (@Sendable (Data) -> Void)?
         var nativeHeld: (@Sendable () -> Void)?
@@ -39,7 +40,7 @@ final class AgentSessionServiceTests: XCTestCase {
             page = [
                 "ok": true, "threadId": nativeID, "viewVersion": 7, "status": "idle", "canSend": true, "messages": [],
                 "composer": ["model": "fixture-model", "mode": "auto", "effort": "medium"], "approvals": [],
-                "queuedMessages": [],
+                "queuedMessages": [], "activeTurnId": "",
                 "nativeOwnerEpoch": "native-owner",
                 "agentCapabilities": [
                     "version": 1, "adapterId": provider + ".currentV1", "provider": provider, "revision": "native-caps",
@@ -62,7 +63,10 @@ final class AgentSessionServiceTests: XCTestCase {
                     guard let self else { return }
                     let operation = (try? JSONSerialization.jsonObject(with: bytes) as? [String: Any])?["op"] as? String
                     if lock.withLock({ holdOpen && operation == "open" }) {
-                        lock.withLock { heldOpen = completion }
+                        lock.withLock {
+                            heldOpen = completion
+                            heldOpens.append(completion)
+                        }
                         nativeHeld?()
                         return
                     }
@@ -643,6 +647,333 @@ final class AgentSessionServiceTests: XCTestCase {
                     params: ["subscriptionId": "observer", "streamEpoch": epoch, "afterSequence": 0])))
         XCTAssertEqual(recovered["resyncRequired"] as? Bool, false)
         XCTAssertEqual((recovered["events"] as? [[String: Any]])?.count, 1)
+    }
+    func testContinuousContentEventsKeepControlLeaseAndPermitOneQueuedSubmission() throws {
+        let harness = try Harness()
+        harness.page["status"] = "active"
+        harness.page["activeTurnId"] = "native-turn"
+        harness.sendReply["queued"] = true
+        harness.sendReply["queueId"] = "synthetic-queue"
+        let opened = try open(harness)
+        _ = try perform(
+            harness, request("session.observe", target: opened.target, params: ["subscriptionId": "tokens"]))
+        for revision in 1...20 {
+            var delta = harness.page
+            delta["event"] = "delta"
+            delta["revision"] = revision
+            delta["messages"] = [["id": "reply", "role": "assistant", "text": "Synthetic token \(revision)"]]
+            var composer = delta["composer"] as! [String: Any]
+            composer["contextUsage"] = "Synthetic usage \(revision)"
+            delta["composer"] = composer
+            harness.service.receiveCurrentV1Event(AgentSessionProfile.data(delta), provider: "codex", client: "phone")
+        }
+        let submitted = try perform(harness, submit(opened, mode: "queue"))
+        XCTAssertEqual(submitted["ok"] as? Bool, true)
+        XCTAssertEqual(harness.count("send"), 1)
+        XCTAssertEqual(harness.events.count, 20)
+        for bytes in harness.events {
+            let body = try XCTUnwrap(try bytes.flatMapJSON()["body"] as? [String: Any])
+            let data = try XCTUnwrap(body["data"] as? [String: Any])
+            XCTAssertEqual(data["dirty"] as? Bool, true)
+            XCTAssertEqual(data["controlDirty"] as? Bool, false)
+        }
+    }
+    private func withoutQueue(_ harness: Harness) {
+        harness.page.removeValue(forKey: "queuedMessages")
+        var caps = harness.page["agentCapabilities"] as! [String: Any]
+        var actions = caps["actions"] as! [String: [String: Any]]
+        for key in ["queue", "queueDelete", "queueSteer"] {
+            actions[key] = ["supported": false, "available": false, "reason": "unsupported"]
+        }
+        caps["actions"] = actions
+        harness.page["agentCapabilities"] = caps
+    }
+    func testClaudeCompletePageWithoutNativeQueuePreservesLeaseForContentChanges() throws {
+        let harness = try Harness(provider: "claude")
+        // ClaudeBridge.makePage supplies an incarnation-bound owner epoch, approvals and composer, but no queue.
+        withoutQueue(harness)
+        harness.page["composer"] = ["model": "default", "mode": "acceptEdits", "effort": "default"]
+        let opened = try open(harness)
+        _ = try perform(
+            harness, request("session.observe", target: opened.target, params: ["subscriptionId": "claude-content"]))
+        var delta = harness.page
+        delta["event"] = "delta"
+        delta["revision"] = 1
+        delta["messages"] = [["id": "reply", "role": "assistant", "text": "Synthetic appended output"]]
+        harness.service.receiveCurrentV1Event(AgentSessionProfile.data(delta), provider: "claude", client: "phone")
+        XCTAssertEqual(try perform(harness, submit(opened))["ok"] as? Bool, true)
+        XCTAssertEqual(harness.count("send"), 1)
+        let body = try XCTUnwrap(try harness.events.first?.flatMapJSON()["body"] as? [String: Any])
+        XCTAssertEqual((body["data"] as? [String: Any])?["controlDirty"] as? Bool, false)
+        XCTAssertNil(harness.page["queuedMessages"])
+    }
+    func testZCodeCompletePageWithoutOwnerProofRemainsFailClosedAndFreshSnapshotAllowsIdleSubmission() throws {
+        let harness = try Harness(provider: "zcode")
+        // ZCodeBridge.page carries queuedFollowUps and activeTurnId, but does not carry an owner identity.
+        withoutQueue(harness)
+        harness.page.removeValue(forKey: "nativeOwnerEpoch")
+        harness.page["queuedFollowUps"] = []
+        harness.page["composer"] = ZCodeConversation.composer([:], latest: ["modelId": "GLM-fixture"])
+        let opened = try open(harness)
+        _ = try perform(
+            harness, request("session.observe", target: opened.target, params: ["subscriptionId": "zcode-content"]))
+        var delta = harness.page
+        delta["event"] = "delta"
+        delta["revision"] = 1
+        delta["messages"] = [["id": "reply", "role": "assistant", "text": "Synthetic appended output"]]
+        harness.service.receiveCurrentV1Event(AgentSessionProfile.data(delta), provider: "zcode", client: "phone")
+        XCTAssertEqual(try perform(harness, submit(opened))["code"] as? String, "agent_lease_expired")
+        XCTAssertEqual(harness.count("send"), 0)
+        let body = try XCTUnwrap(try harness.events.first?.flatMapJSON()["body"] as? [String: Any])
+        XCTAssertEqual((body["data"] as? [String: Any])?["controlDirty"] as? Bool, true)
+        let refreshed = try result(perform(harness, request("session.snapshot", target: opened.target)))
+        let target = try XCTUnwrap(refreshed["session"] as? [String: Any]).filter {
+            ["sessionRef", "adapterId", "ownershipEpoch", "capabilityRevision"].contains($0.key)
+        }
+        let prepared = (target: target, lease: try XCTUnwrap(refreshed["controlLease"] as? String))
+        XCTAssertEqual(try perform(harness, submit(prepared))["ok"] as? Bool, true)
+        XCTAssertEqual(harness.count("send"), 1)
+        XCTAssertNil(harness.page["owner"])
+        XCTAssertNil(harness.page["nativeOwnerEpoch"])
+        XCTAssertNil(harness.page["queuedMessages"])
+        XCTAssertEqual(harness.page["activeTurnId"] as? String, "")
+    }
+    func testVerifiedZCodePageWithoutQueuePreservesLeaseDuringContentStreamAndAllowsOneInterrupt() throws {
+        let harness = try Harness(provider: "zcode")
+        withoutQueue(harness)
+        harness.page["queuedFollowUps"] = []
+        harness.page["composer"] = ZCodeConversation.composer([:], latest: ["modelId": "GLM-fixture"])
+        // ZCodeDesktop returns this opaque epoch only for its verified process, window and native session tuple.
+        harness.page["nativeOwnerEpoch"] = UUID().uuidString.lowercased()
+        harness.page["status"] = "active"
+        harness.page["activeTurnId"] = "native-user-message"
+        var caps = harness.page["agentCapabilities"] as! [String: Any]
+        var actions = caps["actions"] as! [String: [String: Any]]
+        actions["send"] = ["supported": true, "available": false, "reason": "busy"]
+        caps["actions"] = actions
+        harness.page["agentCapabilities"] = caps
+        let opened = try open(harness)
+        _ = try perform(
+            harness, request("session.observe", target: opened.target, params: ["subscriptionId": "zcode-tokens"]))
+        for revision in 1...20 {
+            var delta = harness.page
+            delta["event"] = "delta"
+            delta["revision"] = revision
+            delta["messages"] = [["id": "reply", "role": "assistant", "text": "Synthetic token \(revision)"]]
+            harness.service.receiveCurrentV1Event(AgentSessionProfile.data(delta), provider: "zcode", client: "phone")
+        }
+        let interrupted = try perform(
+            harness,
+            request(
+                "turn.interrupt", target: opened.target, params: ["expectedTurnId": "native-user-message"],
+                operation: UUID().uuidString.lowercased(), lease: opened.lease))
+        XCTAssertEqual(interrupted["ok"] as? Bool, true)
+        XCTAssertEqual(harness.count("interrupt"), 1)
+        XCTAssertEqual(harness.count("send"), 0)
+        XCTAssertEqual(harness.events.count, 20)
+        for bytes in harness.events {
+            let body = try XCTUnwrap(try bytes.flatMapJSON()["body"] as? [String: Any])
+            XCTAssertEqual((body["data"] as? [String: Any])?["controlDirty"] as? Bool, false)
+        }
+        XCTAssertNil(harness.page["queuedMessages"])
+    }
+    func testOpenAndSnapshotShareInternalOwnerVerificationScopeWithoutRemoteParameterOverrides() throws {
+        let harness = try Harness(provider: "zcode")
+        let opened = try open(harness)
+        XCTAssertEqual(try perform(harness, request("session.snapshot", target: opened.target))["ok"] as? Bool, true)
+        let reads = try harness.requests.map { try $0.flatMapJSON() }.filter { $0["op"] as? String == "open" }
+        XCTAssertEqual(reads.count, 2)
+        for read in reads {
+            XCTAssertEqual(read["verifyNativeOwner"] as? Bool, true)
+            XCTAssertEqual(read["threadId"] as? String, harness.nativeID)
+            XCTAssertEqual(read["viewVersion"] as? Int, 7)
+        }
+        XCTAssertThrowsError(
+            try request("session.snapshot", target: opened.target, params: ["verifyNativeOwner": false]))
+        XCTAssertEqual(harness.count("open"), 2)
+    }
+    func testMissingSupportedQueueAndMalformedUnsupportedQueueStillInvalidateControls() throws {
+        for supported in [true, false] {
+            let harness = try Harness()
+            if !supported { withoutQueue(harness) }
+            let opened = try open(harness)
+            var delta = harness.page
+            delta["event"] = "delta"
+            if supported { delta.removeValue(forKey: "queuedMessages") } else { delta["queuedMessages"] = "invalid" }
+            harness.service.receiveCurrentV1Event(AgentSessionProfile.data(delta), provider: "codex", client: "phone")
+            XCTAssertEqual(try perform(harness, submit(opened))["code"] as? String, "agent_lease_expired")
+            XCTAssertEqual(harness.count("send"), 0)
+        }
+    }
+    func testMissingAndOversizedRawApprovalsAreNeverHiddenByEventNormalization() throws {
+        for oversized in [false, true] {
+            let harness = try Harness()
+            let approvals = (0..<128).map { ["id": "native-approval-\($0)", "fingerprint": "synthetic-\($0)"] }
+            if oversized { harness.page["approvals"] = approvals }
+            let opened = try open(harness)
+            _ = try perform(
+                harness, request("session.observe", target: opened.target, params: ["subscriptionId": "approvals"]))
+            var delta = harness.page
+            delta["event"] = "delta"
+            if oversized {
+                delta["approvals"] = approvals + [["id": "hidden-native-approval"]]
+            } else {
+                delta.removeValue(forKey: "approvals")
+            }
+            harness.service.receiveCurrentV1Event(AgentSessionProfile.data(delta), provider: "codex", client: "phone")
+            XCTAssertEqual(try perform(harness, submit(opened))["code"] as? String, "agent_lease_expired")
+            XCTAssertEqual(harness.count("send"), 0)
+            let body = try XCTUnwrap(try harness.events.first?.flatMapJSON()["body"] as? [String: Any])
+            XCTAssertEqual((body["data"] as? [String: Any])?["controlDirty"] as? Bool, true)
+        }
+    }
+    func testMissingAndOversizedRawSnapshotApprovalsCannotEstablishACompleteControlDigest() throws {
+        for oversized in [false, true] {
+            let harness = try Harness()
+            let approvals = (0..<128).map { ["id": "native-approval-\($0)", "fingerprint": "synthetic-\($0)"] }
+            if oversized {
+                harness.page["approvals"] = approvals + [["id": "hidden-native-approval"]]
+            } else {
+                harness.page.removeValue(forKey: "approvals")
+            }
+            let opened = try open(harness)
+            // This complete event matches the normalized snapshot exactly; the raw snapshot was still incomplete.
+            var delta = harness.page
+            delta["event"] = "delta"
+            delta["approvals"] = oversized ? approvals : []
+            harness.service.receiveCurrentV1Event(AgentSessionProfile.data(delta), provider: "codex", client: "phone")
+            XCTAssertEqual(try perform(harness, submit(opened))["code"] as? String, "agent_lease_expired")
+            XCTAssertEqual(harness.count("send"), 0)
+        }
+    }
+    func testControlChangesAndUnknownSparseEventsStillRevokeWriteAuthority() throws {
+        let changes: [(inout [String: Any]) -> Void] = [
+            { $0["nativeOwnerEpoch"] = "different-owner" },
+            { $0["owner"] = "different-native-owner" },
+            {
+                $0["status"] = "active"
+                $0["activeTurnId"] = "new-turn"
+            },
+            {
+                var composer = $0["composer"] as! [String: Any]
+                composer["effort"] = "high"
+                $0["composer"] = composer
+            },
+            {
+                var composer = $0["composer"] as! [String: Any]
+                composer["modeLocked"] = true
+                $0["composer"] = composer
+            },
+            {
+                $0["approvals"] = [
+                    [
+                        "id": "native-approval", "fingerprint": "changed", "details": "Synthetic approval",
+                        "canDecide": true,
+                    ]
+                ]
+            },
+            {
+                $0["queuedMessages"] = [
+                    ["id": "queue", "text": "Synthetic queued text", "canDelete": true, "canSteer": true]
+                ]
+            },
+            {
+                var caps = $0["agentCapabilities"] as! [String: Any]
+                caps["revision"] = "new-caps"
+                $0["agentCapabilities"] = caps
+            },
+            { $0.removeValue(forKey: "composer") },
+            { $0["contentState"] = "partial" },
+            { $0["event"] = "unavailable" },
+        ]
+        for change in changes {
+            let harness = try Harness()
+            let opened = try open(harness)
+            var delta = harness.page
+            delta["event"] = "delta"
+            change(&delta)
+            harness.service.receiveCurrentV1Event(AgentSessionProfile.data(delta), provider: "codex", client: "phone")
+            let rejected = try perform(harness, submit(opened))
+            XCTAssertEqual(rejected["code"] as? String, "agent_lease_expired")
+            XCTAssertEqual(harness.count("send"), 0)
+        }
+    }
+    func testSameScopeSnapshotsCoalesceBackgroundAndControlReadsWithOwnReplyIDsAndBoundedWaiters() throws {
+        let harness = try Harness()
+        let opened = try open(harness)
+        harness.holdOpen = true
+        let held = expectation(description: "one native snapshot for all readers")
+        harness.nativeHeld = { held.fulfill() }
+        let done = expectation(description: "all sixteen coalesced readers receive a verified result")
+        done.expectedFulfillmentCount = 16
+        let replies = (0..<16).map { _ in Response() }
+        let reads = try (0..<16).map { index in
+            try request(index == 1 ? "session.open" : "session.snapshot", target: opened.target)
+        }
+        for (index, read) in reads.enumerated() {
+            harness.service.perform(read, client: "phone") { bytes in
+                replies[index].data = bytes
+                done.fulfill()
+            }
+        }
+        wait(for: [held], timeout: 2)
+        let capacity = try perform(harness, request("session.snapshot", target: opened.target))
+        XCTAssertEqual(capacity["code"] as? String, "capacity_exceeded")
+        XCTAssertEqual(harness.heldOpens.count, 1)
+        var content = harness.page
+        content["event"] = "delta"
+        content["messages"] = [["id": "reply", "text": "Synthetic progress while snapshot is pending"]]
+        harness.service.receiveCurrentV1Event(AgentSessionProfile.data(content), provider: "codex", client: "phone")
+        // Queue a read barrier after the content event; content must neither cancel the shared read nor revoke its lease.
+        XCTAssertEqual(try perform(harness, submit(opened))["ok"] as? Bool, true)
+        harness.heldOpen?(AgentSessionProfile.data(harness.page))
+        wait(for: [done], timeout: 2)
+        for (index, response) in replies.enumerated() {
+            let value = try response.data.flatMapJSON()
+            XCTAssertEqual(value["id"] as? String, reads[index].id)
+            XCTAssertEqual((value["body"] as? [String: Any])?["requestId"] as? String, reads[index].id)
+            XCTAssertEqual(try result(value)["controlLease"] as? String, opened.lease)
+        }
+        XCTAssertEqual(harness.count("send"), 1)
+    }
+    func testCrossScopeConcurrentSnapshotCannotCoalesceOrReplaceTheNewViewWithALateOldReply() throws {
+        let harness = try Harness()
+        let opened = try open(harness)
+        harness.holdOpen = true
+        let held = expectation(description: "different scopes use separate native snapshots")
+        held.expectedFulfillmentCount = 2
+        harness.nativeHeld = { held.fulfill() }
+        let old = expectation(description: "old reader rejected")
+        let new = expectation(description: "new reader accepted")
+        let oldResponse = Response()
+        let newResponse = Response()
+        harness.service.perform(try request("session.snapshot", target: opened.target), client: "phone") {
+            oldResponse.data = $0
+            old.fulfill()
+        }
+        let nextID = "00000000-0000-4000-8000-000000000099"
+        let next = try harness.directory.registerSession(
+            adapter: "codex.currentV1", provider: "codex", native: nextID, cwd: "/synthetic")
+        harness.service.perform(try request("session.open", target: ["sessionRef": next.ref], view: 8), client: "phone")
+        {
+            newResponse.data = $0
+            new.fulfill()
+        }
+        wait(for: [held], timeout: 2)
+        var nextPage = harness.page
+        nextPage["threadId"] = nextID
+        nextPage["viewVersion"] = 8
+        harness.heldOpens[1](AgentSessionProfile.data(nextPage))
+        wait(for: [new], timeout: 2)
+        harness.heldOpens[0](AgentSessionProfile.data(harness.page))
+        wait(for: [old], timeout: 2)
+        XCTAssertEqual(try newResponse.data.flatMapJSON()["ok"] as? Bool, true)
+        XCTAssertEqual(try oldResponse.data.flatMapJSON()["code"] as? String, "agent_session_view_closed")
+        let current = try result(
+            perform(
+                harness, request("session.items", target: ["sessionRef": next.ref], params: ["kind": "recent"], view: 8)
+            ))
+        XCTAssertNotNil(current["items"])
     }
     func testUnavailableDirectoryRejectsProfileTwoWithoutInvokingNativeDriver() throws {
         let harness = try Harness()

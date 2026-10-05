@@ -32,11 +32,11 @@
     <string name="session_queue_count">待发送 · %1$d</string>
     <string name="session_operation_confirmed">%1$s已确认</string>
     <string name="session_operation_unknown">%1$s待确认 · 点此核对结果</string>
-    <string name="session_could_not_open_session_tap_refresh_to_retry">会话打开失败 · 可点刷新重试</string>
+    <string name="session_could_not_open_session_tap_refresh_to_retry">暂未能加载聊天内容</string>
     <string name="session_saved_content_syncing_the_latest_state">已有内容 · 正在同步最新状态…</string>
     <string name="session_loading_session">正在加载会话内容…</string>
     <string name="session_receiving_the_latest_content">正在接收最新内容…</string>
-    <string name="session_no_session_content_received_refresh_to_retry_or_choose_another_s">未能收到会话内容，请点刷新重试，或返回列表选择其他会话</string>
+    <string name="session_no_session_content_received_refresh_to_retry_or_choose_another_s">聊天内容暂未到达，发起下一项操作时会自动重新连接。</string>
     <string name="session_could_not_open_session">会话打开失败</string>
     <string name="session_operation_incomplete_draft_retained">操作未完成，草稿已保留</string>
     <string name="session_answer_submitted">答案已提交</string>
@@ -137,7 +137,7 @@
     <string name="session_load_full_text">加载全文</string>
     <string name="session_full_message">消息全文</string>
     <string name="session_loading_the_full_request">正在获取完整请求…</string>
-    <string name="session_the_approval_changed_or_expired_refresh_it">审批已更新或失效，请刷新</string>
+    <string name="session_the_approval_changed_or_expired_refresh_it">原审批已更新或结束，请选择当前请求。</string>
     <string name="session_could_not_read_the_full_request_handle_it_on_the_mac">无法读取完整请求，请在 Mac 处理</string>
     <string name="session_or_enter_your_own_answer">也可以填写自己的答案</string>
     <string name="session_enter_an_answer">填写答案</string>

@@ -29,6 +29,13 @@ class SessionAgentConversationTest {
         var holdObservation = false
         var capabilityRemembered: () -> Unit = {}
         var dirtyNotifications = 0
+        var contentNotifications = 0
+        var clock = 0L
+        val scheduledDelays = mutableListOf<Long>()
+        var beforeScheduledRead: (() -> Unit)? = null
+        var snapshotLease: String? = "fresh-lease"
+        var snapshotFailure: String? = null
+        var rawApprovalAuthority = false
         var beforeSnapshot: (() -> Unit)? = null
         val draft = "00000000-0000-4000-8000-000000000099"
         var creationOptions = JSONObject().put("creationVersion", 1).put("draftId", draft).put("cwd", "/synthetic")
@@ -48,14 +55,16 @@ class SessionAgentConversationTest {
             else answer(copy, done)
         }, store, { source, selected -> source == "codex" && selected == adapter }, { adapter })
         val conversation = SessionAgentConversation(client, { provider }, { view }, { ++view }, { adapter }, { _, _ -> false },
-            { _, _ -> capabilityRemembered() }, { _, _ -> true }, { it })
+            { _, _ -> capabilityRemembered() }, { _, _ -> true }, { it },
+            { delay, work -> scheduledDelays.add(delay); clock += delay; beforeScheduledRead?.invoke(); work() }, { clock })
         init {
             client.discover(JSONObject().put("versions", JSONArray().put(2)).put("minimumClientVersion", 2)
                 .put("methods", JSONArray(SessionAgentProtocol.Method.entries.map { it.wire })))
             client.rememberSession("codex", descriptor("old-owner", "old-caps"), "expired-lease")
             client.rememberSnapshot("codex", "thread", page)
             client.rememberWorkspace("codex", JSONObject().put("adapterId", adapter).put("cwd", "/synthetic").put("workspaceRef", "workspace"))
-            client.onDirty = { dirtyNotifications++ }
+            client.onDirty = { dirtyNotifications++; client.invalidateControl(it) }
+            client.onContentChanged = { contentNotifications++ }
         }
         fun descriptor(owner: String = "new-owner", caps: String = "new-caps") = JSONObject()
             .put("adapterId", adapter).put("nativeThreadId", "thread").put("sessionRef", "session")
@@ -75,7 +84,9 @@ class SessionAgentConversationTest {
                     .put("resyncRequired", true).put("events", JSONArray())))
                 "session.snapshot", "session.open" -> {
                     beforeSnapshot?.invoke()
-                    done(readReply(wire, JSONObject().put("session", descriptor()).put("controlLease", "fresh-lease")
+                    if (snapshotFailure != null) done(JSONObject().put("id", body.getString("requestId")).put("ok", false).put("code", snapshotFailure)
+                        .put("body", JSONObject().put("agentProtocol", 2).put("requestId", body.getString("requestId")).put("code", snapshotFailure)))
+                    else done(readReply(wire, JSONObject().put("session", descriptor()).apply { snapshotLease?.let { put("controlLease", it) } }
                         .put("snapshot", JSONObject(page.toString()))))
                 }
                 "operation.get" -> {
@@ -85,6 +96,17 @@ class SessionAgentConversationTest {
                 "session.creationOptions" -> done(readReply(wire, JSONObject().put("options", JSONObject(creationOptions.toString()))
                     .put("creationLease", JSONObject().put("target", JSONObject().put("adapterId", adapter).put("workspaceRef", "workspace")
                         .put("draftId", draft).put("optionsRevision", "fresh-options")).put("controlLease", "fresh-creation-lease"))))
+                "session.items" -> {
+                    val params = body.getJSONObject("params")
+                    val result = JSONObject().put("threadId", "thread").put("consistency", "partial").put("contentState", "partial")
+                    if (params.opt("kind") == "composerOptions") result.put("models", creationOptions.getJSONArray("models")).put("composer", page.getJSONObject("composer"))
+                    else result.put("approval", JSONObject().put("id", "native-approval").put("fingerprint", "fingerprint")
+                        .put("details", "complete native details").put("questions", JSONArray()).apply {
+                            if (rawApprovalAuthority) put("canDecide", true).put("allowedDecisions", JSONArray().put("allow-always"))
+                                .put("decisionScope", "always").put("kind", "questions").put("reason", "available").put("plan", true)
+                        })
+                    done(readReply(wire, result))
+                }
                 else -> done(JSONObject().put("id", body.getString("requestId")).put("ok", false).put("unknown", true)
                     .put("body", unknownBody(body)))
             }
@@ -131,7 +153,7 @@ class SessionAgentConversationTest {
         harness.beforeSnapshot = { harness.client.invalidateControl("session") }
         var response: JSONObject? = null
         harness.conversation.request("send", harness.fields()) { response = it }
-        assertEquals(listOf("session.snapshot", "session.snapshot"), harness.methods())
+        assertEquals(List(7) { "session.snapshot" }, harness.methods())
         assertFalse(response!!.optBoolean("ok"))
         assertTrue(harness.store.rows.isEmpty())
     }
@@ -164,7 +186,7 @@ class SessionAgentConversationTest {
             harness.page.put("status", if (op == "send") "idle" else "active").put("activeTurnId", "original-turn")
             harness.client.rememberSnapshot("codex", "thread", harness.page)
             var response: JSONObject? = null
-            harness.conversation.request(op, harness.fields().put("expectedTurnId", "original-turn")) { response = it }
+            harness.conversation.request(op, harness.fields().put("submissionMode", "start").put("expectedTurnId", "original-turn")) { response = it }
             harness.page.put("status", "active").put("activeTurnId", "another-turn")
             val held = harness.held.single(); harness.answer(held.first, held.second)
             assertFalse(response!!.optBoolean("ok"))
@@ -222,12 +244,12 @@ class SessionAgentConversationTest {
                 .put("revision", "old-revision").put("canDecide", true).put("allowedDecisions", JSONArray().put("allow"))))
                 .put("queuedMessages", JSONArray().put(JSONObject().put("id", "queue").put("text", "reviewed text").put("canDelete", true)))
             if (op == "approve") fields.put("fingerprint", "fingerprint").put("expectedApprovalRevision", "old-revision").put("allow", true)
-            if (op == "queueDelete") fields.put("messageId", "queue")
+            if (op == "queueDelete") fields.put("messageId", "queue").put("expectedQueueDigest", SessionControlPreparation.queueDigest(harness.page.getJSONArray("queuedMessages").getJSONObject(0)))
             harness.client.rememberSnapshot("codex", "thread", harness.page)
             var response: JSONObject? = null
             harness.conversation.request(op, fields) { response = it }
             when (op) {
-                "settings" -> harness.page.getJSONObject("composer").put("mode", "full-access")
+                "settings" -> harness.page.put("models", JSONArray().put(JSONObject().put("id", "other-model")))
                 "approve" -> harness.page.getJSONArray("approvals").getJSONObject(0).put("revision", "new-revision")
                 "queueDelete" -> harness.page.getJSONArray("queuedMessages").getJSONObject(0).put("text", "unreviewed replacement")
             }
@@ -237,17 +259,17 @@ class SessionAgentConversationTest {
             assertTrue(harness.store.rows.isEmpty())
         }
     }
-    @Test fun newSessionRenewsCreationAuthorityButFreezesReviewedDefaultOptions() {
+    @Test fun newSessionRenewsCreationAuthorityAndUsesFreshNativeDefaultsForOmittedChoices() {
         val harness = Harness()
         harness.conversation.request("newOptions", harness.creationFields()) { }
-        harness.creationOptions.getJSONObject("composer").put("model", "model-b").put("mode", "full-access")
+        harness.creationOptions.getJSONObject("composer").put("model", "model-b")
         harness.creationOptions.getJSONArray("models").put(JSONObject().put("id", "model-b").put("efforts", JSONArray().put("medium")))
         harness.conversation.request("new", harness.creationFields()) { }
         assertEquals(listOf("session.creationOptions", "session.creationOptions", "session.create"), harness.methods())
         val body = harness.wires.last().getJSONObject("body")
         assertEquals("fresh-creation-lease", body.getString("controlLease"))
         assertEquals(harness.draft, body.getJSONObject("target").getString("draftId"))
-        assertEquals("model-a", body.getJSONObject("params").getJSONObject("options").getString("model"))
+        assertEquals("model-b", body.getJSONObject("params").getJSONObject("options").getString("model"))
         assertEquals("auto", body.getJSONObject("params").getJSONObject("options").getString("mode"))
     }
     @Test fun removedCreationChoiceAndObsoleteCreationReplyNeverCreateOrReplaceDefaults() {
@@ -255,7 +277,7 @@ class SessionAgentConversationTest {
         harness.conversation.request("newOptions", harness.creationFields()) { }
         harness.creationOptions.put("models", JSONArray().put(JSONObject().put("id", "other-model").put("efforts", JSONArray().put("medium"))))
         var response: JSONObject? = null
-        harness.conversation.request("new", harness.creationFields()) { response = it }
+        harness.conversation.request("new", harness.creationFields().put("model", "model-a")) { response = it }
         assertFalse(response!!.optBoolean("ok"))
         assertEquals(listOf("session.creationOptions", "session.creationOptions"), harness.methods())
         assertTrue(harness.store.rows.isEmpty())
@@ -319,5 +341,129 @@ class SessionAgentConversationTest {
         assertEquals("stale_state", response!!.getString("code"))
         assertTrue(harness.wires.isEmpty())
         assertTrue(harness.store.rows.isEmpty())
+    }
+    @Test fun staleTypedActiveStateDoesNotBlockTheFirstStandardSendWhenNativeIsIdle() {
+        val harness = Harness()
+        harness.client.rememberSnapshot("codex", "thread", JSONObject(harness.page.toString()).put("status", "active")
+            .put("activeTurnId", "old-turn").put("composer", JSONObject().put("model", "old-model").put("mode", "custom")))
+        harness.conversation.request("send", harness.fields()) { }
+        assertEquals(listOf("session.snapshot", "message.submit"), harness.methods())
+        assertEquals("start", harness.wires.last().getJSONObject("body").getJSONObject("params").getString("mode"))
+        assertEquals(1, harness.store.rows.size)
+    }
+    @Test fun standardSendChoosesCurrentQueueWithoutConvertingAnExplicitStartIntent() {
+        val harness = Harness()
+        harness.page.put("status", "active").put("activeTurnId", "current-turn")
+        harness.conversation.request("send", harness.fields()) { }
+        assertEquals(listOf("session.snapshot", "message.submit"), harness.methods())
+        assertEquals("queue", harness.wires.last().getJSONObject("body").getJSONObject("params").getString("mode"))
+    }
+    @Test fun continuousContentEventsDuringPreparationDoNotRevokeLeaseOrTriggerAnotherSnapshot() {
+        val harness = Harness()
+        val target = harness.client.session("codex", "thread")!!.target
+        assertTrue(harness.client.observe("observer", target, "stream", 0, true))
+        harness.beforeSnapshot = {
+            for (sequence in 1..10) assertTrue(harness.client.event(JSONObject().put("event", "agentEvent").put("body", JSONObject()
+                .put("agentProtocol", 2).put("subscriptionId", "observer").put("sessionRef", "session").put("streamEpoch", "stream")
+                .put("sequence", sequence).put("entityRevision", sequence).put("event", "item.updated")
+                .put("data", JSONObject().put("itemId", "native-text").put("controlDirty", false)))))
+        }
+        harness.conversation.request("send", harness.fields()) { }
+        assertEquals(listOf("session.snapshot", "message.submit"), harness.methods())
+        assertEquals(10, harness.contentNotifications)
+        assertEquals(0, harness.dirtyNotifications)
+        assertEquals(0L, harness.client.controlGeneration("session"))
+        assertEquals("fresh-lease", harness.client.session("codex", "thread")!!.controlLease)
+    }
+    @Test fun contentFlagCannotSuppressControlInvalidationWhenTheEventStreamHasAGap() {
+        val harness = Harness()
+        val target = harness.client.session("codex", "thread")!!.target
+        assertTrue(harness.client.observe("observer", target, "stream", 0, true))
+        harness.client.event(JSONObject().put("event", "agentEvent").put("body", JSONObject().put("agentProtocol", 2)
+            .put("subscriptionId", "observer").put("sessionRef", "session").put("streamEpoch", "stream")
+            .put("sequence", 2).put("entityRevision", 2).put("event", "item.updated")
+            .put("data", JSONObject().put("itemId", "native-text").put("controlDirty", false))))
+        assertEquals(0, harness.contentNotifications)
+        assertEquals(1, harness.dirtyNotifications)
+        assertNull(harness.client.session("codex", "thread")!!.controlLease)
+    }
+    @Test fun nativeOwnerOpeningGetsBoundedReadBackoffBeforeItsFirstWrite() {
+        val harness = Harness(); var reads = 0
+        harness.beforeSnapshot = {
+            if (++reads < 3) harness.page.put("contentState", "partial").put("opening", true)
+            else { harness.page.put("contentState", "complete"); harness.page.remove("opening") }
+        }
+        harness.conversation.request("send", harness.fields()) { }
+        assertEquals(listOf("session.snapshot", "session.snapshot", "session.snapshot", "message.submit"), harness.methods())
+        assertEquals(listOf(250L, 500L), harness.scheduledDelays)
+        assertEquals(1, harness.store.rows.size)
+    }
+    @Test fun scopeChangeDuringBackoffAndUnsupportedNativeMethodNeverRetryWrites() {
+        val harness = Harness()
+        harness.page.put("contentState", "partial").put("opening", true)
+        harness.beforeScheduledRead = { harness.view++ }
+        var response: JSONObject? = null
+        harness.conversation.request("send", harness.fields()) { response = it }
+        assertEquals("stale_state", response!!.getString("code"))
+        assertEquals(listOf("session.snapshot"), harness.methods())
+        assertTrue(harness.store.rows.isEmpty())
+        val unsupported = Harness(); unsupported.snapshotFailure = "agent_method_unsupported"
+        unsupported.conversation.request("send", unsupported.fields()) { response = it }
+        assertEquals("agent_method_unsupported", response!!.getString("code"))
+        assertEquals(listOf("session.snapshot"), unsupported.methods())
+        assertTrue(unsupported.scheduledDelays.isEmpty())
+    }
+    @Test fun readCatalogAndApprovalDetailsUseTypedItemsOnTheSameAdapterWithoutAWriteLease() {
+        for (op in listOf("composerOptions", "approvalDetails")) {
+            val harness = Harness(); harness.snapshotLease = null
+            harness.page.put("approvals", JSONArray().put(JSONObject().put("id", "normalized-approval").put("fingerprint", "fingerprint")
+                .put("revision", "expected-revision").put("canDecide", true)))
+            val fields = harness.fields().put("fingerprint", "fingerprint").put("expectedApprovalRevision", "expected-revision")
+            var response: JSONObject? = null
+            harness.conversation.request(op, fields) { response = it }
+            assertTrue(response!!.optBoolean("ok"))
+            assertEquals(listOf("session.snapshot", "session.items"), harness.methods())
+            val body = harness.wires.last().getJSONObject("body")
+            assertEquals("session", body.getJSONObject("target").getString("sessionRef"))
+            assertEquals(op, body.getJSONObject("params").getString("kind"))
+            assertTrue(harness.store.rows.isEmpty())
+            assertNull(harness.client.session("codex", "thread")!!.controlLease)
+            if (op == "approvalDetails") {
+                assertEquals("normalized-approval", body.getJSONObject("params").getString("messageId"))
+                assertEquals("normalized-approval", response!!.getJSONObject("approval").getString("id"))
+                assertEquals("expected-revision", response!!.getJSONObject("approval").getString("revision"))
+            }
+        }
+    }
+    @Test fun changedApprovalRevisionRejectsDetailsBeforeReadingAnotherNativeObject() {
+        val harness = Harness()
+        harness.page.put("approvals", JSONArray().put(JSONObject().put("id", "normalized-approval").put("fingerprint", "fingerprint")
+            .put("revision", "new-revision")))
+        var response: JSONObject? = null
+        harness.conversation.request("approvalDetails", harness.fields().put("fingerprint", "fingerprint").put("expectedApprovalRevision", "old-revision")) { response = it }
+        assertEquals("approval_expired", response!!.getString("code"))
+        assertEquals(listOf("session.snapshot"), harness.methods())
+        assertTrue(harness.store.rows.isEmpty())
+    }
+    @Test fun rawApprovalDetailsCannotReenableAuthorityDeniedByTheNormalizedSummary() {
+        for (withDecisions in listOf(false, true)) {
+            val harness = Harness(); harness.rawApprovalAuthority = true
+            val pending = JSONObject().put("id", "normalized-approval").put("fingerprint", "fingerprint").put("revision", "revision")
+                .put("canDecide", false).put("kind", "permissions").put("reason", "permission_scope_unsupported")
+            if (withDecisions) pending.put("allowedDecisions", JSONArray())
+            harness.page.put("approvals", JSONArray().put(pending))
+            var response: JSONObject? = null
+            harness.conversation.request("approvalDetails", harness.fields().put("fingerprint", "fingerprint").put("expectedApprovalRevision", "revision")) { response = it }
+            val details = response!!.getJSONObject("approval")
+            assertFalse(details.getBoolean("canDecide"))
+            assertEquals(0, details.getJSONArray("allowedDecisions").length())
+            assertEquals("permissions", details.getString("kind"))
+            assertEquals("permission_scope_unsupported", details.getString("reason"))
+            assertFalse(details.has("decisionScope"))
+            assertFalse(details.has("plan"))
+            assertEquals("complete native details", details.getString("details"))
+            assertTrue(details.has("questions"))
+            assertTrue(harness.store.rows.isEmpty())
+        }
     }
 }

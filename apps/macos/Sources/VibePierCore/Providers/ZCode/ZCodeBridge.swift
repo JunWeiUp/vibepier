@@ -7,6 +7,16 @@ final class ZCodeBridge: @unchecked Sendable {
     struct DesktopAccess: @unchecked Sendable {
         let snapshot: @Sendable (String) throws -> [String: Any]
         let execute: @Sendable ([String: Any], String, String, String) throws -> [String: Any]
+        let prepareSnapshot: (@Sendable (String) throws -> [String: Any])?
+        init(
+            snapshot: @escaping @Sendable (String) throws -> [String: Any],
+            execute: @escaping @Sendable ([String: Any], String, String, String) throws -> [String: Any],
+            prepareSnapshot: (@Sendable (String) throws -> [String: Any])? = nil
+        ) {
+            self.snapshot = snapshot
+            self.execute = execute
+            self.prepareSnapshot = prepareSnapshot
+        }
     }
     private struct Cached {
         let version: String
@@ -114,9 +124,14 @@ final class ZCodeBridge: @unchecked Sendable {
         cached[session] = value
         return value
     }
-    private func page(_ session: String) throws -> [String: Any] {
+    private func page(_ session: String, prepareOwner: Bool = false) throws -> [String: Any] {
         let state = try state(session)
-        let live = live(session)
+        let live: [String: Any]
+        if prepareOwner, let prepare = desktop?.prepareSnapshot {
+            live = try prepare(session)
+        } else {
+            live = self.live(session)
+        }
         let flags = capabilities(live)
         let rows = ZCodeConversation.rows(state.turns)
         for (client, thread) in selected where thread == session { captureMarkdown(rows, client: client) }
@@ -124,7 +139,7 @@ final class ZCodeBridge: @unchecked Sendable {
         let status = reportedStatus == "running" ? "active" : reportedStatus
         var value: [String: Any] = [
             "threadId": session, "title": state.summary["title"] ?? "ZCode", "cwd": state.summary["cwd"] ?? "",
-            "messages": rows, "approvals": [], "queuedFollowUps": [],
+            "messages": rows, "approvals": [], "queuedFollowUps": [], "queuedMessages": [],
             "loadedTurns": state.turns.count, "hasOlder": state.hasOlder, "status": status,
             "activeTurnId": live["activeTurnId"] ?? (status == "active" ? state.turns.last?.userID ?? "" : ""),
             "composer": live["composer"]
@@ -132,6 +147,11 @@ final class ZCodeBridge: @unchecked Sendable {
             "capabilities": flags, "canSend": flags["send"] == true && live["canSend"] as? Bool == true,
             "revision": revisions[session] ?? 0,
         ]
+        if let epoch = live["nativeOwnerEpoch"] as? String,
+            AgentSessionProfile.bounded(epoch, maximum: 1024)
+        {
+            value["nativeOwnerEpoch"] = epoch
+        }
         if value["canSend"] as? Bool != true {
             value["readOnlyReason"] =
                 live["readOnlyReason"]
@@ -218,7 +238,7 @@ final class ZCodeBridge: @unchecked Sendable {
             viewVersions[client] = version
             updateIntervals[client] = min(1.5, max(0.25, Double(request["updatesIntervalMs"] as? Int ?? 250) / 1000))
             watch()
-            var value = try page(session)
+            var value = try page(session, prepareOwner: request["verifyNativeOwner"] as? Bool == true)
             value["viewVersion"] = version
             emitted[client] = value
             return ConversationReply.conditional(value, known: request["knownVersion"] as? String)
@@ -248,7 +268,7 @@ final class ZCodeBridge: @unchecked Sendable {
             throw try SessionProjectFiles.request(
                 op, request, cwd: projectCwd, rows: rows, reader: markdownFiles, device: client, thread: session)
         case "sync":
-            var value = try page(session)
+            var value = try page(session, prepareOwner: request["verifyNativeOwner"] as? Bool == true)
             value["viewVersion"] = version
             emitted[client] = value
             return ConversationReply.conditional(value, known: request["knownVersion"] as? String)

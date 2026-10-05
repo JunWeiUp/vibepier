@@ -32,11 +32,11 @@
     <string name="session_queue_count">Queued: %1$d</string>
     <string name="session_operation_confirmed">%1$s confirmed</string>
     <string name="session_operation_unknown">%1$s not yet confirmed · Tap to check</string>
-    <string name="session_could_not_open_session_tap_refresh_to_retry">Could not open session · Tap refresh to retry</string>
+    <string name="session_could_not_open_session_tap_refresh_to_retry">The conversation could not be loaded yet</string>
     <string name="session_saved_content_syncing_the_latest_state">Saved content · Syncing the latest state…</string>
     <string name="session_loading_session">Loading session…</string>
     <string name="session_receiving_the_latest_content">Receiving the latest content…</string>
-    <string name="session_no_session_content_received_refresh_to_retry_or_choose_another_s">No session content received. Refresh to retry, or choose another session from the list.</string>
+    <string name="session_no_session_content_received_refresh_to_retry_or_choose_another_s">The conversation content has not arrived yet. Your next action will reconnect automatically.</string>
     <string name="session_could_not_open_session">Could not open session</string>
     <string name="session_operation_incomplete_draft_retained">Operation incomplete; draft retained</string>
     <string name="session_answer_submitted">Answer submitted</string>
@@ -137,7 +137,7 @@
     <string name="session_load_full_text">Load full text</string>
     <string name="session_full_message">Full message</string>
     <string name="session_loading_the_full_request">Loading the full request…</string>
-    <string name="session_the_approval_changed_or_expired_refresh_it">The approval changed or expired. Refresh it.</string>
+    <string name="session_the_approval_changed_or_expired_refresh_it">This approval was updated or has already ended. Select the current request.</string>
     <string name="session_could_not_read_the_full_request_handle_it_on_the_mac">Could not read the full request. Handle it on the Mac.</string>
     <string name="session_or_enter_your_own_answer">Or enter your own answer</string>
     <string name="session_enter_an_answer">Enter an answer</string>

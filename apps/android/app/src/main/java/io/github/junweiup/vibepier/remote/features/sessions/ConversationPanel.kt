@@ -456,13 +456,14 @@ class ConversationPanel(private val activity: Activity, private val client: Sess
     private val claude get() = client.provider == "claude"
     private val zcode get() = client.provider == "zcode"
     private val agent get() = SessionProvider.name(client.provider)
-    private val mutableReady get() = ready && connected && authorized && (reviews || client.agentCapabilitiesKnown) &&
-        (reviews || !page.has("contentState") || page.optString("contentState") == "complete")
+    // A new action can restore its own control state. Cached availability is not an admission gate.
+    private val mutableReady get() = foreground && !drawer && thread.isNotBlank() && connected && authorized &&
+        (reviews || client.agentCapabilitiesKnown && client.sessionControlKnown(thread))
     private val queueSubmission get() = supports("queue") && (page.optString("status") == "active" || (page.optJSONArray("queuedMessages")?.length() ?: 0) > 0)
-    private val canSend get() = mutableReady && supports("send") && (reviews || page.opt("canSend") == true)
+    private val canSend get() = mutableReady && supports("send")
     private fun supports(key: String, legacyDefault: Boolean = true): Boolean {
         if (reviews) return (page.optJSONObject("capabilities")?.opt(key) as? Boolean) ?: legacyDefault
-        return client.agentCapability(key, if (drawer) null else thread)
+        return client.agentActionSupported(key)
     }
     private fun threadKey(id: String = thread) = client.sessionScope(id)
     private fun switchProvider(value: String) {
@@ -1849,7 +1850,7 @@ class ConversationPanel(private val activity: Activity, private val client: Sess
         if (mutableReady && supports("settings") && supports(capability)) return true
         val reason = if (!connected) context.getString(R.string.session_wait_disconnected)
             else if (!ready) context.getString(R.string.session_wait_loading)
-            else page.optString("readOnlyReason").ifBlank { context.getString(R.string.session_settings_on_mac, agent) }
+            else page.optString("readOnlyReason").ifBlank { context.getString(R.string.agent_capability_unavailable) }
         menu(context.getString(R.string.session_session_settings), reason, emptyList())
         return false
     }
@@ -1863,7 +1864,7 @@ class ConversationPanel(private val activity: Activity, private val client: Sess
             if (token != generation) return@call
             if (!result.optBoolean("ok")) {
                 menu(context.getString(R.string.session_session_settings), result.optString("error").ifBlank {
-                    context.getString(R.string.session_settings_on_mac, agent)
+                    context.getString(R.string.agent_state_not_ready)
                 }, emptyList())
                 return@call
             }
@@ -1876,11 +1877,12 @@ class ConversationPanel(private val activity: Activity, private val client: Sess
         else -> R.string.session_choose_execution_mode
     })
     private fun showExecutionModeMenu() {
-        if (!settingsAvailable("executionMode") || lockedNotice("executionModeLocked")) return
+        if (!settingsAvailable("executionMode")) return
         requestComposerOptions(JSONObject().put("threadId", thread)) { result ->
             result.optJSONObject("composer")?.let { page.put("composer", it) }
             for (key in listOf("executionModes", "executionModePermissionCoupled")) if (result.has(key)) page.put(key, result.get(key))
             updateComposer()
+            if (lockedNotice("executionModeLocked")) return@requestComposerOptions
             val choices = SessionExecutionModes.decode(result)
             val actions = choices.map { choice ->
                 (if (selection().optString("executionMode") == choice.id) "✓ " else "") + executionName(choice.id) to {
@@ -1894,15 +1896,18 @@ class ConversationPanel(private val activity: Activity, private val client: Sess
         }
     }
     private fun showModeMenu() {
-        if (SessionExecutionModes.coupled(page) && selection().optString("executionMode") == "plan") return
         if (!settingsAvailable("permissionMode")) return
-        if (lockedNotice("modeLocked")) return
+        requestComposerOptions(JSONObject().put("threadId", thread)) { result ->
+            result.optJSONObject("composer")?.let { page.put("composer", it) }
+            for (key in listOf("executionModes", "executionModePermissionCoupled")) if (result.has(key)) page.put(key, result.get(key))
+            updateComposer()
+            if (SessionExecutionModes.coupled(page) && selection().optString("executionMode") == "plan" || lockedNotice("modeLocked")) return@requestComposerOptions
+            showPermissionChoices(result)
+        }
+    }
+    private fun showPermissionChoices(result: JSONObject) {
         val current = selection().optString("mode")
         if (zcode) {
-            val token = generation
-            requestComposerOptions(JSONObject().put("threadId", thread)) { result ->
-                if (token != generation) return@requestComposerOptions
-                if (!result.optBoolean("ok")) { notice.text = result.optString("error"); return@requestComposerOptions }
                 val modes = result.optJSONArray("permissionModes") ?: result.optJSONArray("modes") ?: JSONArray()
                 val options = (0 until modes.length()).map { index ->
                     val value = modes.optJSONObject(index)
@@ -1917,7 +1922,6 @@ class ConversationPanel(private val activity: Activity, private val client: Sess
                     }
                 }
                 menu(context.getString(R.string.session_permission_mode), result.optString("description", context.getString(R.string.session_use_the_permission_modes_available_for_this_zcode_session)), options)
-            }
             return
         }
         if (claude) {
@@ -1958,13 +1962,13 @@ class ConversationPanel(private val activity: Activity, private val client: Sess
     }
     private fun showModelMenu() {
         if (!settingsAvailable("modelSelection")) return
-        if (lockedNotice("locked")) return
         val token = generation
         val selectionVersion = JSONObject().apply { val current = selection(); for (key in listOf("model", "effort", "mode", "executionMode")) put(key, current.optString(key)); put("owner", page.optString("owner")) }.toString()
         requestComposerOptions(JSONObject().put("threadId", thread).put("cacheVersion", selectionVersion)) { result ->
             if (token != generation) return@requestComposerOptions
             if (!result.optBoolean("ok")) { notice.text = result.optString("error"); return@requestComposerOptions }
             result.optJSONObject("composer")?.let { page.put("composer", it); updateComposer() }
+            if (lockedNotice("locked")) return@requestComposerOptions
             models = result.optJSONArray("models") ?: JSONArray()
             val effortOptions = result.optJSONArray("efforts") ?: JSONArray()
             fun effortLabel(id: String): String = (0 until effortOptions.length()).mapNotNull { effortOptions.optJSONObject(it) }
@@ -2069,7 +2073,7 @@ class ConversationPanel(private val activity: Activity, private val client: Sess
         val settingsUnknown = !reviews && client.uncertain(thread).any { it.optString("op") == "settings" }
         listOf(composerControls.mode, composerControls.model, composerControls.execution).forEach { view ->
             view.isEnabled = settingsOperation.isEmpty() && !settingsUnknown
-            if (view === composerControls.execution) view.isEnabled = view.isEnabled && mutableReady && supports("executionMode") && !selection.optBoolean("executionModeLocked")
+            if (view === composerControls.execution) view.isEnabled = view.isEnabled && mutableReady && supports("executionMode")
             view.alpha = if (view.isEnabled) 1f else .4f
         }
         composerControls.add.visibility = if (supports("attachments")) VISIBLE else GONE
@@ -2077,7 +2081,7 @@ class ConversationPanel(private val activity: Activity, private val client: Sess
         editor.isEnabled = mutableReady
         renderAttachments()
         renderQueue()
-        val submit = ConversationActions.submit(page.optString("status") == "active" || (page.optJSONArray("queuedMessages")?.length() ?: 0) > 0, supports("queue"),
+        val submit = ConversationActions.submit(queueSubmission, supports("queue"),
             mutableReady, canSend, sending, uploading, unresolved, settingsOperation.isNotEmpty(),
             editor.text.toString().isNotBlank() || attachmentIDs().length() > 0)
         stopButton.visibility = if (supports("interrupt") && page.optString("status") == "active") VISIBLE else GONE
@@ -2117,7 +2121,7 @@ class ConversationPanel(private val activity: Activity, private val client: Sess
         if (!canSend) return
         val text = editor.text.toString().trim(); if (text.toByteArray().size > 32_000) { notice.text = context.getString(R.string.session_reply_is_too_long_send_it_in_parts); return }
         val target = thread; val token = generation; val waitToken = ++sendWaitGeneration; stoppedWaitSignature = null; sending = true; updateComposer(); notice.text = context.getString(R.string.session_sending_to, title)
-        call("send", JSONObject().put("threadId", target).put("submissionMode", if (queueSubmission) "queue" else "start").put("text", text).put("attachments", ids)) { result ->
+        call("send", JSONObject().put("threadId", target).put("text", text).put("attachments", ids)) { result ->
             if (token != generation) return@call
             if (waitToken != sendWaitGeneration) { updateComposer(); return@call }
             sending = false
@@ -2155,7 +2159,7 @@ class ConversationPanel(private val activity: Activity, private val client: Sess
         queuedBox.addView(label(context.getString(R.string.session_queue_count, entries.length()), Ui.CAPTION, Palette.faint))
         for (i in 0 until entries.length()) {
             val item = entries.getJSONObject(i); val id = item.optString("id")
-            val blocked = !ready || !connected || sending || uncertain.any { it.optString("messageId") == id }
+            val blocked = !mutableReady || sending || uncertain.any { it.optString("messageId") == id }
             queuedBox.addView(column().apply {
                 background = background(Palette.surface2, 12); setPadding(dp(12), dp(8), dp(12), dp(4))
                 val status = when (item.optString("status")) { "pending", "sending" -> context.getString(R.string.session_sending_2); "outcome-unknown" -> context.getString(R.string.session_send_result_not_yet_confirmed); else -> context.getString(R.string.session_waiting_for_the_current_task_to_finish) }
@@ -2164,8 +2168,8 @@ class ConversationPanel(private val activity: Activity, private val client: Sess
                 addView(row().apply {
                     gravity = Gravity.CENTER_VERTICAL
                     addView(label(item.optString("pausedReason").ifBlank { status }, Ui.CAPTION, Palette.faint).apply { maxLines = 2 }, LinearLayout.LayoutParams(0, -2, 1f))
-                    addView(button(context.getString(R.string.session_steer)) { queueAction("queueSteer", id) }.apply { isEnabled = !blocked && supports("queueSteer") && item.opt("canSteer") == true; alpha = if (isEnabled) 1f else .4f }, LinearLayout.LayoutParams(-2, dp(48)))
-                    addView(button(context.getString(R.string.delete)) { queueAction("queueDelete", id) }.apply { isEnabled = !blocked && supports("queueDelete") && item.opt("canDelete") == true; alpha = if (isEnabled) 1f else .4f }, LinearLayout.LayoutParams(-2, dp(48)).apply { marginStart = dp(4) })
+                    addView(button(context.getString(R.string.session_steer)) { queueAction("queueSteer", id) }.apply { isEnabled = !blocked && supports("queueSteer"); alpha = if (isEnabled) 1f else .4f }, LinearLayout.LayoutParams(-2, dp(48)))
+                    addView(button(context.getString(R.string.delete)) { queueAction("queueDelete", id) }.apply { isEnabled = !blocked && supports("queueDelete"); alpha = if (isEnabled) 1f else .4f }, LinearLayout.LayoutParams(-2, dp(48)).apply { marginStart = dp(4) })
                 })
             }, LinearLayout.LayoutParams(-1, -2).apply { topMargin = dp(6); bottomMargin = dp(4) })
         }
@@ -2173,7 +2177,12 @@ class ConversationPanel(private val activity: Activity, private val client: Sess
     private fun queueAction(op: String, id: String) {
         if (!mutableReady || !supports(op) || sending) return
         val token = generation; sending = true; updateComposer()
-        call(op, JSONObject().put("threadId", thread).put("messageId", id)) { result ->
+        val fields = JSONObject().put("threadId", thread).put("messageId", id)
+        val queued = page.optJSONArray("queuedMessages") ?: JSONArray()
+        val item = (0 until queued.length()).mapNotNull { queued.optJSONObject(it) }.singleOrNull { it.optString("id") == id }
+        if (item != null) fields.put("expectedQueueDigest", io.github.junweiup.vibepier.remote.core.session.SessionControlPreparation.queueDigest(item))
+        if (op == "queueSteer" && page.optString("status") == "active" && page.optString("activeTurnId").isNotBlank()) fields.put("expectedTurnId", page.optString("activeTurnId"))
+        call(op, fields) { result ->
             if (token != generation || drawer) return@call
             sending = false
             if (result.optBoolean("ok")) {
@@ -2190,7 +2199,7 @@ class ConversationPanel(private val activity: Activity, private val client: Sess
     }
     private fun operationName(op: String) = when (op) { "settings" -> context.getString(R.string.session_session_settings); "interrupt" -> context.getString(R.string.session_stop_request); "queueSteer" -> context.getString(R.string.session_steering_request); "queueDelete" -> context.getString(R.string.session_delete_request); else -> context.getString(R.string.session_send_result) }
     private fun canStopCurrentTurn() = SessionWaitState.canStop(
-        connected, ready, supports("interrupt"), page.optString("status") == "active",
+        connected, mutableReady, supports("interrupt"), page.optString("status") == "active",
         page.optString("activeTurnId"), sending || stopRequestedTurn.isNotEmpty(),
         !reviews && client.uncertain(thread).any { it.optString("op") == "interrupt" })
 

@@ -2,95 +2,106 @@ package io.github.junweiup.vibepier.remote.core.session
 
 import org.json.JSONArray
 import org.json.JSONObject
+import java.security.MessageDigest
 
-/** A read-only refresh may renew authority, but must preserve the action the user reviewed. */
+/** Freeze the user's action first; acquire and validate current native control evidence separately. */
 internal object SessionControlPreparation {
-    class Intent internal constructor(val operation: String, private val original: String, internal val page: String) {
-        /** Each caller receives a copy; preparing an action never mutates its displayed page or draft. */
+    class Intent internal constructor(val operation: String, private val original: String) {
         val fields: JSONObject get() = JSONObject(original)
+        /** Only advanced callers choose a submission mode before the native read. */
         val mode: String? get() = fields.optString("submissionMode").takeIf { it in setOf("start", "queue") }
     }
 
     private val operations = setOf("send", "new", "settings", "interrupt", "approve", "queueSteer", "queueDelete")
     private val choices = listOf("model", "mode", "effort", "executionMode")
-    private val approvalSemantics = listOf("id", "fingerprint", "revision", "kind", "method", "title", "details",
-        "options", "questions", "allowedDecisions", "decisionScope", "plan", "planApprovalScope", "toolUseId",
-        "nativeRequestId", "nativeRequestFingerprint")
 
-    fun capture(op: String, fields: JSONObject, cachedPage: JSONObject?): Intent? = runCatching {
-        require(op in operations && cachedPage != null)
+    /** Cached pages are display projections, never admission evidence for a new action. */
+    @Suppress("UNUSED_PARAMETER")
+    fun capture(op: String, fields: JSONObject, cachedPage: JSONObject? = null): Intent? = runCatching {
+        require(op in operations)
         val frozen = JSONObject(fields.toString())
-        val page = JSONObject(cachedPage.toString())
+        require(choices.all { !frozen.has(it) || nonempty(frozen, it) })
+        require(!frozen.has("confirmFullAccess") || frozen.opt("confirmFullAccess") is Boolean)
         if (op == "new") {
-            require(page.opt("creationVersion") == 1 && nonempty(frozen, "draftId") && nonempty(frozen, "cwd"))
-            require(page.opt("draftId") == frozen.opt("draftId"))
-            if (page.has("cwd")) require(page.opt("cwd") == frozen.opt("cwd"))
-            val composer = page.optJSONObject("composer")
-            val execution = frozen.opt("executionMode") ?: composer?.opt("executionMode")
-            // Freeze actual advertised defaults. A coupled plan's permission mode is resolved by the Mac.
-            for (key in choices) if (!frozen.has(key) && composer?.opt(key) is String && composer.optString(key).isNotBlank()) {
-                if (key != "mode" || !SessionExecutionModes.coupled(page) || execution != "plan") {
-                    frozen.put(key, composer.get(key))
-                }
+            require(nonempty(frozen, "draftId") && nonempty(frozen, "cwd"))
+        } else require(nonempty(frozen, "threadId"))
+        when (op) {
+            "send" -> require(!frozen.has("submissionMode") || frozen.opt("submissionMode") in setOf("start", "queue"))
+            "settings" -> require(choices.any(frozen::has))
+            "interrupt" -> require(nonempty(frozen, "expectedTurnId"))
+            "queueSteer", "queueDelete" -> {
+                require(nonempty(frozen, "messageId"))
+                require(!frozen.has("expectedQueueDigest") || nonempty(frozen, "expectedQueueDigest"))
+                require(!frozen.has("expectedTurnId") || nonempty(frozen, "expectedTurnId"))
             }
-        } else {
-            require(nonempty(frozen, "threadId") && page.opt("threadId") == frozen.opt("threadId"))
-            require(page.opt("status") in setOf("idle", "active"))
-            if (op == "send") {
-                val mode = if (frozen.has("submissionMode")) frozen.opt("submissionMode") else {
-                    if (page.opt("status") == "active" || rows(page, "queuedMessages").isNotEmpty()) "queue" else "start"
-                }
-                require(mode in setOf("start", "queue"))
-                frozen.put("submissionMode", mode)
+            "approve" -> {
+                require(nonempty(frozen, "fingerprint"))
+                require(!frozen.has("expectedApprovalRevision") || nonempty(frozen, "expectedApprovalRevision"))
             }
         }
-        val intent = Intent(op, frozen.toString(), page.toString())
-        require(validate(intent, page))
-        intent
+        Intent(op, frozen.toString())
     }.getOrNull()
 
-    fun validate(intent: Intent, freshPage: JSONObject): Boolean = runCatching {
-        val fields = intent.fields
-        val before = JSONObject(intent.page)
-        if (freshPage.opt("ok") == false || freshPage.opt("event") == "unavailable" ||
-            freshPage.has("contentState") && freshPage.opt("contentState") != "complete") return false
-        if (intent.operation == "new") return creation(fields, before, freshPage)
-        if (freshPage.opt("threadId") != fields.opt("threadId") || freshPage.opt("status") !in setOf("idle", "active")) return false
-        if (before.has("owner") && !equivalent(before.opt("owner"), freshPage.opt("owner"))) return false
-        when (intent.operation) {
-            "send" -> sameComposer(before, freshPage) && if (intent.mode == "start") {
-                freshPage.opt("status") == "idle" && rows(freshPage, "queuedMessages").isEmpty()
-            } else {
-                (freshPage.opt("status") == "active" || rows(freshPage, "queuedMessages").isNotEmpty()) &&
-                    sameKnown(before, freshPage, "activeTurnId")
-            }
-            "settings" -> choices.any(fields::has) && sameComposer(before, freshPage) &&
-                sameKnown(before, freshPage, "executionModePermissionCoupled") && options(fields, freshPage, false)
-            "interrupt" -> nonempty(fields, "expectedTurnId") && freshPage.opt("status") == "active" &&
-                before.opt("activeTurnId") == fields.opt("expectedTurnId") && freshPage.opt("activeTurnId") == fields.opt("expectedTurnId")
-            "queueSteer", "queueDelete" -> queue(intent.operation, fields, before, freshPage)
-            "approve" -> approval(fields, before, freshPage)
-            else -> false
-        }
-    }.getOrDefault(false)
+    fun validate(intent: Intent, freshPage: JSONObject): Boolean = resolvedFields(intent, freshPage) != null
 
-    private fun creation(fields: JSONObject, before: JSONObject, fresh: JSONObject): Boolean {
-        if (fresh.opt("creationVersion") != 1 || fresh.opt("draftId") != fields.opt("draftId") ||
-            fresh.has("cwd") && fresh.opt("cwd") != fields.opt("cwd")) return false
-        if (!sameKnown(before, fresh, "executionModePermissionCoupled")) return false
-        // Unknown omitted defaults must not become a different implicit choice during renewal.
-        for (key in choices) if (!fields.has(key) && !equivalent(before.optJSONObject("composer")?.opt(key), fresh.optJSONObject("composer")?.opt(key))) return false
-        if (SessionExecutionModes.coupled(before) && fields.opt("executionMode") == "plan") {
-            val original = rows(before, "executionModes").singleOrNull { it.opt("id") == "plan" }
-            val current = rows(fresh, "executionModes").singleOrNull { it.opt("id") == "plan" }
-            if (!equivalent(original?.opt("permissionMode"), current?.opt("permissionMode"))) return false
+    /** The returned copy is final journal input; resolving defaults never edits the draft or intent. */
+    fun resolvedFields(intent: Intent, freshPage: JSONObject): JSONObject? = runCatching {
+        val fields = intent.fields
+        require(freshPage.opt("ok") != false && freshPage.opt("event") != "unavailable")
+        require(!freshPage.has("contentState") || freshPage.opt("contentState") == "complete")
+        if (intent.operation == "new") {
+            require(freshPage.opt("creationVersion") == 1 && freshPage.opt("draftId") == fields.opt("draftId"))
+            require(!freshPage.has("cwd") || freshPage.opt("cwd") == fields.opt("cwd"))
+            resolveCreationDefaults(fields, freshPage)
+            require(options(fields, freshPage, true))
+        } else {
+            require(freshPage.opt("threadId") == fields.opt("threadId"))
+            when (intent.operation) {
+                "send" -> {
+                    val active = freshPage.opt("status") == "active"
+                    val queued = rows(freshPage, "queuedMessages").isNotEmpty()
+                    require(freshPage.opt("status") in setOf("idle", "active"))
+                    val mode = intent.mode ?: if (active || queued) "queue" else "start"
+                    require(if (mode == "start") !active && !queued else active || queued)
+                    fields.put("submissionMode", mode)
+                }
+                "settings" -> require(options(fields, freshPage, false))
+                "interrupt" -> require(freshPage.opt("status") == "active" && freshPage.opt("activeTurnId") == fields.opt("expectedTurnId"))
+                "queueSteer", "queueDelete" -> require(queue(intent.operation, fields, freshPage))
+                "approve" -> require(approval(fields, freshPage))
+            }
         }
-        return options(fields, fresh, true)
+        fields
+    }.getOrNull()
+
+    /** Bind the selected queue content while ignoring presentation defaults for an absent body/attachments. */
+    fun queueDigest(item: JSONObject): String {
+        val body = JSONObject().put("id", item.opt("id")).put("text", item.opt("text")?.takeUnless { it == JSONObject.NULL } ?: "")
+            .put("attachments", item.opt("attachments")?.takeUnless { it == JSONObject.NULL } ?: JSONArray())
+        return MessageDigest.getInstance("SHA-256").digest(SessionAgentProtocol.canonical(body).toByteArray(Charsets.UTF_8))
+            .joinToString("") { "%02x".format(it) }
+    }
+
+    private fun resolveCreationDefaults(fields: JSONObject, page: JSONObject) {
+        val composer = page.optJSONObject("composer")
+        val execution = fields.opt("executionMode") ?: composer?.opt("executionMode")
+        for (key in choices) if (!fields.has(key) && composer?.opt(key) is String && composer.optString(key).isNotBlank()) {
+            if (key == "effort" && fields.opt("model") != composer.opt("model")) continue
+            if (key != "mode" || !SessionExecutionModes.coupled(page) || execution != "plan") fields.put(key, composer.get(key))
+        }
+        if (!fields.has("executionMode") && rows(page, "executionModes").any { it.opt("id") == "default" }) fields.put("executionMode", "default")
+        if (!fields.has("effort")) {
+            val selected = rows(page, "models").singleOrNull { it.opt("id") == fields.opt("model") }
+            val defaultEffort = selected?.opt("defaultEffort") as? String
+            if (!defaultEffort.isNullOrBlank()) fields.put("effort", defaultEffort)
+        }
+        // A creation catalog supplies its initial selection. Do not invent an unknown model or permissions.
+        require(nonempty(fields, "model"))
+        require(SessionExecutionModes.coupled(page) && fields.opt("executionMode") == "plan" || nonempty(fields, "mode"))
     }
 
     private fun options(fields: JSONObject, page: JSONObject, requireCatalog: Boolean): Boolean {
         val composer = page.optJSONObject("composer")
-        if (fields.has("confirmFullAccess") && fields.opt("confirmFullAccess") !is Boolean) return false
         for (key in choices) {
             if (!fields.has(key)) continue
             if (!nonempty(fields, key)) return false
@@ -105,16 +116,14 @@ internal object SessionControlPreparation {
             if (key != "effort" && (requireCatalog || catalog != null) && !contains(catalog, fields.opt(key))) return false
             if (key == "mode") {
                 val row = rows(catalog).singleOrNull { it.opt("id") == fields.opt(key) }
-                if ((fields.opt(key) in setOf("full-access", "bypassPermissions") || row?.opt("requiresConfirmation") == true) &&
-                    fields.opt("confirmFullAccess") != true) return false
+                if ((fields.opt(key) in setOf("full-access", "bypassPermissions") || row?.opt("requiresConfirmation") == true) && fields.opt("confirmFullAccess") != true) return false
             }
             if (key == "effort") {
                 val model = fields.opt("model") ?: composer?.opt("model")
                 val selected = rows(page, "models").singleOrNull { it.opt("id") == model }
                 val modelEfforts = selected?.optJSONArray("efforts")
                 val sharedEfforts = page.optJSONArray("efforts")
-                if ((requireCatalog || modelEfforts != null || sharedEfforts != null) &&
-                    !contains(modelEfforts, fields.opt(key)) && !contains(sharedEfforts, fields.opt(key))) return false
+                if ((requireCatalog || modelEfforts != null || sharedEfforts != null) && !contains(modelEfforts, fields.opt(key)) && !contains(sharedEfforts, fields.opt(key))) return false
             }
         }
         if (fields.opt("executionMode") == "plan" && SessionExecutionModes.coupled(page) && fields.has("mode")) {
@@ -124,33 +133,23 @@ internal object SessionControlPreparation {
         return true
     }
 
-    private fun queue(op: String, fields: JSONObject, before: JSONObject, fresh: JSONObject): Boolean {
-        if (!nonempty(fields, "messageId")) return false
-        val original = rows(before, "queuedMessages").singleOrNull { it.opt("id") == fields.opt("messageId") } ?: return false
+    private fun queue(op: String, fields: JSONObject, fresh: JSONObject): Boolean {
         val current = rows(fresh, "queuedMessages").singleOrNull { it.opt("id") == fields.opt("messageId") } ?: return false
-        if (!listOf("id", "text", "attachments").all { equivalent(original.opt(it), current.opt(it)) }) return false
-        val flag = if (op == "queueSteer") "canSteer" else "canDelete"
-        if (original.opt(flag) != true || current.opt(flag) != true) return false
-        if (op != "queueSteer") return true
-        if (before.opt("status") != fresh.opt("status")) return false
-        return if (before.opt("status") == "active") nonempty(before, "activeTurnId") && fresh.opt("activeTurnId") == before.opt("activeTurnId")
-            else sameKnown(before, fresh, "activeTurnId")
+        if (current.opt(if (op == "queueSteer") "canSteer" else "canDelete") != true) return false
+        if (fields.has("expectedQueueDigest") && queueDigest(current) != fields.opt("expectedQueueDigest")) return false
+        return op != "queueSteer" || !fields.has("expectedTurnId") || fresh.opt("status") == "active" && fresh.opt("activeTurnId") == fields.opt("expectedTurnId")
     }
 
-    private fun approval(fields: JSONObject, before: JSONObject, fresh: JSONObject): Boolean {
-        if (!nonempty(fields, "fingerprint")) return false
-        val original = rows(before, "approvals").singleOrNull { it.opt("fingerprint") == fields.opt("fingerprint") } ?: return false
+    private fun approval(fields: JSONObject, fresh: JSONObject): Boolean {
         val current = rows(fresh, "approvals").singleOrNull { it.opt("fingerprint") == fields.opt("fingerprint") } ?: return false
-        if (original.opt("canDecide") != true || current.opt("canDecide") != true ||
-            !approvalSemantics.all { equivalent(original.opt(it), current.opt(it)) }) return false
+        if (current.opt("canDecide") != true) return false
         if (fields.has("expectedApprovalRevision") && fields.opt("expectedApprovalRevision") != current.opt("revision")) return false
         val answers = fields.optJSONObject("answers")
         if (fields.has("answers") && answers == null) return false
         if (answers != null) {
-            if (current.opt("kind") != "questions" || answers.length() == 0 ||
-                answers.keys().asSequence().any { !nonempty(answers, it) }) return false
+            if (current.opt("kind") != "questions" || answers.length() == 0 || answers.keys().asSequence().any { !nonempty(answers, it) }) return false
             val questions = rows(current, "questions")
-            // Compact native cards omit the full form; its fingerprint/revision still binds the native validation.
+            // Compact cards still bind the native full-form validation through their fingerprint/revision.
             if (questions.isEmpty()) return true
             val ids = questions.map { it.optString("id") }
             if (ids.any { it.isBlank() } || ids.distinct().size != ids.size || answers.keys().asSequence().any { it !in ids }) return false
@@ -161,27 +160,14 @@ internal object SessionControlPreparation {
             }
         }
         if (current.opt("kind") == "questions") return nonempty(fields, "option") && contains(current.optJSONArray("options"), fields.opt("option"))
-        if (fields.has("option") && current.optJSONArray("options") != null) {
-            return nonempty(fields, "option") && contains(current.optJSONArray("options"), fields.opt("option"))
-        }
+        if (fields.has("option") && current.optJSONArray("options") != null) return nonempty(fields, "option") && contains(current.optJSONArray("options"), fields.opt("option"))
         val decision = if (fields.has("option")) fields.opt("option") else when (fields.opt("allow")) { true -> "allow"; false -> "deny"; else -> null }
-        if (decision !in setOf("allow", "deny")) return false
-        val allowed = current.optJSONArray("allowedDecisions")
-        return allowed == null || contains(allowed, decision)
+        return decision in setOf("allow", "deny") && (current.optJSONArray("allowedDecisions") == null || contains(current.optJSONArray("allowedDecisions"), decision))
     }
 
-    private fun sameComposer(before: JSONObject, fresh: JSONObject) = choices.all {
-        sameKnown(before.optJSONObject("composer"), fresh.optJSONObject("composer"), it)
-    }
-    private fun sameKnown(before: JSONObject?, fresh: JSONObject?, key: String) = before?.has(key) != true || equivalent(before?.opt(key), fresh?.opt(key))
     private fun nonempty(value: JSONObject, key: String) = (value.opt(key) as? String)?.isNotBlank() == true
     private fun rows(page: JSONObject, key: String) = rows(page.optJSONArray(key))
     private fun rows(value: JSONArray?) = (0 until (value?.length() ?: 0)).mapNotNull { value?.optJSONObject(it) }
-    private fun contains(values: JSONArray?, choice: Any?) = choice != null && (0 until (values?.length() ?: 0)).any {
-        values?.opt(it) == choice || values?.optJSONObject(it)?.opt("id") == choice
-    }
-    private fun containsLabels(values: JSONArray?, choice: Any?) = choice != null && (0 until (values?.length() ?: 0)).any {
-        values?.opt(it) == choice || values?.optJSONObject(it)?.opt("label") == choice
-    }
-    private fun equivalent(left: Any?, right: Any?) = SessionAgentProtocol.canonical(left) == SessionAgentProtocol.canonical(right)
+    private fun contains(values: JSONArray?, choice: Any?) = choice != null && (0 until (values?.length() ?: 0)).any { values?.opt(it) == choice || values?.optJSONObject(it)?.opt("id") == choice }
+    private fun containsLabels(values: JSONArray?, choice: Any?) = choice != null && (0 until (values?.length() ?: 0)).any { values?.opt(it) == choice || values?.optJSONObject(it)?.opt("label") == choice }
 }

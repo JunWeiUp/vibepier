@@ -108,9 +108,13 @@ Codex App Server 文档将相关命令/WebSocket 标为 experimental，并提供
 
 ## 发送、回执和恢复
 
-新操作先做只读准备：发送、停止、审批、队列、设置重新读取已验证快照，新建重新读取原草稿的选项目录，再核对原授权、provider、adapter、sessionRef 和视图。成功快照续期有效 lease；过期令牌不复活。用户原来的发送/排队意图、轮次、审批修订、队列内容与模型/权限选项必须仍匹配，不能因刷新改成另一个操作。准备最多两次；进入写日志后只允许原操作回执恢复，未知结果不重发。dirty 事件在同步中排队，失败有限重试，离开视图时取消。
+新操作的唯一输入是用户意图与已选目标，显示缓存不能授权或阻止它。手机先自动读取当前原生状态，再把最终请求单次写入日志并发送。普通 Send 沿用当前模型/权限；Mac 原生状态决定直接 start 或支持的 queue，不能用旧页面的忙闲状态提前拒绝。高级调用者明确指定的 start/queue 不变；停止轮次、审批指纹/已展示修订与所选队列内容继续精确绑定。设置只验证明确的新选项及权限确认，不要求旧 composer 保持不变；新建省略的缺省值由本次可信目录决定。
 
-New mutations read verified state before journaling, preserve the original semantic target and selected options, and reject changed scope. Authoritative snapshots renew unexpired leases; expired tokens are replaced. Read preparation is bounded and never retries an admitted write. Dirty events received during synchronization schedule another read; leaving the view cancels it.
+界面依据实际后端的 supported 能力提供入口，available、lease 与 owner 验证由本次控制准备和 Mac 写边界处理。断线或 opening 在相同目标下自动有限恢复，最多 7 次只读准备、总预算 10 秒；作用域变化立即停止。设置目录与审批详情也沿所选 adapter 的 typed read 路由恢复。
+
+内容和控制分开失效：正文、token、进度与用量更新只通知重新读取，不撤销写 lease。Mac 比较完整可信控制摘要；轮次、审批、队列、权限、owner 或可执行能力改变，以及不完整/未知事件仍撤权。连续的 contentDirty=false 事件保留客户端控制状态；流缺口和 epoch 变化必须重新核验。相同 client/adapter/sessionRef/view 的并发快照共享一次原生读取，最多 16 个等待者，各自返回自己的 request ID；换目标/视图的旧回包不能覆盖新状态。同 scope 的读取不自行制造能力修订变化。
+
+New actions acquire current native evidence automatically; display caches are neither permission nor an admission gate. Standard Send uses current native settings and resolves start/queue before journaling. Explicit choices and concrete stop/approval/queue targets remain exact. Menus use the selected adapter. Content-only updates preserve authority; genuine control changes and incomplete events revoke it. Same-scope snapshots coalesce, and read recovery is bounded. An admitted write is never automatically resent.
 
 ```mermaid
 sequenceDiagram
