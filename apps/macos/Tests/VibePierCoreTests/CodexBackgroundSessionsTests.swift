@@ -36,6 +36,10 @@ final class CodexBackgroundSessionsTests: XCTestCase {
         var onDelayedRead: (() throws -> Void)?
 
         func request(_ method: String, params: Data) throws -> Data {
+            // Mirror the real proxy boundary so a method outside its allowlist fails here as it does natively.
+            guard CodexSocketRuntimeConnection.allowsRequest(method, usesNativeHome: true) else {
+                throw RuntimeDriverError.invalidRequest
+            }
             calls.append(method)
             let parameters = try XCTUnwrap(JSONSerialization.jsonObject(with: params) as? [String: Any])
             switch method {

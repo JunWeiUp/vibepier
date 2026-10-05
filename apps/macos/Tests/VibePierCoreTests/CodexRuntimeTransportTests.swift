@@ -69,7 +69,10 @@ final class CodexRuntimeTransportTests: XCTestCase {
     }
 
     func testManagedTransportRetainsItsControlBoundary() {
-        for method in ["thread/resume", "thread/name/set", "thread/archive", "thread/unarchive", "turn/steer"] {
+        for method in [
+            "thread/resume", "thread/name/set", "thread/archive", "thread/unarchive", "turn/steer",
+            "thread/unsubscribe",
+        ] {
             XCTAssertFalse(CodexSocketRuntimeConnection.allowsRequest(method, usesNativeHome: false))
             XCTAssertTrue(CodexSocketRuntimeConnection.allowsRequest(method, usesNativeHome: true))
         }

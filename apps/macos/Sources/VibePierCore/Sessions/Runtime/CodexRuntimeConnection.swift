@@ -179,6 +179,8 @@ final class CodexSocketRuntimeConnection: CodexRuntimeConnection, @unchecked Sen
     ]
     private static let headlessMethods: Set<String> = [
         "thread/resume", "thread/name/set", "thread/archive", "thread/unarchive", "turn/steer",
+        // Releases a phone-created thread so the Codex desktop app is its single owner.
+        "thread/unsubscribe",
     ]
 
     /// The native-home path is reserved for the local background provider. The
