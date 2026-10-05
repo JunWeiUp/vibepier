@@ -52,7 +52,7 @@ Confirm the phone shows the current Mac application. Use Bluetooth or local Wi-F
 
 ## Optional features
 
-- **Unlock:** open the phone's session-list menu and configure Mac unlock. The Mac checks the supplied login password and saves it in Keychain; the phone does not retain it. Explicit Unlock stays unlocked. This does not power on the computer or unlock FileVault at startup.
+- **Unlock:** open the phone's session-list menu and configure Mac unlock. The Mac checks the supplied login password and saves it in private local Mac preferences; the phone does not retain it. App updates preserve the setting. Explicit Unlock stays unlocked. This does not power on the computer or unlock FileVault at startup.
 - **Phone microphone:** install **BlackHole 2ch** from its [upstream project](https://github.com/ExistentialAudio/BlackHole), then choose the phone as the voice button's source and grant Android recording permission. Routing is temporary while the phone voice action runs. BLE/local Wi-Fi/direct UDP are supported; relay-only phone audio is unavailable.
 - **Usage tracking:** opt in from the usage settings. Tracking starts from that point; gaps and rest periods are not synthesized as application time.
 - **AU05:** connect the optional receiver. Keep the default always-on heartbeat for established voice behavior; the on-demand mode remains experimental.

@@ -990,6 +990,22 @@ enum LocalizationCatalog {
             "Unlock failed. Further attempts are stopped. Unlock the Mac manually or set the unlock password again.",
             "解锁失败，已停止尝试。请在 Mac 上手动解锁，或重新设置解锁密码",
         ],
+        "core.unlock_preferences_invalid_failed": [
+            "Mac unlock preferences are invalid for the current user.",
+            "Mac 解锁偏好无效或不属于当前用户。",
+        ],
+        "core.unlock_preferences_migration_failed_0": [
+            "Could not migrate the previous unlock password ({0}). Save it once in Mac unlock setup.",
+            "无法迁移原解锁密码（{0}），请在 Mac 解锁设置中保存一次。",
+        ],
+        "core.unlock_preferences_read_failed": [
+            "Could not read Mac unlock preferences. Check the local preferences file on the Mac.",
+            "无法读取 Mac 解锁偏好，请在 Mac 检查本地偏好文件。",
+        ],
+        "core.unlock_preferences_save_failed": [
+            "Could not save Mac unlock preferences. The previous password was preserved.",
+            "无法保存 Mac 解锁偏好，原密码已保留。",
+        ],
         "core.unmapped_key": [
             "HID usage 0x{0} has no macOS key code",
             "HID 用法 0x{0} 没有对应的 macOS 键码",
@@ -2386,6 +2402,10 @@ enum LocalizationCatalog {
             "This history could not be read safely. Reopen the session.",
             "暂时无法安全读取这段历史，请重新打开会话。",
         ],
+        "provider.claude_model_catalog_unavailable": [
+            "Could not retrieve Claude models. Check the Mac Claude API configuration and connection, then refresh. Project-specific model or credential overrides and OAuth-only discovery are not supported.",
+            "无法获取 Claude 模型，请检查 Mac 上的 Claude API 配置与连接后刷新。暂不支持项目级模型或凭据覆盖配置，以及仅 OAuth 登录的模型发现。",
+        ],
         "provider.claude_output_limit": [
             "Claude output exceeded the supported limit. Check the original session on the Mac; the operation was not resent.",
             "Claude 输出超出支持上限，请在 Mac 上检查原会话；操作未重新发送。",
@@ -3058,6 +3078,10 @@ enum LocalizationCatalog {
             "ZCode input focus changed; nothing was pasted",
             "ZCode 输入焦点已变化，未粘贴",
         ],
+        "provider.zcode_insufficient_balance": [
+            "ZCode received the message, but the model provider reported insufficient balance or no available resource package (1113). Check your ZCode account quota or select a model with available quota. No message was resent.",
+            "ZCode 已收到消息，但模型服务商返回余额不足或无可用资源包（1113）。请检查 ZCode 账户额度，或选择有额度的模型；没有自动重发消息。",
+        ],
         "provider.zcode_is_running_or_its_composer_is_not_ready_retry_when_it_is_ready": [
             "ZCode is running or its composer is not ready. Retry when it is ready",
             "ZCode 正在运行或输入框未就绪，请完成后重试",
@@ -3085,6 +3109,10 @@ enum LocalizationCatalog {
         "provider.zcode_receipt_baseline_unavailable": [
             "The native ZCode session baseline is incomplete or exceeds the supported limit. Create the task on the Mac.",
             "ZCode 原生会话基线不完整或超出支持上限，请在 Mac 上新建任务。",
+        ],
+        "provider.zcode_reply_failed": [
+            "ZCode received the message, but the model reply failed. Check the error in the original ZCode session on the Mac. No message was resent.",
+            "ZCode 已收到消息，但模型回复失败。请在 Mac 的原 ZCode 会话查看具体错误；没有自动重发消息。",
         ],
         "provider.zcode_task_search_not_found_open_this_session_on_the_mac_before_retrying": [
             "ZCode task search not found. Open this session on the Mac before retrying",

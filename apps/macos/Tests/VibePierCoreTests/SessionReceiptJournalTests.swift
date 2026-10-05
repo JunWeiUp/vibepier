@@ -38,8 +38,74 @@ final class SessionReceiptJournalTests: XCTestCase {
         guard case .unknown = try restored.reserve("phone:unknown", hash: "unknown", thread: "thread") else {
             return XCTFail("Unknown dropped")
         }
-        XCTAssertEqual(restored.receipt("phone:unknown")?.intent, Data("uncertain prompt".utf8))
+        // Aged unknown records release their prompt and quota but stay a never-executable tombstone.
+        XCTAssertEqual(restored.receipt("phone:unknown")?.retired, true)
+        XCTAssertNil(restored.receipt("phone:unknown")?.intent)
+        guard case .conflict = try restored.reserve("phone:unknown", hash: "changed", thread: "thread") else {
+            return XCTFail("Retired unknown fingerprint lost")
+        }
         XCTAssertThrowsError(try restored.complete("phone:done", result: Data("different".utf8)))
+    }
+
+    func testRecentUnknownKeepsIntentForReconciliation() throws {
+        let file = try file()
+        var now = 1000.0
+        let journal = try SessionReceiptJournal(file: file, clock: { now })
+        _ = try journal.reserve("phone:unknown", hash: "unknown", thread: "thread", intent: Data("prompt".utf8))
+        now += 24 * 3600
+        _ = try journal.reserve("other:new", hash: "next", thread: "other")
+        XCTAssertNil(journal.receipt("phone:unknown")?.retired)
+        XCTAssertEqual(journal.receipt("phone:unknown")?.intent, Data("prompt".utf8))
+    }
+
+    func testManyUnresolvedOperationsDoNotExhaustDeviceQuota() throws {
+        // Previously each unresolved record reserved ~400 KB, so about nine unknowns blocked every new mutation.
+        let file = try file()
+        let journal = try SessionReceiptJournal(file: file)
+        for index in 0..<40 {
+            guard
+                case .fresh = try journal.reserve(
+                    "phone:\(index)", hash: "hash\(index)", thread: "thread", intent: Data(repeating: 7, count: 2048))
+            else { return XCTFail("Reservation \(index) was not fresh") }
+        }
+        try journal.complete("phone:0", result: Data(repeating: 65, count: 200_000))
+        XCTAssertNotNil(journal.receipt("phone:0")?.result)
+    }
+
+    func testPendingPerDeviceCapDoesNotAffectOtherDevices() throws {
+        let file = try file()
+        var limits = SessionReceiptJournal.Limits()
+        limits.pendingPerDevice = 2
+        let journal = try SessionReceiptJournal(file: file, limits: limits)
+        _ = try journal.reserve("a:1", hash: "1", thread: "t")
+        _ = try journal.reserve("a:2", hash: "2", thread: "t")
+        XCTAssertThrowsError(try journal.reserve("a:3", hash: "3", thread: "t")) {
+            XCTAssertEqual($0 as? SessionReceiptJournal.Failure, .full)
+        }
+        guard case .fresh = try journal.reserve("b:1", hash: "1", thread: "t") else {
+            return XCTFail("Device isolated")
+        }
+        try journal.complete("a:1", result: Data("{}".utf8))
+        guard case .fresh = try journal.reserve("a:3", hash: "3", thread: "t") else { return XCTFail("Slot released") }
+    }
+
+    func testOversizedFinalResultIsCompactedInsteadOfLost() throws {
+        let file = try file()
+        var limits = SessionReceiptJournal.Limits()
+        limits.deviceBytes = 64 * 1024
+        let journal = try SessionReceiptJournal(file: file, limits: limits)
+        _ = try journal.reserve("a:1", hash: "1", thread: "t")
+        let large: [String: Any] = [
+            "ok": true, "accepted": true, "threadId": "thread", "nativeTurnId": "turn",
+            "snapshot": String(repeating: "x", count: 120_000),
+        ]
+        try journal.complete("a:1", result: try JSONSerialization.data(withJSONObject: large))
+        let stored = try XCTUnwrap(journal.receipt("a:1")?.result)
+        let object = try XCTUnwrap(try JSONSerialization.jsonObject(with: stored) as? [String: Any])
+        XCTAssertEqual(object["threadId"] as? String, "thread")
+        XCTAssertEqual(object["nativeTurnId"] as? String, "turn")
+        XCTAssertEqual(object["compacted"] as? Bool, true)
+        XCTAssertNil(object["snapshot"])
     }
 
     func testPendingResultSpaceIsReservedAndPerDeviceQuotaIsFair() throws {

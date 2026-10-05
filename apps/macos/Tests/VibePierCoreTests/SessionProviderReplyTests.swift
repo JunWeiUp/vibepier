@@ -79,10 +79,13 @@ final class SessionProviderReplyTests: XCTestCase {
         }
     }
 
-    func testExecutionSettingsAndCreationRequireMatchingNativeModeEvidence() throws {
+    func testExecutionSettingsRequireMatchingNativeModeEvidenceButCreationTreatsItAsWarning() throws {
         for operation in ["settings", "new"] {
-            for (mode, verified, confirmed) in [("default", true, false), ("plan", false, false), ("plan", true, true)]
-            {
+            for (mode, verified, settingsConfirmed) in [
+                ("default", true, false), ("plan", false, false), ("plan", true, true),
+            ] {
+                // A created thread is proved by its native identity; its mode readback only adds a warning.
+                let confirmed = operation == "new" || settingsConfirmed
                 let value: [String: Any] = [
                     "ok": true, "accepted": true, "threadId": "thread", "cwd": "/demo",
                     "effectiveExecutionMode": mode, "executionModeVerified": verified,
@@ -95,6 +98,17 @@ final class SessionProviderReplyTests: XCTestCase {
                 XCTAssertEqual(lookup != nil, confirmed)
             }
         }
+    }
+
+    func testDefinitiveFailureSettlesALookupButAnUnqualifiedFailureDoesNot() throws {
+        let definitive: [String: Any] = ["ok": false, "definitive": true, "error": "Nothing was sent"]
+        XCTAssertNotNil(
+            SessionProviderReply.resolvedLookup(
+                try JSONSerialization.data(withJSONObject: definitive), thread: "", operation: "new", cwd: "/demo"))
+        let unqualified: [String: Any] = ["ok": false, "error": "Nothing was sent"]
+        XCTAssertNil(
+            SessionProviderReply.resolvedLookup(
+                try JSONSerialization.data(withJSONObject: unqualified), thread: "", operation: "new", cwd: "/demo"))
     }
 
     func testPersistenceFailureCannotBecomeAConfirmedResponse() throws {

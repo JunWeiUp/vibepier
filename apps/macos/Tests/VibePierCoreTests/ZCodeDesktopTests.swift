@@ -3,6 +3,108 @@ import XCTest
 @testable import VibePierCore
 
 final class ZCodeDesktopTests: XCTestCase {
+    func testNativePreparationDiagnosticBindsTheDirectoryAtEveryCreationStage() throws {
+        let cwd = "/synthetic/project"
+        let id = UUID().uuidString
+        let request = try ZCodeDesktop.creationDiagnosticRequest(
+            cwd: cwd, draftID: id, composer: ["model": "model-a", "effort": "max", "mode": "yolo"], execution: "plan")
+        let draft = try SessionCreationDraft(request, project: cwd, provider: "zcode")
+        XCTAssertEqual(draft.cwd, cwd)
+        XCTAssertEqual(request["mode"] as? String, "build")
+        XCTAssertEqual(request["executionMode"] as? String, "plan")
+        XCTAssertNil(request["text"])
+        XCTAssertThrowsError(
+            try ZCodeDesktop.creationDiagnosticRequest(
+                cwd: "relative", draftID: id, composer: ["model": "m"], execution: "plan"))
+    }
+
+    func testCatalogReasoningChoicesStayBoundToObservedModelAndContainOnlyVerifiedIDs() {
+        var entry = ZCodeDesktop.Entry()
+        entry.models = [
+            .init(id: "model-a", title: "A", label: "A", ordinal: 0, signature: "models"),
+            .init(id: "model-b", title: "B", label: "B", ordinal: 1, signature: "models"),
+        ]
+        entry.efforts = [.init(id: "max", title: "Max", label: "Max", ordinal: 0, signature: "effort")]
+        entry.composer = ["model": "model-a", "effort": "max"]
+        let rows = ZCodeDesktop.catalogModels(entry)
+        XCTAssertEqual(rows.compactMap { $0["id"] as? String }, ["model-a", "model-b"])
+        XCTAssertEqual(rows[0]["efforts"] as? [String], ["max"])
+        XCTAssertEqual(rows[1]["efforts"] as? [String], [])
+    }
+    func testExecutionCatalogIsIndependentOfPermissionAndIncludesWireLabels() throws {
+        for mode in ["build", "edit", "yolo"] {
+            let rows = ZCodeDesktop.executionOptions(mode: mode)
+            XCTAssertEqual(rows.compactMap { $0["id"] as? String }, ["default", "plan"])
+            for row in rows {
+                XCTAssertFalse(try XCTUnwrap(row["name"] as? String).isEmpty)
+                XCTAssertNil(row["permissionMode"])
+            }
+        }
+    }
+    func testNativePlanCheckboxCanCoexistWithExactlyOnePermission() throws {
+        let ids = ["plan", "build", "edit", "yolo"]
+        for permission in 1...3 {
+            for planning in [false, true] {
+                let selected: Set<Int> = planning ? [0, permission] : [permission]
+                let state = try ZCodeDesktop.modeSelection(ids: ids, selected: selected)
+                XCTAssertEqual(state["mode"], ids[permission])
+                XCTAssertEqual(state["executionMode"], planning ? "plan" : "default")
+            }
+        }
+        for selected: Set<Int> in [[], [0], [1, 2], [0, 1, 3], [4]] {
+            XCTAssertThrowsError(try ZCodeDesktop.modeSelection(ids: ids, selected: selected))
+        }
+        XCTAssertThrowsError(try ZCodeDesktop.modeSelection(ids: ["plan", "unknown"], selected: [1]))
+        XCTAssertThrowsError(try ZCodeDesktop.modeSelection(ids: ["plan", "edit", "edit"], selected: [1]))
+    }
+    func testCreationModeBindsPermissionAndExecutionReadbackAcrossPaste() throws {
+        for mode in ["build", "edit", "yolo"] {
+            for execution in ["default", "plan"] {
+                let controls: [String: Any] = [
+                    "mode": mode, "executionMode": execution, "model": "native-choice", "effort": "max",
+                ]
+                XCTAssertEqual(
+                    try ZCodeDesktop.creationMode(before: controls, after: controls, requested: execution), execution)
+                for key in ["mode", "executionMode", "model", "effort"] {
+                    var changed = controls
+                    changed[key] = "other"
+                    XCTAssertThrowsError(
+                        try ZCodeDesktop.creationMode(before: controls, after: changed, requested: execution))
+                }
+                XCTAssertThrowsError(
+                    try ZCodeDesktop.creationMode(
+                        before: controls, after: controls, requested: execution == "plan" ? "default" : "plan"))
+            }
+        }
+        XCTAssertThrowsError(
+            try ZCodeDesktop.creationMode(before: ["mode": "plan"], after: ["mode": "plan"], requested: "plan"))
+    }
+    func testDefaultWorkspaceUsesUniqueNativeOutsideProjectRowInBothLanguages() {
+        let home = "/Users/demo"
+        let cwd = home + "/.zcode/workspace/default"
+        for label in ["不在项目中工作", "Work outside a project"] {
+            XCTAssertEqual(ZCodeDesktop.defaultProjectOrdinal(cwd: cwd, home: home, labels: ["code", label]), 1)
+            XCTAssertNil(ZCodeDesktop.defaultProjectOrdinal(cwd: "/tmp/default", home: home, labels: [label]))
+            XCTAssertNil(ZCodeDesktop.defaultProjectOrdinal(cwd: cwd, home: home, labels: [label, label]))
+        }
+        XCTAssertNil(ZCodeDesktop.defaultProjectOrdinal(cwd: cwd, home: home, labels: ["default"]))
+        XCTAssertNil(ZCodeDesktop.defaultProjectOrdinal(cwd: cwd + "/child", home: home, labels: ["不在项目中工作"]))
+    }
+    func testExecutionSelectionPreservesIndependentPermissionWithoutElevatingIt() throws {
+        for permission in ["build", "edit", "yolo"] {
+            for execution in ["default", "plan"] {
+                let request = try ZCodeDesktop.executionSelection(["executionMode": execution], currentMode: permission)
+                XCTAssertNil(request["mode"], "Plan toggle must not select or elevate permissions")
+                XCTAssertEqual(request["executionMode"] as? String, execution)
+            }
+        }
+        XCTAssertEqual(
+            try ZCodeDesktop.executionSelection(["executionMode": "plan", "mode": "build"], currentMode: "yolo")["mode"]
+                as? String, "build")
+        XCTAssertThrowsError(
+            try ZCodeDesktop.executionSelection(["executionMode": "plan", "mode": "plan"], currentMode: "build"))
+        XCTAssertThrowsError(try ZCodeDesktop.executionSelection(["executionMode": "default"], currentMode: "unknown"))
+    }
     func testCreationSelectionsRequireUnchangedNativeChoicesAndBooleanFullAccessConsent() throws {
         func choice(_ id: String, signature: String = "fixture", ordinal: Int = 0) -> ZCodeDesktop.Choice {
             .init(id: id, title: id, label: id, ordinal: ordinal, signature: signature)

@@ -17,12 +17,14 @@ internal data class SessionCreationDraft(
     val confirmFullAccess: Boolean = false,
     val executionMode: String = "",
     val executionModePermissionCoupled: Boolean = false,
+    val serviceTier: String = "",
 ) {
     val attachmentScope get() = "creation:$id"
 
     fun value() = JSONObject().put("draftId", id).put("provider", provider).put("cwd", cwd)
         .put("text", text).put("model", model).put("effort", effort).put("mode", mode)
         .put("confirmFullAccess", confirmFullAccess).apply {
+            if (serviceTier.isNotEmpty()) put("serviceTier", serviceTier)
             if (executionMode.isNotEmpty()) put("executionMode", executionMode)
             if (executionModePermissionCoupled) put("executionModePermissionCoupled", true)
         }
@@ -32,11 +34,13 @@ internal data class SessionCreationDraft(
         request.optString("model") == model && request.optString("effort") == effort &&
         request.optString("mode") == (if (executionModePermissionCoupled && executionMode == "plan") "" else mode) &&
         request.optString("executionMode") == executionMode &&
+        request.optString("serviceTier") == serviceTier &&
         (request.opt("confirmFullAccess") as? Boolean ?: false) == confirmFullAccess
 
     /** Snapshot all selected values; later editing cannot mutate an unresolved original request. */
     fun request(operation: String, attachments: JSONArray): JSONObject {
         require(validUUID(operation))
+        require(serviceTier.isEmpty() || provider == "codex" && serviceTier in setOf("standard", "priority"))
         require(text.toByteArray(Charsets.UTF_8).size <= 32_000)
         require(executionMode.isEmpty() || executionMode in SessionExecutionModes.ids)
         require(text.isNotBlank() || attachments.length() > 0)
@@ -80,7 +84,9 @@ internal data class SessionCreationDraft(
             require(executionMode.isEmpty() || executionMode in SessionExecutionModes.ids)
             val coupled = if (value.has("executionModePermissionCoupled")) value.opt("executionModePermissionCoupled") as? Boolean
                 ?: error("Invalid execution mode coupling") else false
-            return SessionCreationDraft(id, provider, cwd, string("text"), string("model"), string("effort"), string("mode"), confirmed, executionMode, coupled)
+            val tier = string("serviceTier")
+            require(tier.isEmpty() || provider == "codex" && tier in setOf("standard", "priority"))
+            return SessionCreationDraft(id, provider, cwd, string("text"), string("model"), string("effort"), string("mode"), confirmed, executionMode, coupled, tier)
         }
     }
 }

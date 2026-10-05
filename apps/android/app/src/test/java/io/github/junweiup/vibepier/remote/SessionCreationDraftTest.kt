@@ -9,7 +9,7 @@ import java.util.UUID
 class SessionCreationDraftTest {
     @Test fun originalRequestKeepsAllSelectionsAfterDraftChanges() {
         val draft = SessionCreationDraft.restore(null, "/fixture", "codex").copy(
-            text = " Inspect this picture ", model = "fixture-model", effort = "high", mode = "auto")
+            text = " Inspect this picture ", model = "fixture-model", effort = "high", mode = "auto", serviceTier = "priority")
         val id = UUID.randomUUID().toString()
         val attachment = UUID.randomUUID().toString()
         val attachments = JSONArray().put(attachment)
@@ -20,6 +20,9 @@ class SessionCreationDraftTest {
         assertEquals("Inspect this picture", request.getString("text"))
         assertEquals(1, request.getJSONArray("attachments").length())
         assertEquals(draft.id, request.getString("draftId"))
+        assertEquals("priority", request.getString("serviceTier"))
+        assertTrue(draft.matches(request))
+        assertFalse(draft.copy(serviceTier = "standard").matches(request))
         assertNotEquals(changed.model, request.getString("model"))
         assertEquals(draft, SessionCreationDraft.restore(draft.value().toString(), "/fixture", "codex"))
     }

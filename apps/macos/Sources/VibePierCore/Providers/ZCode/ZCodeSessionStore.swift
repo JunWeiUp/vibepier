@@ -140,7 +140,7 @@ final class ZCodeSessionStore {
     private static let assistantPart =
         "(json_extract(m.data,'$.role')='assistant' OR json_extract(p.data,'$.type') IN ('timeline','compaction'))"
     private static let messageProjection =
-        "json_object('role',json_extract(data,'$.role'),'time',json_extract(data,'$.time'),'modelSelection',json_extract(data,'$.modelSelection'),'modelId',json_extract(data,'$.modelId'),'providerId',json_extract(data,'$.providerId'),'mode',json_extract(data,'$.mode'),'planEnabled',json_extract(data,'$.planEnabled'),'tokens',json_extract(data,'$.tokens'),'anchor',json_extract(data,'$.anchor'),'metadata',json_object('inputClientId',json_extract(data,'$.metadata.inputClientId')))"
+        "json_object('role',json_extract(data,'$.role'),'errorName',substr(json_extract(data,'$.error.name'),1,128),'providerErrorCode',substr(json_extract(data,'$.error.data.attribution.providerErrorCode'),1,32),'time',json_extract(data,'$.time'),'modelSelection',json_extract(data,'$.modelSelection'),'modelId',json_extract(data,'$.modelId'),'providerId',json_extract(data,'$.providerId'),'mode',json_extract(data,'$.mode'),'planEnabled',json_extract(data,'$.planEnabled'),'tokens',json_extract(data,'$.tokens'),'anchor',json_extract(data,'$.anchor'),'metadata',json_object('inputClientId',json_extract(data,'$.metadata.inputClientId')))"
 
     init(
         path: String = FileManager.default.homeDirectoryForCurrentUser.appendingPathComponent(".zcode/cli/db/db.sqlite")

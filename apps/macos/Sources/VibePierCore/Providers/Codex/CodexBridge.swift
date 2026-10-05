@@ -12,6 +12,8 @@ final class CodexBridge: @unchecked Sendable {
     private let composer = CodexComposer()
     private let followUps: CodexFollowUps
     private let attachments: CodexAttachments?
+    private let background: CodexBackgroundSessions
+    private let readBackgroundCreationReceipt: ([String: Any], String, [[String: Any]]) throws -> [String: Any]?
     private let markdownFiles = SessionMarkdownFiles()
     private var selected: [String: String] = [:]
     private var viewVersions: [String: Int64] = [:]
@@ -19,6 +21,7 @@ final class CodexBridge: @unchecked Sendable {
     private var owners: [String: String] = [:]
     private var revisions: [String: Int] = [:]
     private var scheduled = Set<String>()
+    private var backgroundRetryDelays: [String: TimeInterval] = [:]
     private var emittedPages: [String: [String: Any]] = [:]
     private var updateIntervals: [String: TimeInterval] = [:]
     private var knownVersions: [String: String] = [:]
@@ -27,15 +30,22 @@ final class CodexBridge: @unchecked Sendable {
     private var executionCatalogBuild: String?
     private var executionCatalogCheckedAt: TimeInterval = -.infinity
     private let readExecutionCatalog: () throws -> [[String: Any]]
-    private let creationReceipts = ProviderOperationReceipts()
+    private let creationReceipts: ProviderOperationReceipts
 
     private enum CreationReply: Sendable {
-        case success(CodexCreationReceipt)
         case configured(Data)
         case failure(String, uncertain: Bool)
+        /// Nothing was submitted; an empty native thread may exist and is reported so the phone can open it.
+        case notSubmitted(String, thread: String?, cwd: String?)
         var value: [String: Any] {
             switch self {
-            case .success(let receipt): return receipt.reply
+            case .notSubmitted(let message, let thread, let cwd):
+                var value: [String: Any] = ["ok": false, "definitive": true, "error": message, "provider": "codex"]
+                if let thread, let cwd {
+                    value["threadId"] = thread
+                    value["cwd"] = cwd
+                }
+                return value
             case .configured(let data):
                 return (try? JSONSerialization.jsonObject(with: data) as? [String: Any]) ?? [
                     "ok": false, "unknown": true,
@@ -47,10 +57,19 @@ final class CodexBridge: @unchecked Sendable {
             }
         }
     }
+    func warmOptions() {
+        queue.async {
+            _ = try? self.composer.models()
+            _ = self.executionModes()
+        }
+    }
     var event: (@Sendable (String, Data) -> Void)?
     init(
         ipc: CodexIPC = CodexIPC(),
         followUps: CodexFollowUps = CodexFollowUps(), attachments: CodexAttachments? = try? CodexAttachments(),
+        background: CodexBackgroundSessions = CodexBackgroundSessions(),
+        creationReceipts: ProviderOperationReceipts = ProviderOperationReceipts(),
+        backgroundCreationReceipt: (([String: Any], String, [[String: Any]]) throws -> [String: Any]?)? = nil,
         executionModeCatalog: @escaping () throws -> [[String: Any]] = CodexExecutionMode.nativeCatalog,
         desktopBuild: @escaping () -> String? = CodexBridge.installedDesktopBuild,
         openNativeThread: @escaping @Sendable (String) -> Void = { thread in
@@ -62,17 +81,29 @@ final class CodexBridge: @unchecked Sendable {
         self.ipc = ipc
         self.followUps = followUps
         self.attachments = attachments
+        self.background = background
+        self.creationReceipts = creationReceipts
+        readBackgroundCreationReceipt =
+            backgroundCreationReceipt ?? { request, client, input in
+                try background.creationReceipt(request: request, client: client, expectedInput: input)
+            }
         readDesktopBuild = desktopBuild
         self.openNativeThread = openNativeThread
         readExecutionCatalog = executionModeCatalog
+        background.event = { [weak self] thread in
+            self?.queue.async { [weak self] in self?.scheduleBackground(thread) }
+        }
         ipc.broadcast = { [weak self] data in self?.queue.async { [weak self] in self?.receive(data) } }
         ipc.disconnected = { [weak self] in
             self?.queue.async { [weak self] in
                 guard let self else { return }
-                self.owners.removeAll()
-                self.states.removeAll()
-                self.revisions.removeAll()
-                for client in self.selected.keys {
+                let desktopThreads = self.owners.keys.filter { (try? self.background.owns(thread: $0)) != true }
+                for thread in desktopThreads {
+                    self.owners.removeValue(forKey: thread)
+                    self.states.removeValue(forKey: thread)
+                    self.revisions.removeValue(forKey: thread)
+                }
+                for (client, thread) in self.selected where (try? self.background.owns(thread: thread)) != true {
                     self.emit(
                         client,
                         [
@@ -96,8 +127,16 @@ final class CodexBridge: @unchecked Sendable {
         if let cached = creationReceipts.cachedReply(
             data, client: client, provider: "codex", operations: ["newReceiptCheck"])
         {
-            completion(cached)
-            return
+            let request = try? JSONSerialization.jsonObject(with: data) as? [String: Any]
+            let value = try? JSONSerialization.jsonObject(with: cached) as? [String: Any]
+            // Mutation replays remain protected. An unresolved receipt lookup may
+            // obtain read-only native evidence after its process-local observer was lost.
+            if request?["op"] as? String != "newReceiptCheck"
+                || SessionProviderReply.boolean(value?["unknown"]) != true
+            {
+                completion(cached)
+                return
+            }
         }
         requestAdmission.submit(on: queue) {
             completion(SessionRequestAdmission.rejection(provider: "codex"))
@@ -122,7 +161,13 @@ final class CodexBridge: @unchecked Sendable {
                     }
                     return
                 }
-                result = try self.handle(request, client: client)
+                let op = request["op"] as? String ?? ""
+                if ["send", "settings", "interrupt", "approve", "queueSteer", "queueDelete"].contains(op) {
+                    // Desktop mutations run with the session unlocked so the Codex window renders them live.
+                    result = try ScreenLock.preferUnlocked { try self.handle(request, client: client) }
+                } else {
+                    result = try self.handle(request, client: client)
+                }
                 if result["ok"] == nil { result["ok"] = true }
             } catch let file as SessionFileRequest {
                 SessionFileLoader.shared.perform(file, provider: "codex", completion: completion)
@@ -135,23 +180,8 @@ final class CodexBridge: @unchecked Sendable {
             completion((try? JSONSerialization.data(withJSONObject: result)) ?? Data())
         }
     }
-    // Checked against packaged protocol versions and the real desktop subscription/open path.
-    private static let supportedBuilds: Set<String> = ["11645", "12404", "12553", "12947"]
-    // The new-composer labels, project catalog and native first-message metadata were inspected for this build.
-    private static let creationBuilds: Set<String> = ["12553"]
-    // thread/start schema plus desktop v2 start-turn / v11 snapshot contracts.
-    // This path does not use the legacy AX new-composer flow.
-    static func supportsConfiguredCreation(build: String?) -> Bool {
-        guard let build else { return false }
-        return ["12553", "12947"].contains(build)
-    }
-
-    private func requireConfiguredCreation() throws {
-        guard compatible() else { throw compatibilityError() }
-        guard Self.supportsConfiguredCreation(build: desktopBuild()) else {
-            throw CLIError(L10n.text("session.codex_creation_build_unverified"))
-        }
-    }
+    // Desktop build numbers are diagnostic/cache identities, not capability gates.
+    // IPC and App Server validate their actual interfaces and native receipts.
     private func desktopBuild() -> String? { readDesktopBuild() }
     static func installedDesktopBuild() -> String? {
         let running = NSRunningApplication.runningApplications(withBundleIdentifier: "com.openai.codex").first?
@@ -161,27 +191,18 @@ final class CodexBridge: @unchecked Sendable {
         else { return nil }
         return bundle.object(forInfoDictionaryKey: "CFBundleVersion") as? String
     }
-    private func compatible() -> Bool { desktopBuild().map(Self.supportedBuilds.contains) ?? false }
     private func executionModes() -> [[String: Any]] {
         let build = desktopBuild()
-        guard CodexExecutionMode.supports(build: build) else { return [] }
         let now = ProcessInfo.processInfo.systemUptime
-        if executionCatalogBuild != build || now - executionCatalogCheckedAt > 300 {
+        if executionCatalogBuild != build || executionCatalogCheckedAt == -.infinity {
             executionCatalogBuild = build
             executionCatalogCheckedAt = now
             executionCatalog = (try? readExecutionCatalog()) ?? []
         }
         return executionCatalog
     }
-    private func compatibilityError() -> CLIError {
-        CLIError(
-            L10n.text(
-                "session.codex_desktop_build_0_is_not_supported_yet_update_vibepier_and_retry",
-                desktopBuild() ?? L10n.text("session.unknown")))
-    }
-    /// The link only prefills. A verified native Send element is invoked once,
-    /// then a fresh thread and its exact first native user record provide the receipt.
-    /// SessionRemote's durable, device-scoped journal owns retries, including unknown results.
+    /// New phone conversations stay on the background App Server for their whole lifecycle.
+    /// There is no desktop fallback after an uncertain native submission.
     private func create(
         _ request: [String: Any], ticket: ProviderOperationReceipts.Ticket,
         reply: @escaping @Sendable ([String: Any]) -> Void
@@ -189,80 +210,15 @@ final class CodexBridge: @unchecked Sendable {
         guard let operation = request["id"] as? String, UUID(uuidString: operation) != nil else {
             throw CLIError(L10n.text("core.invalid_request"))
         }
-        if ["model", "effort", "mode", "executionMode", "draftId", "attachments"].contains(where: { request[$0] != nil }
-        ) {
-            try createConfigured(request, ticket: ticket, reply: reply)
-            return
-        }
-        guard !creationInFlight else { throw CLIError(L10n.text("session.codex_creation_busy")) }
-        let cwd = request["cwd"] as? String ?? ""
-        let text = (request["text"] as? String ?? "").replacingOccurrences(of: "\r\n", with: "\n")
-            .trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !text.isEmpty, text.utf8.count <= 32_000 else {
-            throw CLIError(L10n.text("session.the_first_message_must_not_be_empty_or_exceed_32_kb"))
-        }
-        guard try store.isProject(cwd), FileManager.default.fileExists(atPath: cwd) else {
-            throw CLIError(L10n.text("session.the_project_directory_no_longer_exists_0", cwd))
-        }
-        guard compatible() else { throw compatibilityError() }
-        guard desktopBuild().map(Self.creationBuilds.contains) ?? false else {
-            throw CLIError(L10n.text("session.codex_creation_build_unverified"))
-        }
-        // Resolve before unlocking/opening. Duplicate names and multi-root projects require native clarification.
-        _ = try store.creationProject(cwd: cwd)
-        creationInFlight = true
-        creationQueue.async { [self] in
-            let outcome: CreationReply
-            do {
-                let receipt = try DesktopInteractions.perform {
-                    guard compatible() else { throw compatibilityError() }
-                    guard desktopBuild().map(Self.creationBuilds.contains) ?? false else {
-                        throw CLIError(L10n.text("session.codex_creation_build_unverified"))
-                    }
-                    let project = try store.creationProject(cwd: cwd)
-                    let url = try CodexCreationFlow.url(project: project, text: text)
-                    return try ScreenLock.unlocked {
-                        let snapshot = try store.creationSnapshot(cwd: cwd)
-                        let proofBytes = snapshot.existingIDs.reduce(text.utf8.count + cwd.utf8.count + 512) {
-                            $0 + $1.utf8.count + 64
-                        }
-                        try creationReceipts.observe(ticket, bytes: proofBytes) { [weak self] in
-                            try self?.store.created(snapshot: snapshot, text: text)?.reply
-                        }
-                        return try CodexCreationFlow.run(
-                            open: {
-                                guard DispatchQueue.main.sync(execute: { NSWorkspace.shared.open(url) }) else {
-                                    throw CLIError(L10n.text("session.could_not_open_codex"))
-                                }
-                            },
-                            prepare: {
-                                guard
-                                    let prepared = DispatchQueue.main.sync(execute: {
-                                        CodexNewComposer.prepare(text: text, projectName: project.name)
-                                    })
-                                else { return nil }
-                                return {
-                                    guard try self.store.creationProject(cwd: cwd) == project else {
-                                        throw CLIError(L10n.text("session.codex_creation_project_unverified"))
-                                    }
-                                    try DispatchQueue.main.sync { try prepared.submit() }
-                                    self.creationReceipts.arm(ticket)
-                                }
-                            },
-                            receipt: {
-                                try store.created(snapshot: snapshot, text: text)
-                            }, wait: { Thread.sleep(forTimeInterval: 0.4) })
-                    }
-                }
-                outcome = .success(receipt)
-            } catch {
-                outcome = .failure(String(describing: error), uncertain: error is UnconfirmedDesktopMutation)
-            }
-            queue.async { [self] in
-                creationInFlight = false
-                reply(outcome.value)
-            }
-        }
+        var configured = request
+        // Legacy phones have no attachment draft. Bind their single creation to the original operation.
+        if configured["draftId"] == nil { configured["draftId"] = operation }
+        let models = try composer.models()
+        if configured["model"] == nil { configured["model"] = models.first?["id"] }
+        let model = models.first { $0["id"] as? String == configured["model"] as? String } ?? [:]
+        if configured["effort"] == nil { configured["effort"] = model["defaultEffort"] ?? "medium" }
+        if configured["mode"] == nil { configured["mode"] = "auto" }
+        try createConfigured(configured, ticket: ticket, reply: reply)
     }
 
     private func createConfigured(
@@ -270,15 +226,18 @@ final class CodexBridge: @unchecked Sendable {
         reply: @escaping @Sendable ([String: Any]) -> Void
     ) throws {
         guard !creationInFlight else { throw CLIError(L10n.text("session.codex_creation_busy")) }
-        try requireConfiguredCreation()
-        guard ["model", "effort", "mode", "executionMode"].allSatisfy({ request[$0] == nil || request[$0] is String }),
+        guard
+            ["model", "effort", "mode", "executionMode", "serviceTier"].allSatisfy({
+                request[$0] == nil || request[$0] is String
+            }),
             request["attachments"] == nil || request["attachments"] is [String]
         else { throw CLIError(L10n.text("core.invalid_request")) }
         let cwd = request["cwd"] as? String ?? ""
         guard try store.isProject(cwd) else { throw CLIError(L10n.text("session.codex_creation_project_unverified")) }
         let project = try store.creationProject(cwd: cwd)
         let draft = try SessionCreationDraft(request, project: project.cwd, provider: "codex")
-        let settings = try composer.settings(request, state: [:], executionModes: executionModes())
+        let settings = try composer.settings(
+            request, state: ["latestThreadSettings": ["serviceTier": NSNull()]], executionModes: executionModes())
         let text = (request["text"] as? String ?? "").replacingOccurrences(of: "\r\n", with: "\n")
             .trimmingCharacters(in: .whitespacesAndNewlines)
         let ids = request["attachments"] as? [String] ?? []
@@ -292,21 +251,37 @@ final class CodexBridge: @unchecked Sendable {
             attachments: try JSONSerialization.data(withJSONObject: ["input": selected.input, "files": selected.files]),
             text: text, client: ticket.key.client, operation: ticket.key.operation)
         let observation = CodexConfiguredCreation.Observation()
-        try creationReceipts.observe(ticket, bytes: cwd.utf8.count + 2048) { try observation.nativeReceipt() }
+        try creationReceipts.observe(ticket, bytes: cwd.utf8.count + 2048) {
+            try observation.receipt { try CodexConfiguredCreation.freshView($0) }
+        }
+        let settingsObject = settings
+        let services = CodexConfiguredCreation.Services(
+            start: { [background] parameters in
+                try background.startForDesktop(
+                    parameters, project: project, settings: settingsObject, title: text)
+            },
+            open: { [openNativeThread] thread in openNativeThread(thread) },
+            view: { try CodexConfiguredCreation.awaitDesktopView($0) },
+            send: { owner, parameters in
+                // The desktop app owns the thread, so its first turn renders live there.
+                let channel = CodexIPC()
+                defer { channel.close() }
+                try channel.connect()
+                return try channel.request("thread-follower-start-turn", parameters, version: 2, target: owner)
+            })
         creationInFlight = true
         creationQueue.async { [self] in
             let outcome: CreationReply
             do {
-                guard DesktopInteractions.lock.lock(before: Date().addingTimeInterval(2)) else {
-                    throw CLIError(L10n.text("session.codex_creation_busy"))
-                }
-                defer { DesktopInteractions.lock.unlock() }
+                // Unlock first (or fail before any native effect), then drive the desktop app directly.
                 outcome = .configured(
                     try ScreenLock.unlocked {
-                        try CodexConfiguredCreation.perform(input, observation: observation) {
+                        try CodexConfiguredCreation.run(input, services: services, observation: observation) {
                             creationReceipts.arm(ticket)
                         }
                     })
+            } catch let error as CodexConfiguredCreation.NotSubmitted {
+                outcome = .notSubmitted(error.reason, thread: error.thread, cwd: error.cwd)
             } catch {
                 outcome = .failure(String(describing: error), uncertain: error is UnconfirmedDesktopMutation)
             }
@@ -316,12 +291,41 @@ final class CodexBridge: @unchecked Sendable {
             }
         }
     }
+    /// Rebuild only the original submitted input. The background registry and
+    /// native history decide whether this is a matching creation; no turn is started.
+    private func recoveredCreationReceipt(_ request: [String: Any], client: String) throws -> [String: Any]? {
+        guard let operation = request["operation"] as? String, UUID(uuidString: operation) != nil,
+            let cwd = request["cwd"] as? String, cwd.hasPrefix("/"), cwd.utf8.count <= 4096, !cwd.contains("\0"),
+            request["text"] == nil || request["text"] is String,
+            request["attachments"] == nil || request["attachments"] is [String]
+        else { return nil }
+        let text = (request["text"] as? String ?? "").replacingOccurrences(of: "\r\n", with: "\n")
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+        let ids = request["attachments"] as? [String] ?? []
+        guard text.utf8.count <= 32_000, !text.isEmpty || !ids.isEmpty else { return nil }
+        var input: [[String: Any]] = text.isEmpty ? [] : [["type": "text", "text": text, "text_elements": []]]
+        if !ids.isEmpty {
+            guard let attachments else { return nil }
+            var original = request
+            if original["draftId"] == nil { original["draftId"] = operation }
+            let draft = try SessionCreationDraft(original, project: cwd, provider: "codex")
+            input += try attachments.selected(ids, device: client, thread: draft.scope, markUsed: false).input
+        }
+        return try readBackgroundCreationReceipt(request, client, input)
+    }
+
     private func handle(_ request: [String: Any], client: String) throws -> [String: Any] {
         let op = request["op"] as? String ?? ""
+        if ["newOptions", "composerOptions"].contains(op), request["refreshOptions"] as? Bool == true {
+            _ = try composer.models(refresh: true)
+            executionCatalogCheckedAt = -.infinity
+        }
         if op == "newReceiptCheck" {
-            return creationReceipts.lookup(
+            let cached = creationReceipts.lookup(
                 client: client, operation: request["operation"] as? String ?? "",
                 thread: request["threadId"] as? String ?? "", kind: "new")
+            guard SessionProviderReply.boolean(cached["unknown"]) == true else { return cached }
+            return (try? recoveredCreationReceipt(request, client: client)) ?? cached
         }
         if op == "newOptions" || SessionCreationDraft.attachmentOperations.contains(op) {
             let cwd = request["cwd"] as? String ?? ""
@@ -331,19 +335,22 @@ final class CodexBridge: @unchecked Sendable {
             guard let attachments else { throw CLIError(L10n.text("session.attachment_storage_is_unavailable")) }
             let draft = try SessionCreationDraft(request, project: cwd, provider: "codex")
             if op == "newOptions" {
-                try requireConfiguredCreation()
                 let models = try composer.models()
                 let first = models.first ?? [:]
                 let modes = executionModes()
                 var initial: [String: Any] = [
                     "model": first["id"] as? String ?? "", "effort": first["defaultEffort"] as? String ?? "medium",
-                    "mode": "auto",
+                    "mode": "auto", "serviceTier": "standard",
                 ]
                 if !modes.isEmpty { initial["executionMode"] = "default" }
                 return [
-                    "creationVersion": 1, "draftId": draft.id, "models": models,
+                    "creationVersion": 1, "backendKind": "appServer", "draftId": draft.id, "models": models,
                     "composer": initial, "executionModes": modes,
-                    "capabilities": ["attachments": true, "executionMode": !modes.isEmpty],
+                    "capabilities": [
+                        "new": true, "newAttachments": true, "attachments": true,
+                        "modelSelection": true, "effortSelection": true, "permissionMode": true,
+                        "executionMode": !modes.isEmpty,
+                    ],
                     "permissionModes": [
                         ["id": "auto", "name": "Default permissions"],
                         ["id": "guardian-approvals", "name": "Approve for me"],
@@ -393,6 +400,29 @@ final class CodexBridge: @unchecked Sendable {
             updateIntervals[client] = interval
             let known = request["knownVersion"] as? String ?? ""
             knownVersions[client] = known
+            // Earlier builds kept phone-created threads in a private proxy. Hand an idle one to the desktop app so its
+            // turns render live there; a thread with a running background turn stays put until it finishes.
+            if try background.owns(thread: thread), (try? background.releaseToDesktop(thread: thread)) == nil {
+                if viewVersions[client] == viewVersion, selected[client] != thread {
+                    throw CLIError(L10n.text("session.the_session_view_is_closed"))
+                }
+                let view = try background.view(thread: thread)
+                backgroundRetryDelays.removeValue(forKey: thread)
+                if selected[client] != thread { unsubscribe(client, closeIPC: false) }
+                selected[client] = thread
+                viewVersions[client] = viewVersion
+                updateIntervals[client] = interval
+                knownVersions[client] = known
+                states[thread] = view.state
+                owners[thread] = view.owner
+                revisions[thread, default: 0] += 1
+                var page = conversationPage(view.state, thread: thread)
+                page["viewVersion"] = viewVersion
+                page["revision"] = revisions[thread]
+                page["canSend"] = true
+                emittedPages[client] = page
+                return ConversationReply.conditional(page, known: request["knownVersion"] as? String)
+            }
             if viewVersions[client] == viewVersion {
                 guard selected[client] == thread else {
                     throw CLIError(L10n.text("session.the_session_view_is_closed"))
@@ -401,19 +431,17 @@ final class CodexBridge: @unchecked Sendable {
                     var page = conversationPage(state, thread: thread)
                     page["viewVersion"] = viewVersion
                     page["revision"] = revisions[thread] ?? 0
-                    page["canSend"] = compatible()
+                    page["canSend"] = true
                     emittedPages[client] = page
                     return ConversationReply.conditional(page, known: request["knownVersion"] as? String)
                 }
                 // A lost connection clears native state but retains the phone's selected view. Recovery must not
                 // depend on advancing that view or opening a desktop window; only rediscover and follow its owner.
-                guard compatible() else { throw compatibilityError() }
                 try ipc.connect()
                 resolveOwner(thread, client: client, viewVersion: viewVersion, attempts: 5)
                 return ["threadId": thread, "opening": true]
             }
             viewVersions[client] = viewVersion
-            guard compatible() else { throw compatibilityError() }
             if selected[client] == thread, let state = states[thread], let owner = owners[thread],
                 (try? ipc.request(
                     "thread-owner-discovery", ["hostId": "local", "conversationId": thread], version: 1, timeout: 2)[
@@ -431,9 +459,17 @@ final class CodexBridge: @unchecked Sendable {
             updateIntervals[client] = interval
             knownVersions[client] = known
             try ipc.connect()
+            // The desktop loads the thread only while the session is unlocked; the relock grace keeps it loaded.
+            try? ScreenLock.preferUnlocked {}
             openNativeThread(thread)
-            resolveOwner(thread, client: client, viewVersion: viewVersion, attempts: 5)
+            resolveOwner(thread, client: client, viewVersion: viewVersion, attempts: 8)
             return ["threadId": thread, "opening": true]
+        }
+        let isBackground = try background.owns(thread: thread)
+        if isBackground, selected[client] == thread {
+            let view = try background.view(thread: thread)
+            states[thread] = view.state
+            owners[thread] = view.owner
         }
         guard
             ["receiptCheck", "settingsReceiptCheck", "interruptReceiptCheck", "queueReceiptCheck"].contains(op)
@@ -494,10 +530,18 @@ final class CodexBridge: @unchecked Sendable {
             return usage
         }
         if op == "settingsReceiptCheck" {
+            if isBackground {
+                // Current settings alone cannot prove which setter produced them.
+                // The shared journal already returns confirmed operations; a lost
+                // operation-specific native proof remains unknown after reconnect.
+                return ["accepted": false, "unknown": true, "threadId": thread]
+            }
             let actual =
                 request["executionMode"] == nil && request["serviceTier"] == nil
                 ? state
-                : try CodexConfiguredCreation.freshView(thread, expectedOwner: owner).state
+                : (isBackground
+                    ? try background.view(thread: thread).state
+                    : try CodexConfiguredCreation.freshView(thread, expectedOwner: owner).state)
             let selection = CodexComposer.selection(actual)
             let keys = ["model", "effort", "mode", "executionMode", "serviceTier"].filter { request[$0] != nil }
             let accepted = !keys.isEmpty && keys.allSatisfy { request[$0] as? String == selection[$0] as? String }
@@ -548,12 +592,16 @@ final class CodexBridge: @unchecked Sendable {
         if op == "interruptReceiptCheck" {
             let expected = request["expectedTurnId"] as? String ?? ""
             let old = CodexConversation.turns(state).first { $0["turnId"] as? String == expected }
-            return ["accepted": old != nil && old?["status"] as? String != "inProgress", "threadId": thread]
+            return [
+                "accepted": isBackground
+                    ? old?["status"] as? String == "interrupted"
+                    : old != nil && old?["status"] as? String != "inProgress", "threadId": thread,
+            ]
         }
         if op == "sync" {
             var page = conversationPage(state, thread: thread)
             page["revision"] = revisions[thread] ?? 0
-            page["canSend"] = compatible()
+            page["canSend"] = true
             page["viewVersion"] = viewVersions[client]
             emittedPages[client] = page
             return ConversationReply.conditional(page, known: request["knownVersion"] as? String)
@@ -561,6 +609,7 @@ final class CodexBridge: @unchecked Sendable {
         if op == "receiptCheck" {
             let identity = try CodexMessageIdentity(
                 client: client, thread: thread, operation: request["operation"] as? String ?? "")
+            if isBackground { return try background.receipt(thread: thread, marker: identity.nativeID) }
             let queued = try followUps.messages(thread)
             let found = identity.delivered(in: state) || identity.queued(in: queued)
             return ["accepted": found, "threadId": thread]
@@ -587,7 +636,11 @@ final class CodexBridge: @unchecked Sendable {
                     $0["fingerprint"] as? String == request["fingerprint"] as? String
                 })
             else { throw CLIError(L10n.text("session.the_approval_changed_or_expired_refresh_it")) }
-            return ["threadId": thread, "approval": item]
+            var projected = item
+            if isBackground, projected["method"] as? String == CodexQuestions.asyncMethod {
+                projected["canDecide"] = false
+            }
+            return ["threadId": thread, "approval": projected]
         }
         if op == "parts" {
             let id = request["messageId"] as? String ?? ""
@@ -641,7 +694,33 @@ final class CodexBridge: @unchecked Sendable {
                     ? (request["binaryVersion"] as? Int == 1 ? 2048 : 1280) : 480,
                 device: client, binary: request["binaryVersion"] as? Int == 1)
         }
-        guard compatible() else { throw CLIError(L10n.text("session.the_codex_version_changed_sending_is_disabled")) }
+        if isBackground {
+            if ["queueSteer", "queueDelete", "queueReceiptCheck"].contains(op) {
+                throw CLIError(L10n.text("agent.capability_unavailable"))
+            }
+            if ["send", "settings", "interrupt", "approve"].contains(op) {
+                var native = request
+                if op == "send" {
+                    let text = (request["text"] as? String ?? "").trimmingCharacters(in: .whitespacesAndNewlines)
+                    let ids = request["attachments"] as? [String] ?? []
+                    guard !text.isEmpty || !ids.isEmpty, text.utf8.count <= 32_000,
+                        let attachments
+                    else {
+                        throw CLIError(L10n.text("session.the_reply_must_not_be_empty_or_exceed_32_kb"))
+                    }
+                    let attached = try attachments.selected(ids, device: client, thread: thread)
+                    native["input"] =
+                        (text.isEmpty ? [] : [["type": "text", "text": text, "text_elements": []]])
+                        + attached.input
+                } else if op == "settings" {
+                    native["settings"] = try composer.settings(
+                        request, state: state, executionModes: executionModes())
+                }
+                let result = try background.mutate(op: op, request: native, client: client)
+                scheduleBackground(thread)
+                return result
+            }
+        }
         if op == "settings" {
             let settings = try composer.settings(request, state: state, executionModes: executionModes())
             var params: [String: Any] = ["conversationId": thread, "threadSettings": settings]
@@ -881,7 +960,9 @@ final class CodexBridge: @unchecked Sendable {
         updateIntervals.removeValue(forKey: client)
         knownVersions.removeValue(forKey: client)
         if !selected.values.contains(thread) {
-            try? ipc.follow(thread, owner: owners[thread], on: false)
+            if (try? background.owns(thread: thread)) != true {
+                try? ipc.follow(thread, owner: owners[thread], on: false)
+            }
             states.removeValue(forKey: thread)
             owners.removeValue(forKey: thread)
             revisions.removeValue(forKey: thread)
@@ -896,16 +977,33 @@ final class CodexBridge: @unchecked Sendable {
         capabilities["videoFiles"] = true
         let modes = executionModes()
         capabilities["executionMode"] = !modes.isEmpty && CodexExecutionMode.selected(state) != nil
+        if (try? background.owns(thread: thread)) == true {
+            page["backendKind"] = "appServer"
+            for action in [
+                "send", "settings", "interrupt", "approvals", "questions", "attachments",
+                "modelSelection", "permissionMode", "effortSelection",
+            ] { capabilities[action] = true }
+            for action in ["queue", "queueDelete", "queueSteer"] { capabilities[action] = false }
+            capabilities["contextUsage"] = CodexConversation.contextUsage(state) != nil
+            page["approvals"] = (page["approvals"] as? [[String: Any]] ?? []).map { approval in
+                var approval = approval
+                if approval["method"] as? String == CodexQuestions.asyncMethod { approval["canDecide"] = false }
+                return approval
+            }
+        }
         page["executionModes"] = modes
         page["capabilities"] = capabilities
         if let owner = owners[thread] { page["nativeOwnerEpoch"] = CodexConversation.fingerprint(["owner": owner]) }
-        page["queuedMessages"] = CodexFollowUps.project((try? followUps.messages(thread)) ?? [])
+        page["queuedMessages"] =
+            (try? background.owns(thread: thread)) == true
+            ? [] : CodexFollowUps.project((try? followUps.messages(thread)) ?? [])
         return ConversationReply.versioned(page)
     }
     private func readHistory(
         _ state: [String: Any], thread: String, owner: String, needsRead: ([String: Any]) -> Bool
     ) throws -> [String: Any] {
-        try CodexHistoryReadback.readState(
+        if try background.owns(thread: thread) { return try background.view(thread: thread).state }
+        return try CodexHistoryReadback.readState(
             state, minimumRevision: revisions[thread] ?? 0, needsRead: needsRead,
             fresh: { revision, timeout in
                 try freshHistorySnapshot(thread: thread, owner: owner, revision: revision, timeout: timeout)
@@ -914,12 +1012,20 @@ final class CodexBridge: @unchecked Sendable {
     private func freshHistorySnapshot(thread: String, owner: String, revision: Int, timeout: Double) throws
         -> CodexHistoryReadback.Snapshot
     {
+        if try background.owns(thread: thread) {
+            return CodexHistoryReadback.Snapshot(
+                data: Data(), state: try background.view(thread: thread).state, revision: revisions[thread] ?? revision)
+        }
         let snapshot = try ipc.freshSnapshot(thread, owner: owner, minimumRevision: revision, timeout: timeout)
         guard owners[thread] == owner else { throw CLIError(L10n.text("session.the_session_changed_reopen_it")) }
         receive(snapshot.data)
         return snapshot
     }
     private func hydrateHistory(thread: String, owner: String, timeout: Double) throws -> Int {
+        if try background.owns(thread: thread) {
+            states[thread] = try background.view(thread: thread).state
+            return revisions[thread] ?? 0
+        }
         let reply = try ipc.request(
             "thread-follower-load-complete-history", ["conversationId": thread], version: 1, target: owner,
             timeout: timeout)
@@ -999,7 +1105,7 @@ final class CodexBridge: @unchecked Sendable {
                 var result = self.conversationPage(state, thread: thread)
                 result["viewVersion"] = self.viewVersions[client]
                 result["revision"] = self.revisions[thread] ?? revision
-                result["canSend"] = self.compatible()
+                result["canSend"] = true
                 let full = result
                 if let previous = self.emittedPages[client] {
                     if previous["cacheVersion"] as? String == full["cacheVersion"] as? String
@@ -1030,5 +1136,39 @@ final class CodexBridge: @unchecked Sendable {
         var value = value
         value["viewVersion"] = viewVersions[client]
         if let data = try? JSONSerialization.data(withJSONObject: value) { event?(client, data) }
+    }
+
+    private func scheduleBackground(_ thread: String) {
+        guard selected.values.contains(thread), scheduled.insert(thread).inserted else { return }
+        let delay = selected.filter { $0.value == thread }.keys.compactMap { updateIntervals[$0] }.min() ?? 0.25
+        queue.asyncAfter(deadline: .now() + delay) { [self] in
+            scheduled.remove(thread)
+            guard selected.values.contains(thread) else { return }
+            do {
+                let view = try background.view(thread: thread)
+                backgroundRetryDelays.removeValue(forKey: thread)
+                states[thread] = view.state
+                owners[thread] = view.owner
+                revisions[thread, default: 0] += 1
+                for (client, selectedThread) in selected where selectedThread == thread {
+                    var page = conversationPage(view.state, thread: thread)
+                    page["canSend"] = true
+                    page["viewVersion"] = viewVersions[client]
+                    page["revision"] = revisions[thread]
+                    if emittedPages[client]?["cacheVersion"] as? String == page["cacheVersion"] as? String { continue }
+                    emittedPages[client] = page
+                    page["event"] = "snapshot"
+                    emit(client, page)
+                }
+            } catch {
+                for (client, selectedThread) in selected where selectedThread == thread {
+                    emittedPages.removeValue(forKey: client)
+                    emit(client, ["event": "unavailable", "threadId": thread, "error": String(describing: error)])
+                }
+                let retryDelay = min((backgroundRetryDelays[thread] ?? 0.5) * 2, 30)
+                backgroundRetryDelays[thread] = retryDelay
+                queue.asyncAfter(deadline: .now() + retryDelay) { [weak self] in self?.scheduleBackground(thread) }
+            }
+        }
     }
 }

@@ -44,3 +44,9 @@ The **Mac permissions** page has a clickable file-access status. **Access confir
 An observed file-permission denial opens repair guidance once in the running installed app, even if the first-launch guide was shown previously. If VibePier is already enabled in Full Disk Access but reads are still denied after a reinstall, remove the obsolete entry, add the current `/Applications/VibePier.app`, enable it, then quit and reopen VibePier. Folder-specific permissions can also be reviewed under **Privacy & Security → Files and Folders**. Files that disappeared or have an unsupported format are not classified as revoked authorization.
 
 安装版运行中首次遇到真实文件权限拒绝，会重新显示修复引导，不受“首次引导已显示”记录阻止，同一进程的后续拒绝不会反复弹窗。若重装后完全磁盘访问开关已开但仍读不了，移除旧条目，重新添加当前 `/Applications/VibePier.app` 并开启，退出后重新打开。单目录授权也可在「隐私与安全性 → 文件与文件夹」检查。文件丢失或格式不支持不会误判成授权被撤销。
+
+## Unlock preferences / 解锁偏好
+
+The optional unlock password is stored in the current Mac user's `Library/Application Support/vibepier/preferences/unlock.json`, in plain text with `0600` file and `0700` directory permissions. It is outside the app bundle and Android data, so signed app replacement and APK updates preserve it. It is excluded from portable settings, diagnostics and receipts. First access migrates the old Keychain item only after the local preferences commit succeeds. An explicit clear saves an empty record, preventing legacy restoration.
+
+可选解锁密码按用户选择明文存于 Mac 本地偏好，覆盖安装 Mac 应用或 APK 均保留；手机不保存密码，设置导出、诊断与回执不包含密码。旧钥匙串密码在偏好写入成功后迁移删除，清除操作保留空记录，避免恢复旧密码。手动解锁被确认后清除旧失败状态；锁屏时失败仍暂停，避免反复尝试。

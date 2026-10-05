@@ -5,5 +5,12 @@
     <string name="creation_choose_options">请先选择可用的模型和审批模式。</string>
     <string name="creation_invalid_prompt">首条文字最多 32 KB，可添加最多 6 个不同的附件。</string>
     <string name="creation_loading_options">正在读取模型和审批模式…</string>
-    <string name="creation_options_unavailable">无法读取新会话选项，请检查 Mac 上的 VibePier。</string>
+    <string name="creation_options_unavailable">无法读取新会话选项，可点“开始”重新加载，或检查 Mac 上的 VibePier。</string>
+    <string name="creation_refresh_options">刷新选项</string>
+    <string name="creation_speed_unsupported">加速：当前模型或 Mac 版本暂不支持</string>
+    <string name="creation_pending_history">核对先前新建结果</string>
+    <string name="creation_old_receipts_kept">先前请求仍待确认，草稿和回执会保留；可以提交不同的新消息。</string>
+    <string name="creation_duplicate_pending">这条首条消息或附件与待确认的新建请求相同，请先核对原回执。</string>
+    <string name="creation_stop_waiting_detail">停止等待后会在这里恢复可编辑草稿；Mac 仍可能继续先前的新建，原回执保留供核对。</string>
+    <string name="creation_speed_description">从首条消息起生效。加速可能增加用量。</string>
 </resources>

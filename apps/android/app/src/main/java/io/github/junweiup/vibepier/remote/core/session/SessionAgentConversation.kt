@@ -10,7 +10,6 @@ internal class SessionAgentConversation(
     private val viewVersion: () -> Long,
     private val advanceView: () -> Long?,
     private val adapter: (String) -> String?,
-    private val legacyPending: (String, String) -> Boolean,
     private val rememberCapabilities: (JSONObject, JSONObject) -> Unit,
     private val canMutate: (JSONObject, String) -> Boolean,
     private val errorText: (String) -> String,
@@ -18,6 +17,11 @@ internal class SessionAgentConversation(
     private val readClock: () -> Long = { System.nanoTime() / 1_000_000 },
 ) {
     private val leases = mutableMapOf<String, Pair<SessionAgentProtocol.Target.Creation, String>>()
+    /** Recently settled v2 results keyed by operation ID, so a later "check result" never degrades to a v1 lookup. */
+    private val settled = object : LinkedHashMap<String, JSONObject>() {
+        override fun removeEldestEntry(eldest: MutableMap.MutableEntry<String, JSONObject>?) = size > 64
+    }
+    fun rememberSettled(operationId: String, receipt: JSONObject) { settled[operationId] = JSONObject(receipt.toString()) }
     private var active: SessionAgentClient.Session? = null
     private var subscriptionId: String? = null
     fun clearConnection() { leases.clear(); active = null; subscriptionId = null }
@@ -60,7 +64,7 @@ internal class SessionAgentConversation(
                 else scheduleRead(delay) { fetch() }
             }
             val generation = agent.controlGeneration(scope.ref)
-            agent.read(SessionAgentProtocol.Method.SNAPSHOT, session.target) { reply ->
+            agent.read(SessionAgentProtocol.Method.SNAPSHOT, session.target, preserve = true) { reply ->
                 if (!current(scope)) { done(failure(frozen, "stale_state")); return@read }
                 if (readClock() >= deadline) { done(failure(frozen, "agent_state_not_ready")); return@read }
                 val result = (reply as? SessionAgentProtocol.Reply.Read)?.result
@@ -87,6 +91,7 @@ internal class SessionAgentConversation(
                 renewObservation(verified, result)
                 rememberCapabilities(context, page)
                 if (!current(scope) || generation != agent.controlGeneration(scope.ref)) { done(failure(frozen, "stale_state")); return@read }
+                if (requireLease && !mutationReady(context)) { retry("agent_state_not_ready"); return@read }
                 done(JSONObject(page.toString()).put("ok", true).put("id", frozen.getString("id"))
                     .put("provider", scope.source).put("threadId", scope.thread).put("viewVersion", scope.view))
             }
@@ -101,6 +106,7 @@ internal class SessionAgentConversation(
         if (scope == null || scope.workspace == null || cwd.isBlank() || draft.isBlank()) { done(failure(fields, "stale_state")); return }
         val context = projectionFields(fields, scope.source)
         var attempts = 0
+        var lastDiagnostic: String? = null
         val deadline = readClock() + preparationDeadline
         fun fetch() {
             if (!current(scope) || agent.workspace(scope.source, cwd) != scope.workspace) { done(failure(fields, "stale_state")); return }
@@ -108,16 +114,17 @@ internal class SessionAgentConversation(
             attempts++
             fun retry(code: String) {
                 val delay = preparationDelays.getOrNull(attempts - 1)
-                if (delay == null || readClock() + delay >= deadline) done(failure(fields, code)) else scheduleRead(delay) { fetch() }
+                if (delay == null || readClock() + delay >= deadline) done(failure(fields, code).apply { lastDiagnostic?.let { put("error", it) } }) else scheduleRead(delay) { fetch() }
             }
             agent.read(SessionAgentProtocol.Method.CREATION_OPTIONS, SessionAgentProtocol.Target.Adapter(scope.adapter),
-                JSONObject().put("workspaceRef", scope.workspace).put("draftId", draft)) { reply ->
+                JSONObject().put("workspaceRef", scope.workspace).put("draftId", draft), preserve = true) { reply ->
                 if (!current(scope) || agent.workspace(scope.source, cwd) != scope.workspace) { done(failure(fields, "stale_state")); return@read }
                 if (readClock() >= deadline) { done(failure(fields, "agent_state_not_ready")); return@read }
                 val result = (reply as? SessionAgentProtocol.Reply.Read)?.result
                 if (result == null) {
+                    lastDiagnostic = nativeDiagnostic((reply as? SessionAgentProtocol.Reply.Failure)?.diagnostic)
                     val code = (reply as? SessionAgentProtocol.Reply.Failure)?.code ?: "agent_protocol_invalid"
-                    if (code in retryablePreparation) retry(code) else done(failure(fields, code))
+                    if (code in retryablePreparation) retry(code) else done(failure(fields, code).apply { lastDiagnostic?.let { put("error", it) } })
                     return@read
                 }
                 val creation = result.optJSONObject("creationLease"); val target = creation?.optJSONObject("target")
@@ -133,16 +140,62 @@ internal class SessionAgentConversation(
                 leases[creationKey(scope.source, cwd, draft)] = SessionAgentProtocol.Target.Creation(scope.adapter, scope.workspace, draft, revision) to lease
                 rememberCapabilities(context, options)
                 if (!current(scope) || agent.workspace(scope.source, cwd) != scope.workspace) { done(failure(fields, "stale_state")); return@read }
+                if (!mutationReady(context)) { retry("agent_state_not_ready"); return@read }
                 done(JSONObject(options.toString()).put("ok", true))
             }
         }
         fetch()
     }
 
+    /** Restored project views need a native workspace reference before any list/options/control read. */
+    private fun resolveWorkspace(fields: JSONObject, done: (JSONObject) -> Unit) {
+        val original = scope(fields)
+        val cwd = fields.optString("cwd")
+        if (original == null || !cwd.startsWith('/') || '\u0000' in cwd) { done(failure(fields, "stale_state")); return }
+        val matches = mutableListOf<JSONObject>()
+        fun fetch(offset: Int, pages: Int) {
+            if (!current(original)) { done(failure(fields, "stale_state")); return }
+            agent.read(SessionAgentProtocol.Method.WORKSPACES, SessionAgentProtocol.Target.Adapter(original.adapter),
+                JSONObject().put("search", cwd).put("offset", offset).put("limit", 100), preserve = true) { reply ->
+                if (!current(original)) { done(failure(fields, "stale_state")); return@read }
+                if (reply !is SessionAgentProtocol.Reply.Read) { done(legacyReply(reply, fields)); return@read }
+                val rows = reply.result.optJSONArray("workspaces")
+                if (rows == null || rows.length() > 100) { done(failure(fields, "agent_protocol_invalid")); return@read }
+                for (index in 0 until rows.length()) {
+                    val row = rows.optJSONObject(index) ?: continue
+                    if (row.opt("cwd") == cwd && row.opt("adapterId") == original.adapter) matches.add(row)
+                }
+                if (matches.size > 1) { done(failure(fields, "stale_state")); return@read }
+                val next = reply.result.optInt("nextOffset", -1)
+                if (next >= 0) {
+                    if (next <= offset || pages >= 8) { done(failure(fields, "stale_state")); return@read }
+                    fetch(next, pages + 1); return@read
+                }
+                val row = matches.singleOrNull()
+                val existing = agent.workspace(original.source, cwd)
+                if (row == null || existing != null && existing != row.optString("workspaceRef") || !agent.rememberWorkspace(original.source, row)) {
+                    done(failure(fields, "stale_state")); return@read
+                }
+                done(JSONObject().put("id", fields.optString("id")).put("ok", true))
+            }
+        }
+        fetch(0, 1)
+    }
+
     fun request(op: String, fields: JSONObject, callback: (JSONObject) -> Unit): String? {
         val source = fields.optString("provider").ifBlank(provider)
+        val cwd = fields.optString("cwd")
+        if (agent.negotiated && cwd.isNotBlank() && op in setOf("list", "newOptions", "new") && agent.workspace(source, cwd) == null) {
+            val frozen = projectionFields(fields, source).put("id", fields.optString("id").ifBlank(SessionAgentProtocol::id))
+            resolveWorkspace(frozen) { resolved ->
+                if (!resolved.optBoolean("ok")) callback(resolved)
+                else if (request(op, frozen, callback) == null) callback(failure(frozen, "stale_state"))
+            }
+            return frozen.getString("id")
+        }
         if (agent.negotiated && op in preparedReads) return prepareItemRead(op, fields, callback)
-        if (!agent.negotiated || op !in mutationOperations || legacyPending(source, fields.optString("threadId"))) return requestPrepared(op, fields, callback)
+        // A leftover v1 receipt stays on its own read-only receipt path; it never forces new work onto v1.
+        if (!agent.negotiated || op !in mutationOperations) return requestPrepared(op, fields, callback)
         val frozen = JSONObject(fields.toString()).put("id", fields.optString("id").ifBlank(SessionAgentProtocol::id))
         val id = frozen.getString("id")
         if (agent.hasPendingOperation(id)) {
@@ -154,7 +207,7 @@ internal class SessionAgentConversation(
         if (scope == null) { callback(failure(frozen, "stale_state")); return id }
         val intent = SessionControlPreparation.capture(op, frozen)
         if (intent == null) { callback(failure(frozen, "agent_state_changed")); return id }
-        val desired = intent.fields
+        val desired = intent.fields.put("op", op)
         val prepared: (JSONObject) -> Unit = { result ->
             if (!result.optBoolean("ok")) callback(result)
             else if (!current(scope)) callback(failure(frozen, "stale_state"))
@@ -168,6 +221,15 @@ internal class SessionAgentConversation(
         return id
     }
 
+    /** Only reads may retry while the native composer is briefly unavailable. */
+    private fun mutationReady(fields: JSONObject): Boolean {
+        val op = fields.optString("op")
+        if (op !in setOf("new", "send", "settings")) return true
+        val capability = SessionV1Contract.operation(op)?.capability ?: return false
+        return canMutate(fields, capability) &&
+            (!fields.has("executionMode") || op == "send" || canMutate(fields, "executionMode"))
+    }
+
     private fun prepareItemRead(op: String, fields: JSONObject, callback: (JSONObject) -> Unit): String {
         val frozen = JSONObject(fields.toString()).put("id", fields.optString("id").ifBlank(SessionAgentProtocol::id))
         val scope = scope(frozen)
@@ -175,7 +237,7 @@ internal class SessionAgentConversation(
         prepareSessionControl(frozen, false) { page ->
             if (!page.optBoolean("ok")) { callback(page); return@prepareSessionControl }
             if (!current(scope)) { callback(failure(frozen, "stale_state")); return@prepareSessionControl }
-            val params = JSONObject().put("kind", op)
+            val params = JSONObject().put("kind", op).apply { if (frozen.opt("refreshOptions") == true) put("refreshOptions", true) }
             val approval = if (op == "approvalDetails") {
                 val rows = page.optJSONArray("approvals") ?: JSONArray()
                 (0 until rows.length()).mapNotNull { rows.optJSONObject(it) }.singleOrNull { it.opt("fingerprint") == frozen.opt("fingerprint") }
@@ -223,13 +285,23 @@ internal class SessionAgentConversation(
     private fun requestPrepared(op: String, fields: JSONObject, callback: (JSONObject) -> Unit): String? {
         val source = fields.optString("provider").ifBlank(provider)
         val originalOperation = fields.optString("operation")
+        if (op == "receipt") settled[originalOperation]?.let { receipt ->
+            // Already settled through a late reply; never fall back to a v1 lookup that would report notFound.
+            val id = fields.optString("id").ifBlank(SessionAgentProtocol::id)
+            callback(JSONObject().put("id", id).put("provider", receipt.optString("provider")).put("ok", true)
+                .put("state", "complete").put("operation", originalOperation).put("receipt", JSONObject(receipt.toString())))
+            return id
+        }
         val pendingContext = if (op == "receipt") agent.context(originalOperation) else null
         if (pendingContext != null) {
             val id = fields.optString("id").ifBlank(SessionAgentProtocol::id)
             agent.reconcile(originalOperation) { reply ->
                 val response = JSONObject().put("id", id).put("provider", pendingContext.optString("provider")).put("ok", true)
+                    .put("operation", originalOperation)
                 if (reply is SessionAgentProtocol.Reply.Mutation && reply.status in setOf(SessionAgentProtocol.Status.CONFIRMED, SessionAgentProtocol.Status.REJECTED)) {
                     response.put("state", "complete").put("receipt", legacyReply(reply, pendingContext))
+                } else if (reply is SessionAgentProtocol.Reply.Failure && reply.code == SessionAgentClient.NOT_FOUND) {
+                    response.put("state", "notFound")
                 } else response.put("state", "unknown")
                 callback(response)
             }
@@ -237,8 +309,6 @@ internal class SessionAgentConversation(
         }
         if (!agent.negotiated || op !in routed) return null
         val thread = fields.optString("threadId")
-        if (thread.isNotBlank() && legacyPending(source, thread)) return null
-        if (op in setOf("new", "newOptions") && legacyPending(source, "")) return null
         val id = fields.optString("id").ifBlank(SessionAgentProtocol::id)
         fun fail(code: String) { callback(JSONObject().put("id", id).put("ok", false).put("code", code).put("error", errorText(code))) }
         val adapterId = adapter(source) ?: run { fail("agent_upgrade_required"); return id }
@@ -282,6 +352,7 @@ internal class SessionAgentConversation(
             "newOptions" -> {
                 val workspace = agent.workspace(source, fields.optString("cwd")) ?: run { fail("stale_state"); return id }
                 params.put("workspaceRef", workspace).put("draftId", fields.optString("draftId"))
+                if (fields.opt("refreshOptions") == true) params.put("refreshOptions", true)
             }
             "history", "parts", "message" -> {
                 params.put("kind", op)
@@ -302,7 +373,12 @@ internal class SessionAgentConversation(
                     params.put("mode", fields.optString("submissionMode").takeIf { it in setOf("start", "queue") } ?: if (page.opt("status") == "active" && page.optJSONObject("agentCapabilities")?.optJSONObject("actions")?.optJSONObject("queue")?.opt("available") == true) "queue" else "start")
                         .put("content", content(fields))
                 }
-                "new" -> params.put("initialMessage", JSONObject().put("content", content(fields))).put("options", options(fields))
+                "new" -> {
+                    if (SessionWaitingPolicy.duplicateCreation(agent.pendingLegacy(source, ""), fields.optString("cwd"), fields.optString("text"), fields.optJSONArray("attachments") ?: JSONArray(), id)) {
+                        fail("receipt_unknown"); return id
+                    }
+                    params.put("initialMessage", JSONObject().put("content", content(fields))).put("options", options(fields))
+                }
                 "settings" -> params.put("options", options(fields))
                 "interrupt" -> params.put("expectedTurnId", fields.optString("expectedTurnId"))
                 "queueDelete" -> params.put("queueId", fields.optString("messageId"))
@@ -438,7 +514,7 @@ internal class SessionAgentConversation(
         val value = JSONObject().put("id", context.optString("id")).put("provider", context.optString("provider"))
             .put("threadId", context.optString("threadId")).put("viewVersion", context.optLong("viewVersion", viewVersion()))
         when (reply) {
-            is SessionAgentProtocol.Reply.Failure -> value.put("ok", false).put("code", reply.code).put("error", errorText(reply.code))
+            is SessionAgentProtocol.Reply.Failure -> value.put("ok", false).put("code", reply.code).put("error", nativeDiagnostic(reply.diagnostic) ?: errorText(reply.code))
             is SessionAgentProtocol.Reply.Read -> value.put("ok", true).put("result", reply.result)
             is SessionAgentProtocol.Reply.Mutation -> {
                 val confirmed = reply.status == SessionAgentProtocol.Status.CONFIRMED
@@ -449,20 +525,40 @@ internal class SessionAgentConversation(
                 if (context.opt("op") == "send") value.put("queued", reply.body.opt("effect") == "message.queued")
                 if (context.opt("op") == "settings") reply.result.optJSONObject("effectiveOptions")?.let { value.put("composer", it) }
                 if (context.opt("op") == "new") {
-                    reply.result.optJSONObject("session")?.let { row -> agent.rememberSession(context.optString("provider"), row)?.let { value.put("threadId", it.nativeThreadId) } }
+                    reply.result.optJSONObject("session")?.let { row ->
+                        // The confirmed reply itself carries the native thread; a cleared connection cache must not hide it.
+                        val native = agent.rememberSession(context.optString("provider"), row)?.nativeThreadId
+                            ?: SessionAgentCapabilities.opaque(row.opt("nativeThreadId"))
+                        native?.let { value.put("threadId", it) }
+                    }
+                    reply.result.optJSONObject("partialSession")?.let { row ->
+                        SessionAgentCapabilities.opaque(row.opt("nativeThreadId"))?.let { value.put("partialThreadId", it) }
+                    }
                     value.put("cwd", context.optString("cwd"))
                 }
-                if (!confirmed) value.put("error", errorText(if (unknown) "receipt_unknown" else reply.body.optString("code", "agent_capability_unavailable")))
+                if (!confirmed) {
+                    val code = if (unknown) "receipt_unknown" else reply.result.optString("code").ifBlank { reply.body.optString("code", "agent_capability_unavailable") }
+                    value.put("code", code)
+                    val detail = nativeDiagnostic(reply.result.opt("error") ?: reply.body.opt("error"))
+                    value.put("error", if (unknown) errorText(code) + (detail?.let { "\n$it" } ?: "") else detail ?: errorText(code))
+                }
             }
         }
         return value
     }
     companion object {
+        /** Authenticated native diagnostics are plain UI text; never execute or log them. */
+        private fun nativeDiagnostic(value: Any?): String? = (value as? String)?.takeIf {
+            it.isNotBlank() && it.length <= 2_048 && it.toByteArray(Charsets.UTF_8).size <= 4_096 &&
+                it.none { char -> (char.code < 32 && char != '\n' && char != '\t') || char.code == 127 }
+        }
+
         private val mutationOperations = setOf("send", "new", "settings", "interrupt", "approve", "queueDelete")
         private val retryablePreparation = setOf("agent_session_not_open", "agent_session_view_closed", "agent_native_unavailable", "content_incomplete", "agent_state_not_ready")
         private val preparedReads = setOf("composerOptions", "approvalDetails")
         private val preparationDelays = listOf(250L, 500L, 1_000L, 1_500L, 2_000L, 2_500L)
-        private const val preparationDeadline = 10_000L
+        // A cold Mac (provider launch, catalog refresh) needs more than one transport timeout before the single submission.
+        private const val preparationDeadline = 25_000L
         private val routed = setOf("list", "projects", "open", "close", "sync", "history", "parts", "message", "newOptions", "new", "send", "settings", "interrupt", "approve", "queueDelete")
         fun mergePartial(previous: JSONObject?, next: JSONObject): JSONObject {
             val result = JSONObject(next.toString())

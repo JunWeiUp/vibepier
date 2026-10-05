@@ -21,6 +21,7 @@ final class CurrentV1AgentAdapter: AgentSessionAdapter, @unchecked Sendable {
     private let stopClient: @Sendable (String) -> Void
     private let stopEverything: @Sendable () -> Void
     private let creationHealth: @Sendable () -> Bool
+    private let primeCatalog: @Sendable () -> Void
     private let lock = NSLock()
     private var sink: (@Sendable (String, Data) -> Void)?
     var event: (@Sendable (String, Data) -> Void)? {
@@ -33,7 +34,8 @@ final class CurrentV1AgentAdapter: AgentSessionAdapter, @unchecked Sendable {
         execute: @escaping @Sendable (Data, String, @escaping @Sendable (Data) -> Void) -> Void,
         stop: @escaping @Sendable (String) -> Void,
         stopAll: @escaping @Sendable () -> Void,
-        creationAvailable: @escaping @Sendable () -> Bool = { true }
+        creationAvailable: @escaping @Sendable () -> Bool = { true },
+        warmOptions: @escaping @Sendable () -> Void = {}
     ) {
         providerID = provider
         self.backendKinds = backendKinds
@@ -41,6 +43,7 @@ final class CurrentV1AgentAdapter: AgentSessionAdapter, @unchecked Sendable {
         stopClient = stop
         stopEverything = stopAll
         creationHealth = creationAvailable
+        primeCatalog = warmOptions
     }
     func performCurrentV1(_ data: Data, client: String, completion: @escaping @Sendable (Data) -> Void) {
         execute(data, client, completion)
@@ -50,24 +53,25 @@ final class CurrentV1AgentAdapter: AgentSessionAdapter, @unchecked Sendable {
     func creationRuntimeAvailable() -> Bool { creationHealth() }
     func emit(client: String, data: Data) { event?(client, data) }
 
+    func warmOptions() { primeCatalog() }
     static func production() -> [any AgentSessionAdapter] {
         let codex = CodexBridge()
         let claude = ClaudeBridge()
         let zcode = ZCodeBridge(desktop: ZCodeDesktop.access)
         let adapters = [
             CurrentV1AgentAdapter(
-                provider: "codex", backendKinds: ["desktopAttached"],
+                provider: "codex", backendKinds: ["desktopAttached", "managedRuntime"],
                 execute: { codex.perform($0, client: $1, completion: $2) },
-                stop: { codex.stop($0) }, stopAll: { codex.stopAll() }),
+                stop: { codex.stop($0) }, stopAll: { codex.stopAll() }, warmOptions: { codex.warmOptions() }),
             CurrentV1AgentAdapter(
                 provider: "claude", backendKinds: ["desktopAttached", "managedRuntime"],
                 execute: { claude.perform($0, client: $1, completion: $2) },
                 stop: { claude.stop($0) }, stopAll: { claude.stopAll() },
-                creationAvailable: { ClaudeBridge.executable() != nil }),
+                creationAvailable: { ClaudeBridge.executable() != nil }, warmOptions: { claude.warmOptions() }),
             CurrentV1AgentAdapter(
                 provider: "zcode", backendKinds: ["desktopAttached"],
                 execute: { zcode.perform($0, client: $1, completion: $2) },
-                stop: { zcode.stop($0) }, stopAll: { zcode.stopAll() }),
+                stop: { zcode.stop($0) }, stopAll: { zcode.stopAll() }, warmOptions: { ZCodeDesktop.warmOptions() }),
         ]
         codex.event = { [weak adapter = adapters[0]] client, data in adapter?.emit(client: client, data: data) }
         claude.event = { [weak adapter = adapters[1]] client, data in adapter?.emit(client: client, data: data) }

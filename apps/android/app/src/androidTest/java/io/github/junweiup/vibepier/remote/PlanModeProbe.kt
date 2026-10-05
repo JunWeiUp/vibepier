@@ -134,8 +134,13 @@ internal object PlanModeProbe {
                             val thread = target!!.getString("sessionRef").substringAfter("session:")
                             result.put("session", descriptor(thread)).put("snapshot", snapshot(thread)).put("controlLease", sessionLease).put("streamEpoch", "stream-1").put("throughSequence", 0)
                         }
+                        "session.items" -> {
+                            check(params.getString("kind") == "composerOptions")
+                            val native = options()
+                            native.keys().forEach { name -> result.put(name, native.get(name)) }
+                        }
                         "session.observe" -> result.put("streamEpoch", "stream-1").put("throughSequence", 0).put("events", JSONArray()).put("resyncRequired", false)
-                        "session.creationOptions" -> result.put("options", options()).put("creationLease", JSONObject().put("controlLease", creationLease)
+                        "session.creationOptions" -> result.put("options", options().put("draftId", params.get("draftId"))).put("creationLease", JSONObject().put("controlLease", creationLease)
                             .put("target", JSONObject().put("adapterId", adapter).put("workspaceRef", "synthetic-workspace").put("draftId", params.get("draftId")).put("optionsRevision", "creation-options")))
                         "session.configure" -> {
                             executionMode = params.getJSONObject("options").getString("executionMode")
@@ -207,6 +212,7 @@ internal object PlanModeProbe {
                 waitFor("actual $mode acknowledgement", { client.uncertain("synthetic-thread").isEmpty() && controls().execution.text.toString().startsWith(activity!!.getString(if (mode == "plan") R.string.session_execution_plan else R.string.session_execution_run)) })
                 screenshot("confirmed-$mode")
             }
+            check(requests.count { it.optJSONObject("body")?.optString("method") == "session.items" } == 1) { "Opening the second execution menu must reuse the fetched catalog" }
             val configures = requests.filter { it.optJSONObject("body")?.optString("method") == "session.configure" }
             check(configures.map { it.getJSONObject("body").getJSONObject("params").getJSONObject("options").getString("executionMode") } == listOf("plan", "default"))
             check(configures.all { it.getJSONObject("body").getJSONObject("params").getJSONObject("options").length() == 1 })
@@ -256,6 +262,9 @@ internal object PlanModeProbe {
             waitFor("safe coupled execution", { client.uncertain("created-thread").isEmpty() && controls().mode.visibility == View.VISIBLE &&
                 (field(panel!!, "page") as JSONObject).getJSONObject("composer").optString("mode") == "default" })
             check(requests.last { it.optJSONObject("body")?.optString("method") == "session.configure" }.getJSONObject("body").getJSONObject("params").getJSONObject("options").length() == 1)
+            main { panel!!.javaClass.getDeclaredMethod("refreshComposerOptions").apply { isAccessible = true }.invoke(panel) }
+            waitFor("explicit detail catalog refresh", { requests.any { it.optJSONObject("body")?.optString("method") == "session.items" && it.getJSONObject("body").getJSONObject("params").opt("refreshOptions") == true } &&
+                (field(panel!!, "composerOptionCatalogs") as Map<*, *>).values.filterIsInstance<JSONObject>().any { it.opt("executionModePermissionCoupled") == true } })
             lateinit var coupledCreation: AlertDialog; lateinit var coupledChoices: NewSessionOptionsView; lateinit var coupledCreationMenu: AlertDialog
             main {
                 set(panel!!, "drawer", true)

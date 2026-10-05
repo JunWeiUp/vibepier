@@ -4,6 +4,7 @@ import android.app.AlertDialog
 import android.content.Context
 import android.view.Gravity
 import android.widget.LinearLayout
+import android.widget.CheckBox
 import io.github.junweiup.vibepier.remote.R
 import io.github.junweiup.vibepier.remote.core.session.SessionCreationDraft
 import io.github.junweiup.vibepier.remote.core.session.SessionExecutionModes
@@ -22,6 +23,7 @@ internal class NewSessionOptionsView(
     private val changed: (SessionCreationDraft) -> Unit,
     private val addAttachment: () -> Unit,
     private val permits: (String) -> Boolean = { false },
+    private val refreshOptions: () -> Unit = {},
 ) : LinearLayout(context) {
     var draft = initial; private set
     private var options = JSONObject()
@@ -55,10 +57,32 @@ internal class NewSessionOptionsView(
     private val model = action(context.getString(R.string.choose_model), ::chooseModel)
     private val execution = action(context.getString(R.string.session_execution_mode), ::chooseExecutionMode)
     private val mode = action(context.getString(R.string.approval_mode), ::chooseMode)
+    private val refresh = action(context.getString(R.string.creation_refresh_options), refreshOptions).apply {
+        setOnClickListener { if (!locked) refreshOptions() }
+    }
+    private val speed = CheckBox(context).apply {
+        text = context.getString(R.string.session_speed)
+        setTextColor(Palette.text)
+        minimumHeight = dp(48)
+        setOnClickListener {
+            if (isEnabled) {
+                draft = draft.copy(serviceTier = if (isChecked) "priority" else "standard")
+                changed(draft); update()
+            }
+        }
+    }
+    private val speedHint = CanvasLabel(context).apply {
+        textSize = Ui.CAPTION; setTextColor(Palette.muted); setPadding(dp(12), dp(8), dp(12), dp(4))
+    }
+    private fun hasSpeed() = draft.provider == "codex" && options.optJSONObject("composer")?.opt("serviceTier") is String
+    private fun supportsFast() = hasSpeed() && strings(rows(models).firstOrNull { it.optString("id") == draft.model }?.optJSONArray("serviceTiers")).contains("priority")
+    private fun normalizeSpeed() {
+        draft = draft.copy(serviceTier = if (!hasSpeed()) "" else if (draft.serviceTier == "priority" && supportsFast()) "priority" else "standard")
+    }
     private val add = action(context.getString(R.string.session_add_attachment)) { if (supportsAttachments) addAttachment() }
     init {
         orientation = VERTICAL
-        for (view in listOf(model, execution, mode, add)) addView(view, LayoutParams(-1, -2).apply { topMargin = dp(8) })
+        for (view in listOf(model, execution, mode, speed, speedHint, add, refresh)) addView(view, LayoutParams(-1, -2).apply { topMargin = dp(8) })
         update()
     }
     fun applyOptions(value: JSONObject) {
@@ -68,17 +92,21 @@ internal class NewSessionOptionsView(
         executionModes = SessionExecutionModes.decode(options)
         loaded = value.opt("ok") == true && value.opt("creationVersion") == 1
         val current = value.optJSONObject("composer") ?: JSONObject()
-        if (draft.model.isEmpty()) {
+        if (rows(models).none { it.optString("id") == draft.model }) {
             val preferred = rows(models).firstOrNull { it.optString("id") == current.optString("model") } ?: rows(models).firstOrNull()
             draft = draft.copy(model = preferred?.optString("id") ?: "", effort = current.optString("effort").ifBlank {
                 preferred?.optString("defaultEffort")?.ifBlank { strings(preferred?.optJSONArray("efforts")).firstOrNull() ?: "" } ?: ""
             })
         }
-        if (draft.mode.isEmpty()) {
+        if (rows(modes).none { it.optString("id") == draft.mode }) {
             val preferred = rows(modes).firstOrNull { it.optString("id") == current.optString("mode") && !it.optBoolean("requiresConfirmation") }
                 ?: rows(modes).firstOrNull { !it.optBoolean("requiresConfirmation") }
             draft = draft.copy(mode = preferred?.optString("id") ?: "", confirmFullAccess = false)
         }
+        val selectedModel = rows(models).firstOrNull { it.optString("id") == draft.model }
+        val offeredEfforts = strings(selectedModel?.optJSONArray("efforts"))
+        if (draft.effort !in offeredEfforts) draft = draft.copy(effort = selectedModel?.optString("defaultEffort")?.takeIf { it in offeredEfforts } ?: offeredEfforts.firstOrNull() ?: "")
+        if (draft.executionMode.isNotEmpty() && executionModes.none { it.id == draft.executionMode }) draft = draft.copy(executionMode = "")
         val coupled = SessionExecutionModes.coupled(options)
         if (permits("executionMode") && draft.executionMode.isEmpty() && executionModes.isNotEmpty()) {
             val selected = if (coupled) executionModes.firstOrNull { it.id == "plan" && it.permissionMode == draft.mode } else null
@@ -89,12 +117,22 @@ internal class NewSessionOptionsView(
         if (coupled && draft.executionMode == "plan") executionModes.singleOrNull { it.id == "plan" }?.permissionMode?.let {
             draft = draft.copy(mode = it, confirmFullAccess = false)
         }
-        changed(draft); update()
+        normalizeSpeed(); changed(draft); update()
     }
     fun setLocked(value: Boolean) { locked = value; update() }
+    fun resetDraft(value: SessionCreationDraft) {
+        closeMenus(); draft = value; locked = false; loaded = false
+        options = JSONObject(); models = JSONArray(); modes = JSONArray(); executionModes = emptyList()
+        update()
+    }
     fun closeMenus() { menus.toList().forEach { it.dismiss() }; menus.clear() }
     private fun update() {
         val selectedModel = rows(models).firstOrNull { it.optString("id") == draft.model }
+        speed.visibility = if (draft.provider == "codex") VISIBLE else GONE
+        speed.isEnabled = loaded && !locked && supportsFast()
+        speed.isChecked = draft.serviceTier == "priority"
+        speed.alpha = if (speed.isEnabled) 1f else .45f
+        speedHint.text = context.getString(if (supportsFast()) R.string.creation_speed_description else R.string.creation_speed_unsupported)
         val selectedMode = rows(modes).firstOrNull { it.optString("id") == draft.mode }
         model.text = selectedModel?.optString("name")?.ifBlank { draft.model }?.let {
             it + if (draft.effort.isEmpty()) "" else " · " + effortName(draft.effort)
@@ -107,6 +145,8 @@ internal class NewSessionOptionsView(
         execution.alpha = if (execution.isEnabled) 1f else .45f
         mode.visibility = if (draft.executionModePermissionCoupled && draft.executionMode == "plan") GONE else VISIBLE
         for (view in listOf(model, mode)) { view.isEnabled = loaded && !locked; view.alpha = if (view.isEnabled) 1f else .45f }
+        refresh.isEnabled = !locked; refresh.alpha = if (refresh.isEnabled) 1f else .45f
+        add.visibility = if (supportsAttachments) VISIBLE else GONE
         add.isEnabled = supportsAttachments && !locked; add.alpha = if (add.isEnabled) 1f else .45f
     }
     private fun chooseExecutionMode() {
@@ -130,9 +170,9 @@ internal class NewSessionOptionsView(
     private fun chooseModel() {
         menu(context.getString(R.string.choose_model), rows(models).map { it.optString("name").ifBlank { it.optString("id") } }) { index ->
             val selected = rows(models)[index]; val efforts = strings(selected.optJSONArray("efforts"))
-            fun select(effort: String) { draft = draft.copy(model = selected.getString("id"), effort = effort); changed(draft); update() }
+            fun select(effort: String) { draft = draft.copy(model = selected.getString("id"), effort = effort); normalizeSpeed(); changed(draft); update() }
             if (efforts.size <= 1) select(efforts.firstOrNull() ?: "")
-            else menu(selected.optString("name"), efforts.map(::effortName)) { select(efforts[it]) }
+            else menu(context.getString(R.string.session_effort_for_model, selected.optString("name")), efforts.map(::effortName)) { select(efforts[it]) }
         }
     }
     private fun chooseMode() {

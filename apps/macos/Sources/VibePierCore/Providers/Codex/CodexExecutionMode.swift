@@ -4,12 +4,8 @@ import Foundation
 /// The inspected desktop uses the native collaboration preset, including its built-in instructions.
 /// A settings ACK is not evidence of the selected preset; only an owner-bound snapshot is.
 enum CodexExecutionMode {
-    static func supports(build: String?) -> Bool {
-        build.map { ["12553", "12947"].contains($0) } ?? false
-    }
-
-    static func catalog(_ response: [String: Any], build: String?) throws -> [[String: Any]] {
-        guard supports(build: build), let masks = response["data"] as? [[String: Any]], masks.count <= 32 else {
+    static func catalog(_ response: [String: Any]) throws -> [[String: Any]] {
+        guard let masks = response["data"] as? [[String: Any]], masks.count <= 32 else {
             throw CLIError(L10n.text("session.the_current_codex_interface_is_incompatible"))
         }
         var result: [[String: Any]] = []
@@ -27,8 +23,7 @@ enum CodexExecutionMode {
         let url =
             NSRunningApplication.runningApplications(withBundleIdentifier: "com.openai.codex").first?
             .bundleURL ?? NSWorkspace.shared.urlForApplication(withBundleIdentifier: "com.openai.codex")
-        guard let url, let bundle = Bundle(url: url),
-            let build = bundle.object(forInfoDictionaryKey: "CFBundleVersion") as? String, supports(build: build)
+        guard let url
         else { throw CLIError(L10n.text("session.the_current_codex_interface_is_incompatible")) }
         let executable = url.appendingPathComponent("Contents/Resources/codex-cli/bin/codex")
         guard FileManager.default.isExecutableFile(atPath: executable.path) else {
@@ -36,7 +31,7 @@ enum CodexExecutionMode {
         }
         let rpc = try CodexStdioRPC(executable: executable, purpose: .catalog)
         defer { rpc.close() }
-        return try catalog(rpc.request("collaborationMode/list", params: [:]), build: build)
+        return try catalog(rpc.request("collaborationMode/list", params: [:]))
     }
 
     static func selected(_ state: [String: Any]) -> String? {

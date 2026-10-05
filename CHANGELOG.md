@@ -1,5 +1,31 @@
 # Changelog / 更新记录
 
+## Local build 54 / 本机构建 54
+
+- Reconnect a registered Codex background server after the desktop updater unlinks its executable, requiring the original process birth, unchanged private socket and kernel peer PID/UID. Do not restart it or resend requests.
+- 修复 Codex 升级替换可执行文件后，旧后台进程被误判为 staleOwner 的问题；同时校验原进程身份、未变的私有套接字及内核对端身份，不重启后台、不重发请求。
+- Keep creation errors visible while refreshing options; replace the obsolete foreground instruction with the actual background creation behavior.
+- 刷新创建选项时保留失败原因，并将旧“切到前台”提示改为实际后台创建说明。
+
+
+## Local build 53 / 本机构建 53
+
+- Remove Codex desktop build allowlists for session creation, control and Plan / Execute options. Continue validating native interfaces, owners and receipts.
+- 移除 Codex 桌面构建号对新建、控制及计划/执行选项的白名单限制；保留实际接口、会话归属和操作回执校验，升级不再仅因构建号变化而禁用。
+
+
+## Local build 52 / 本机构建 52
+
+- Keep the native turn identity as soon as App Server acknowledges creation, then allow bounded readback for delayed first-message publication. Match the reviewed native expansion of Execute/Plan presets and standard speed. Recover old unknown creations from exact message identity, input digest and original turn settings without resubmission.
+- App Server 确认轮次后立即保留身份，为延迟发布的首条消息留出有界核验时间；正确识别原生执行／计划预设展开及标准速度。旧未知新建可通过精确消息身份、输入摘要与原轮次配置恢复，不重发请求。
+
+## Local build 51 / 本机构建 51
+
+- Create Codex conversations and submit their first message through a persistent background App Server using the existing Mac account. Registered phone-created sessions stay on that backend for replies, settings, approvals and history; new creation does not unlock the Mac. Preserve native input proofs and unknown receipts; the background send queue is unavailable.
+- Codex 新建及首条消息改用持续后台 App Server，沿用 Mac 现有账号；手机创建的自有会话持续通过后台处理续发、设置、审批和历史，新建不再解锁 Mac。保留完整原生输入证据和未知回执；后台暂不提供发送队列。
+- Serialize background ownership and submission reservations across app/CLI connections. 后台归属与消息登记使用跨进程锁，避免 App 与 CLI 并发覆盖或重复提交。
+- Stopping a new-session wait restores an editable separate draft immediately; retained receipts remain queryable and late callbacks cannot restore the old wait. 新建中停止等待后立即恢复独立可编辑草稿；旧回执可单独查询，迟到回调不会重新锁定页面。
+
 ## Local build 35 / 本机构建 35
 
 - Add a speed option to the phone model picker for supported Codex desktop sessions, including model/effort selection and a visible Fast indicator. Advertise tiers from the Mac model catalog and confirm updates through native readback; unknown receipts are never retried automatically.

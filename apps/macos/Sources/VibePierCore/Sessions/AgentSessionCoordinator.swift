@@ -10,6 +10,12 @@ struct AgentActionCapability: Equatable, Sendable {
 /// Native Bridges own sessions and processes. This layer owns adapter selection and issued capabilities.
 /// A capability is advisory until this layer and the Bridge both validate the original action.
 final class AgentSessionCoordinator: @unchecked Sendable {
+    func warmOptions(policy: SessionProviderPolicy) {
+        for provider in ["codex", "claude", "zcode"] {
+            guard policy.isEnabled(provider) else { continue }
+            (registry.adapter(provider: provider) as? CurrentV1AgentAdapter)?.warmOptions()
+        }
+    }
     private struct Context: Sendable {
         let operation: String
         let thread: String
@@ -236,6 +242,7 @@ final class AgentSessionCoordinator: @unchecked Sendable {
         AgentActionCapability]
     {
         let flags = page["capabilities"] as? [String: Any] ?? [:]
+        let appServerCodex = provider == "codex" && page["backendKind"] as? String == "appServer"
         let usable = SessionProviderReply.boolean(page["ok"]) != false && page["event"] as? String != "unavailable"
         let ready = usable && SessionProviderReply.boolean(page["canSend"]) == true
         let idle = page["status"] as? String == "idle"
@@ -249,12 +256,14 @@ final class AgentSessionCoordinator: @unchecked Sendable {
                 let contract: Bool
                 switch provider {
                 case "codex":
-                    contract = [
+                    let codexContract = [
                         "send", "new", "settings", "interrupt", "approvals", "questions", "queue", "queueDelete",
                         "queueSteer", "attachments", "newAttachments", "modelSelection", "permissionMode",
                         "effortSelection", "executionMode", "contextUsage", "markdownFiles", "projectFiles",
                         "videoFiles",
                     ].contains(action)
+                    contract =
+                        codexContract && !(appServerCodex && ["queue", "queueDelete", "queueSteer"].contains(action))
                 case "claude":
                     contract = [
                         "send", "new", "settings", "interrupt", "approvals", "questions", "attachments",
@@ -268,14 +277,17 @@ final class AgentSessionCoordinator: @unchecked Sendable {
                         || (provider == "zcode"
                             && [
                                 "send", "new", "settings", "interrupt", "modelSelection", "permissionMode",
-                                "effortSelection", "markdownFiles", "projectFiles",
+                                "effortSelection", "executionMode", "markdownFiles", "projectFiles",
                             ].contains(action))
                 }
                 var available = usable && SessionProviderReply.boolean(flags[action]) == true
                 // Missing flags remain false unless this exact legacy native contract supplies its proof.
                 if provider == "codex" || provider == "claude" {
                     switch action {
-                    case "send": available = ready && knownStatus && !externalTerminal && (provider == "codex" || idle)
+                    case "send":
+                        available =
+                            ready && knownStatus && !externalTerminal
+                            && ((provider == "codex" && !appServerCodex) || idle)
                     case "new":
                         available =
                             creation && usable && Self.isVersionOne(page["creationVersion"])
@@ -322,6 +334,14 @@ final class AgentSessionCoordinator: @unchecked Sendable {
                         usable && SessionProviderReply.boolean(flags[action]) == true
                         && catalog.contains(where: { $0["id"] as? String == "plan" })
                         && (creation || (ready && idle && hasComposer && !externalTerminal))
+                }
+                // Background-owned threads have their own native contract. The legacy desktop
+                // defaults cannot grant an action that the App Server view did not explicitly prove.
+                if appServerCodex {
+                    available = available && SessionProviderReply.boolean(flags[action]) == true
+                    if ["settings", "modelSelection", "permissionMode", "effortSelection"].contains(action) {
+                        available = available && idle
+                    }
                 }
                 available = available && contract && enabled
                 let reason =

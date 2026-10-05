@@ -12,7 +12,7 @@ VibePier 连接你自己的手机和 Mac，可选中继也由你自行部署。�
 | Relay endpoint, room, secret / 中继配置 | Mac keeps the secret in Keychain; Android encrypts the saved setup using Keystore. Approved BLE transfers the setup. / 密钥不写入普通配置摘要，经已授权蓝牙同步。 |
 | Session text, drafts, cached images and request receipts / 会话、草稿、缓存图像与回执 | Read from the supported provider on the Mac, transmitted on an authenticated encrypted channel, cached in encrypted Android preferences. / 来自 Mac 会话，手机缓存经过认证加密。 |
 | Mac configuration, session receipts, activity metadata / Mac 配置、回执、活动信息 | Local user support directory with private file permissions; not all local files have application-level encryption. / 保存在当前用户支持目录，文件权限受限，但并非所有文件均另行加密。 |
-| Mac login password for optional unlock / 可选解锁密码 | Submitted over the authorized channel, verified on Mac, saved in Mac Keychain; not persisted on the phone. / 仅 Mac 钥匙串持久保存。 |
+| Mac login password for optional unlock / 可选解锁密码 | Submitted over the authorized channel, verified on Mac, saved in local Mac preferences (`preferences/unlock.json`, plain text, directory `0700`, file `0600`); not persisted on the phone or exported in portable settings. / 按用户选择仅在 Mac 本地偏好明文保存，目录与文件权限受限，不传入设置导出。 |
 | Phone microphone / 手机麦克风 | Captured only during the phone voice action, sent to Mac over BLE/local Wi-Fi/direct UDP. No phone audio forwarding through the relay. / 仅语音操作期间采集，中继不转发手机音频。 |
 | Application usage / 应用用时 | Optional; local Mac timeline with up to 90 days of history and an encrypted phone snapshot. / 默认关闭，开启后记录前台停留，手机保存加密快照。 |
 | APK delivery / APK 下发 | Received into the Android app's private file directory, verified by SHA-256, then handed to the system installer. The APK bytes themselves are not additionally encrypted at rest. / 安装文件暂存应用私有目录，内容本身不额外做落盘加密，安装由系统确认。 |

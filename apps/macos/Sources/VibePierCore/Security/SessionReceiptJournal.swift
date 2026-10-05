@@ -19,6 +19,11 @@ final class SessionReceiptJournal {
         var payloadBytes = 300_000
         var activeRecords = 2000
         var totalRecords = 20_000
+        /// Room kept for each unresolved result. Larger final results are compacted instead of failing after a native effect.
+        var pendingReserveBytes = 16 * 1024
+        var pendingPerDevice = 64
+        /// Unresolved records older than this become tombstones: still never executable, but no longer holding quota.
+        var unknownRetirementAge: Double = 72 * 3600
     }
     enum Reservation {
         case fresh
@@ -85,12 +90,17 @@ final class SessionReceiptJournal {
         let receipt = Receipt(hash: hash, thread: thread, created: now, intent: intent)
         guard Self.valid(key, receipt, payloadLimit: limits.payloadBytes) else { throw Self.invalidStorage }
         var next = records.mapValues { old -> Receipt in
-            guard old.result != nil, now - old.created >= 7 * 86400 else { return old }
+            guard old.retired != true else { return old }
+            let age = now - old.created
+            guard old.result != nil ? age >= 7 * 86400 : age >= limits.unknownRetirementAge else { return old }
             // Keep the fingerprint/ID tombstone. A phone may still hold an unknown receipt after the reply was lost.
             return Receipt(hash: old.hash, thread: old.thread, created: old.created, retired: true)
         }
+        let device = Self.device(of: key)
         guard next.count < limits.totalRecords,
-            next.values.filter({ $0.retired != true }).count < limits.activeRecords
+            next.values.filter({ $0.retired != true }).count < limits.activeRecords,
+            next.filter({ Self.device(of: $0.key) == device && $0.value.result == nil && $0.value.retired != true })
+                .count < limits.pendingPerDevice
         else { throw Self.full }
         next[key] = receipt
         let data = try checkedEncoding(next, reserveResults: true)
@@ -110,9 +120,30 @@ final class SessionReceiptJournal {
         var next = records
         next[key]?.result = result
         next[key]?.intent = nil
-        // New reservations preallocate room for a maximal result; legacy entries can still complete within actual limits.
-        let data = try checkedEncoding(next, reserveResults: false)
+        next[key]?.evidence = nil
+        let data: Data
+        do {
+            data = try checkedEncoding(next, reserveResults: false)
+        } catch Failure.full {
+            // The native effect already happened. Keep its identity rather than reporting storage full.
+            guard let compact = Self.compact(result), compact.count < result.count else { throw Self.full }
+            next[key]?.result = compact
+            data = try checkedEncoding(next, reserveResults: false)
+        }
         try publish(next, data: data)
+    }
+
+    /// Identity and status fields only; display payloads such as snapshots and composer catalogs are dropped.
+    static func compact(_ result: Data) -> Data? {
+        guard let object = try? JSONSerialization.jsonObject(with: result) as? [String: Any] else { return nil }
+        let kept: Set<String> = [
+            "id", "ok", "accepted", "unknown", "definitive", "code", "error", "status", "operationId", "threadId",
+            "cwd", "title", "nativeTurnId", "nativeMessageId", "messageId", "turnId", "sessionRef", "warnings",
+            "executionModeVerified", "effectiveExecutionMode", "state", "agentProtocol", "requestId", "evidence",
+        ]
+        var compact = object.filter { kept.contains($0.key) }
+        compact["compacted"] = true
+        return try? JSONSerialization.data(withJSONObject: compact, options: [.sortedKeys, .withoutEscapingSlashes])
     }
 
     func recordEvidence(_ key: String, evidence: Data) throws {
@@ -133,7 +164,7 @@ final class SessionReceiptJournal {
         func reserved(_ values: [String: Receipt]) -> Int {
             guard reserveResults else { return 0 }
             let pending = values.values.filter { $0.result == nil && $0.retired != true }.count
-            return pending * (4 * ((limits.payloadBytes + 2) / 3) + 32)
+            return pending * min(limits.pendingReserveBytes, 4 * ((limits.payloadBytes + 2) / 3) + 32)
         }
         guard data.count + reserved(next) <= limits.fileBytes else { throw Self.full }
         let groups = Dictionary(grouping: next.keys, by: { String($0.split(separator: ":", maxSplits: 1).first ?? "") })
@@ -155,6 +186,7 @@ final class SessionReceiptJournal {
     }
 
     static func digest(_ data: Data) -> Data { Data(SHA256.hash(data: data)) }
+    private static func device(of key: String) -> String { String(key.split(separator: ":", maxSplits: 1).first ?? "") }
     private static func valid(_ key: String, _ receipt: Receipt, payloadLimit: Int) -> Bool {
         !key.isEmpty && key.utf8.count <= 256 && !receipt.hash.isEmpty && receipt.hash.utf8.count <= 128
             && receipt.thread.utf8.count <= 1024 && receipt.created.isFinite && receipt.created >= 0

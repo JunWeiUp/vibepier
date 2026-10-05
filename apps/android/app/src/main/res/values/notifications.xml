@@ -4,4 +4,11 @@
     <string name="task_notifications_detail">Notify when a task finishes. Tap to enable or manage notifications.</string>
     <string name="task_notification_title">%1$s task completed</string>
     <string name="task_notification_body">Open VibePier to view the result.</string>
+    <string name="task_notification_reply">Reply</string>
+    <string name="task_notification_reply_hint">Message to the Mac session</string>
+    <string name="task_reply_sending">Sending reply to the Mac…</string>
+    <string name="task_reply_sent">Reply sent to the Mac session.</string>
+    <string name="task_reply_unknown">Reply result unknown. Open VibePier to check; it will not be resent automatically.</string>
+    <string name="task_reply_failed">Reply was not sent.</string>
+    <string name="task_reply_open_app">Open VibePier to reply; the Mac connection is not ready.</string>
 </resources>

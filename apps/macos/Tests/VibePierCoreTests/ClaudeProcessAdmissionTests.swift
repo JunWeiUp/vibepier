@@ -4,6 +4,22 @@ import XCTest
 @testable import VibePierCore
 
 final class ClaudeProcessAdmissionTests: XCTestCase {
+    private func makeBridge(
+        root: URL, processExecutable: URL, processBudget: SessionWorkBudget? = nil, settingsFile: URL? = nil,
+        attachmentRoot: URL? = nil
+    ) -> ClaudeBridge {
+        ClaudeBridge(
+            root: root, processExecutable: processExecutable, processBudget: processBudget,
+            settingsFile: settingsFile, attachmentRoot: attachmentRoot,
+            modelCatalog: { _, _ in
+                [
+                    ClaudeModelCatalog.defaultEntry,
+                    ["id": "claude-sonnet-5", "name": "Synthetic Sonnet", "efforts": ["default", "high"]],
+                    ["id": "haiku", "name": "Synthetic Haiku", "efforts": ["default"]],
+                ]
+            })
+    }
+
     private final class Reply: @unchecked Sendable {
         let lock = NSLock()
         var bytes = Data()
@@ -75,7 +91,7 @@ final class ClaudeProcessAdmissionTests: XCTestCase {
     func testNewDraftImagesAndFilesReachTheConfiguredFirstChildAndNativeReceipt() throws {
         let fixture = try fixture()
         let budget = SessionWorkBudget(limits: .init(perDevice: 1, total: 1, bytesPerDevice: 8192, bytesTotal: 8192))
-        let bridge = ClaudeBridge(
+        let bridge = makeBridge(
             root: fixture.root, processExecutable: fixture.executable, processBudget: budget,
             settingsFile: fixture.root.appendingPathComponent("settings.json"),
             attachmentRoot: fixture.root.appendingPathComponent("attachments"))
@@ -113,7 +129,7 @@ final class ClaudeProcessAdmissionTests: XCTestCase {
         let png = try upload(ClaudePromptTests.png(), name: "diagram.png", mime: "image/png")
         let notes = try upload(Data("Selected document".utf8), name: "notes.txt", mime: "text/plain")
         var fields: [String: Any] = [
-            "draftId": draft, "attachments": [png, notes], "text": "Inspect these files", "model": "sonnet",
+            "draftId": draft, "attachments": [png, notes], "text": "Inspect these files", "model": "claude-sonnet-5",
             "effort": "high", "mode": "plan",
         ]
         XCTAssertEqual(
@@ -144,7 +160,7 @@ final class ClaudeProcessAdmissionTests: XCTestCase {
         let fixture = try fixture()
         let settings = fixture.root.appendingPathComponent("settings.json")
         let budget = SessionWorkBudget(limits: .init(perDevice: 1, total: 1, bytesPerDevice: 4096, bytesTotal: 4096))
-        let bridge = ClaudeBridge(
+        let bridge = makeBridge(
             root: fixture.root, processExecutable: fixture.executable, processBudget: budget, settingsFile: settings)
         defer {
             try? Data().write(to: fixture.project.appendingPathComponent("release"))
@@ -165,7 +181,7 @@ final class ClaudeProcessAdmissionTests: XCTestCase {
         let result = try request(
             bridge, project: fixture.project, client: "phone",
             options: [
-                "model": "sonnet", "effort": "high", "mode": "plan",
+                "model": "claude-sonnet-5", "effort": "high", "mode": "plan",
             ])
         XCTAssertEqual(result["ok"] as? Bool, true)
         let session = try XCTUnwrap(result["threadId"] as? String)
@@ -175,18 +191,19 @@ final class ClaudeProcessAdmissionTests: XCTestCase {
             guard let index = arguments.firstIndex(of: flag), arguments.indices.contains(index + 1) else { return nil }
             return arguments[index + 1]
         }
-        XCTAssertEqual(argument("--model"), "sonnet")
+        XCTAssertEqual(argument("--model"), "claude-sonnet-5")
         XCTAssertEqual(argument("--effort"), "high")
         XCTAssertEqual(argument("--permission-mode"), "plan")
         let saved = try JSONDecoder().decode([String: [String: String]].self, from: Data(contentsOf: settings))
-        XCTAssertEqual(saved[session], ["model": "sonnet", "effort": "high", "mode": "plan", "executionMode": "plan"])
+        XCTAssertEqual(
+            saved[session], ["model": "claude-sonnet-5", "effort": "high", "mode": "plan", "executionMode": "plan"])
     }
 
     func testInvalidCreationConfigurationCannotLaunchOrWriteSettings() throws {
         let fixture = try fixture()
         defer { try? FileManager.default.removeItem(at: fixture.root) }
         let settings = fixture.root.appendingPathComponent("settings.json")
-        let bridge = ClaudeBridge(root: fixture.root, processExecutable: fixture.executable, settingsFile: settings)
+        let bridge = makeBridge(root: fixture.root, processExecutable: fixture.executable, settingsFile: settings)
         defer { bridge.stopAll() }
         for options: [String: Any] in [
             ["model": "unrecognized-model"], ["model": "haiku", "effort": "high"],
@@ -220,8 +237,8 @@ final class ClaudeProcessAdmissionTests: XCTestCase {
     func testPerPhoneAndGlobalLimitsSurviveReceiptsDisconnectsAndDifferentBridges() throws {
         let fixture = try fixture()
         let budget = SessionWorkBudget(limits: .init(perDevice: 2, total: 3, bytesPerDevice: 4096, bytesTotal: 8192))
-        let first = ClaudeBridge(root: fixture.root, processExecutable: fixture.executable, processBudget: budget)
-        let second = ClaudeBridge(root: fixture.root, processExecutable: fixture.executable, processBudget: budget)
+        let first = makeBridge(root: fixture.root, processExecutable: fixture.executable, processBudget: budget)
+        let second = makeBridge(root: fixture.root, processExecutable: fixture.executable, processBudget: budget)
         defer {
             try? Data().write(to: fixture.project.appendingPathComponent("release"))
             first.stopAll()
@@ -256,7 +273,7 @@ final class ClaudeProcessAdmissionTests: XCTestCase {
         let fixture = try fixture()
         defer { try? FileManager.default.removeItem(at: fixture.root) }
         let budget = SessionWorkBudget(limits: .init(perDevice: 1, total: 1, bytesPerDevice: 4096, bytesTotal: 4096))
-        let bridge = ClaudeBridge(
+        let bridge = makeBridge(
             root: fixture.root, processExecutable: fixture.root.appendingPathComponent("missing"), processBudget: budget
         )
         XCTAssertEqual(try request(bridge, project: fixture.project, client: "phone")["ok"] as? Bool, false)

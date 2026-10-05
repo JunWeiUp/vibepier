@@ -19,12 +19,34 @@ class SessionAgentProtocolTest {
             if (status in setOf("accepted", "unknown")) put("unknown", true)
         }
     }
+    @Test fun explicitCatalogRefreshIsStrictAndReadOnly() {
+        for (method in listOf(SessionAgentProtocol.Method.CREATION_OPTIONS, SessionAgentProtocol.Method.ITEMS)) {
+            val params = JSONObject().put("refreshOptions", true)
+            if (method == SessionAgentProtocol.Method.ITEMS) params.put("kind", "composerOptions")
+            assertTrue(SessionAgentProtocol.Request(SessionAgentProtocol.id(), method, target, params).json().getJSONObject("params").getBoolean("refreshOptions"))
+            for (invalid in listOf<Any>("true", 1)) {
+                assertThrows(IllegalArgumentException::class.java) { SessionAgentProtocol.Request(SessionAgentProtocol.id(), method, target, JSONObject(params.toString()).put("refreshOptions", invalid)) }
+            }
+        }
+        assertThrows(IllegalArgumentException::class.java) {
+            SessionAgentProtocol.Request(SessionAgentProtocol.id(), SessionAgentProtocol.Method.ITEMS, target, JSONObject().put("kind", "parts").put("refreshOptions", true))
+        }
+    }
     @Test fun speedOptionIsEncodedAndInvalidTiersAreRejected() {
         fun configure(tier: Any) = SessionAgentProtocol.Request(SessionAgentProtocol.id(), SessionAgentProtocol.Method.CONFIGURE, target,
             JSONObject().put("options", JSONObject().put("serviceTier", tier)), SessionAgentProtocol.id(), SessionAgentProtocol.id())
         for (tier in listOf("standard", "priority")) assertEquals(tier, configure(tier).json().getJSONObject("params").getJSONObject("options").getString("serviceTier"))
         assertThrows(IllegalArgumentException::class.java) { configure("unknown") }
         assertThrows(IllegalArgumentException::class.java) { configure(true) }
+    }
+
+    @Test fun creationSpeedSurvivesProtocolEncoding() {
+        val creation = SessionAgentProtocol.Target.Creation("codex.currentV1", "workspace", SessionAgentProtocol.id(), "revision")
+        for (tier in listOf("standard", "priority")) {
+            val request = SessionAgentProtocol.Request(SessionAgentProtocol.id(), SessionAgentProtocol.Method.CREATE, creation,
+                JSONObject().put("options", JSONObject().put("serviceTier", tier)), SessionAgentProtocol.id(), SessionAgentProtocol.id())
+            assertEquals(tier, request.json().getJSONObject("params").getJSONObject("options").getString("serviceTier"))
+        }
     }
 
     @Test fun submissionConfirmationRequiresNativeProofAndOriginalScope() {

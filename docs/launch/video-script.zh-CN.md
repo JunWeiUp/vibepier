@@ -23,7 +23,7 @@
 | ⑧ | 0:48–0:53 | 手机锁屏弹出「Claude Code 任务已完成」，接对话页的等待横幅（如「等待审批」「请求被限流」） | 任务完成会提醒你；卡住了，也会告诉你它在等什么。 | 通知只显示工具名，不含消息内容 |
 | ⑨ | 0:53–1:02 | [`android-home-zh-CN.png`](../../assets/previews/android-home-zh-CN.png)，接按键编辑器。录屏：点底栏图标，Mac 切到该应用；再点一次，应用隐藏；点空位进入 [`android-app-picker-zh-CN.png`](../../assets/previews/android-app-picker-zh-CN.png)，搜索并添加新应用 | 主页就是一块遥控器：六个自定义按键随当前应用切换；底栏点一下切换应用，再点就隐藏，还能添加别的应用。 | 快捷控制 · 切换 / 隐藏 / 添加应用 |
 | ⑩ | 1:02–1:07 | 语音按住状态（参考 [`android-voice-en-large.png`](../../assets/previews/android-voice-en-large.png)）：手指按住大圆键，Mac 端出现听写输入 | 按住大圆键说话，松手就停，交给 Mac 上的语音输入。 | 由 Mac 端应用识别；用手机麦克风需安装 BlackHole 2ch |
-| ⑪ | 1:07–1:12 | 三屏快切：[`android-screen-controls-zh-CN.png`](../../assets/previews/android-screen-controls-zh-CN.png)（锁屏 / 解锁）、[`android-codex-usage-zh-CN.png`](../../assets/previews/android-codex-usage-zh-CN.png)（额度）、应用使用时长 | 远程锁屏解锁，查看 Codex 额度和应用使用时长。 | 解锁密码只存 Mac 钥匙串 · 用量统计需手动开启 |
+| ⑪ | 1:07–1:12 | 三屏快切：[`android-screen-controls-zh-CN.png`](../../assets/previews/android-screen-controls-zh-CN.png)（锁屏 / 解锁）、[`android-codex-usage-zh-CN.png`](../../assets/previews/android-codex-usage-zh-CN.png)（额度）、应用使用时长 | 远程锁屏解锁，查看 Codex 额度和应用使用时长。 | 解锁密码只存 Mac 本地偏好 · 用量统计需手动开启 |
 | ⑫ | 1:12–1:19 | [`macos-relay-zh-light.png`](../../assets/previews/macos-relay-zh-light.png)，叠加连线动画：蓝牙 → Wi-Fi → 云中继 →「直连 · 控制就绪」 | 蓝牙配对、局域网 Wi-Fi，或者自建云中继；能直连，就直连。 | 中继自建，无官方托管服务 |
 | ⑬ | 1:19–1:25 | Mac 菜单栏面板（任务会话、已授权手机）→「安装 APK」页 → 手机设置出现红点、一键更新 → 终端执行 `vibepier relay status` → AU05 实体按键特写 | Mac 菜单栏统一管理：给手机推送更新，命令行也能配置，还支持 AU05 实体按键。 | 菜单栏应用 · CLI · 可选硬件 |
 | ⑭ | 1:25–1:30 | 「允许这台手机」授权弹窗 → 锁形图标 → 收尾卡（Logo + 口号 + 仓库地址） | 每台手机单独授权，全程加密，凭据只留在 Mac。VibePier——离开键盘，也能接着推进。 | 开源 MIT · github.com/JunWeiUp/vibepier · Android 13+ · Apple 芯片 macOS 14+ |

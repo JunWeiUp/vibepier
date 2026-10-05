@@ -17,20 +17,6 @@ final class ClaudeBridge: @unchecked Sendable {
         let cwd: String
     }
     static let modes = ["default", "auto", "acceptEdits", "plan", "bypassPermissions"]
-    /// Stable CLI aliases avoid guessing account-specific model IDs. The installed CLI and account
-    /// determine availability; unavailable selections return the provider's error.
-    static var models: [[String: Any]] {
-        [
-            [
-                "id": "default", "name": L10n.text("provider.default_model"),
-                "description": L10n.text("provider.use_claude_code_settings"), "efforts": efforts,
-                "defaultEffort": "default",
-            ],
-            ["id": "opus", "name": "Opus", "description": "", "efforts": efforts, "defaultEffort": "default"],
-            ["id": "sonnet", "name": "Sonnet", "description": "", "efforts": efforts, "defaultEffort": "default"],
-            ["id": "haiku", "name": "Haiku", "description": "", "efforts": ["default"], "defaultEffort": "default"],
-        ]
-    }
     private static let efforts = ["default", "low", "medium", "high", "xhigh", "max"]
     private let queue = DispatchQueue(label: "vibepier.claude-bridge")
     private let root: URL
@@ -38,6 +24,7 @@ final class ClaudeBridge: @unchecked Sendable {
         limits: .init(perDevice: 4, total: 8, bytesPerDevice: 8 * 1024 * 1024, bytesTotal: 16 * 1024 * 1024))
     private let processBudget: SessionWorkBudget
     private let processExecutable: URL?
+    private let modelCatalog: (String, Bool) throws -> [[String: Any]]
     private let attachments: CodexAttachments?
     private let markdownFiles = SessionMarkdownFiles()
     private let settingsFile: URL
@@ -56,14 +43,30 @@ final class ClaudeBridge: @unchecked Sendable {
     private var markdownReferences: [String: Set<String>] = [:]
     private var settings: [String: [String: String]] = [:]
     private var desktopControls: [String: ClaudeDesktop.Controls] = [:]
+    private var desktopCatalogs: [String: [String]] = [:]
     private let permissions = ClaudePermissionTail()
     private var registryWatcher: DispatchSourceFileSystemObject?
+    func warmOptions() {
+        queue.async {
+            guard !ScreenLock.locked() else { return }
+            for (_, owner) in ClaudeDesktop.live() {
+                guard owner.desktop, let host = owner.host, self.desktopCatalogs[host] == nil,
+                    ClaudeDesktop.visibleControls(host: host) != nil,
+                    let actual = try? ClaudeDesktop.controls(host: host)
+                else { continue }
+                self.desktopCatalogs[host] = actual.models
+                if self.desktopCatalogs.count >= 32 { break }
+            }
+        }
+    }
     var event: (@Sendable (String, Data) -> Void)?
     init(
         root: URL = FileManager.default.homeDirectoryForCurrentUser.appendingPathComponent(".claude/projects"),
         processExecutable: URL? = nil, processBudget: SessionWorkBudget? = nil, settingsFile: URL? = nil,
-        attachmentRoot: URL? = nil
+        attachmentRoot: URL? = nil, modelCatalog: ((String, Bool) throws -> [[String: Any]])? = nil
     ) {
+        let catalog = ClaudeModelCatalog()
+        self.modelCatalog = modelCatalog ?? { try catalog.entries(cwd: $0, refresh: $1) }
         self.root = root
         self.processExecutable = processExecutable
         self.processBudget = processBudget ?? Self.sharedProcesses
@@ -295,7 +298,8 @@ final class ClaudeBridge: @unchecked Sendable {
             throw CLIError(L10n.text("provider.not_a_known_claude_code_project"))
         }
         let configuration = try ClaudeSessionConfiguration.resolve(
-            request, current: ["model": "default", "effort": "default", "mode": "acceptEdits"])
+            request, current: ["model": "default", "effort": "default", "mode": "acceptEdits"],
+            models: try modelCatalog(cwd, false))
         let prompt: ClaudePrompt
         if request["draftId"] != nil || !ids.isEmpty {
             let draft = try SessionCreationDraft(request, project: cwd, provider: "claude")
@@ -337,12 +341,17 @@ final class ClaudeBridge: @unchecked Sendable {
                 reply(value)
                 return
             }
-            guard step < 60, self.runs[session] != nil || step < 3 else {
-                reply([
-                    "ok": false, "unknown": true,
-                    "error": self.runErrors[session]?["text"] as? String
-                        ?? L10n.text("provider.claude_code_could_not_create_a_new_session"),
-                ])
+            let exited = self.runs[session] == nil && step >= 3
+            guard step < 90, !exited else {
+                let error =
+                    self.runErrors[session]?["text"] as? String
+                    ?? L10n.text("provider.claude_code_could_not_create_a_new_session")
+                // The CLI records the human message before contacting the model. Having exited without it means
+                // nothing was submitted. Only a run still alive past the budget stays uncertain.
+                reply(
+                    exited
+                        ? ["ok": false, "definitive": true, "error": error]
+                        : ["ok": false, "unknown": true, "error": error])
                 return
             }
             self.queue.asyncAfter(deadline: .now() + 0.4) { poll(step + 1) }
@@ -372,7 +381,8 @@ final class ClaudeBridge: @unchecked Sendable {
             let draft = try SessionCreationDraft(request, project: cwd, provider: "claude")
             if op == "newOptions" {
                 return [
-                    "creationVersion": 1, "draftId": draft.id, "models": Self.models,
+                    "creationVersion": 1, "draftId": draft.id,
+                    "models": try modelCatalog(cwd, request["refreshOptions"] as? Bool == true),
                     "composer": [
                         "model": "default", "effort": "default", "mode": "default", "executionMode": "default",
                     ],
@@ -530,10 +540,18 @@ final class ClaudeBridge: @unchecked Sendable {
             let owner = owner(session)
             // Reading the menus means switching the desktop app; while locked, keep the last known ones.
             if let owner, owner.desktop, let host = owner.host, !ScreenLock.locked() {
-                desktopControls[session] = try ClaudeDesktop.controls(host: host)
+                if request["refreshOptions"] as? Bool == true || desktopCatalogs[host] == nil {
+                    let actual = try ClaudeDesktop.controls(host: host)
+                    if desktopCatalogs.count >= 32 { desktopCatalogs.removeAll() }
+                    desktopCatalogs[host] = actual.models
+                    desktopControls[session] = actual
+                } else if let visible = ClaudeDesktop.visibleControls(host: host) {
+                    desktopControls[session] = visible.withModels(desktopCatalogs[host] ?? [])
+                }
             }
             return [
-                "threadId": session, "models": models(session), "composer": composer(session, owner: owner),
+                "threadId": session, "models": try models(session, refresh: request["refreshOptions"] as? Bool == true),
+                "composer": composer(session, owner: owner),
                 "executionModes": ClaudeSessionConfiguration.executionModes, "executionModePermissionCoupled": true,
                 "capabilities": ["executionMode": owner?.desktop == true && desktopControls[session]?.mode != nil],
                 "permissionModes": Self.modes.filter { $0 != "plan" }.map {
@@ -663,7 +681,8 @@ final class ClaudeBridge: @unchecked Sendable {
                     "executionModeVerified": request["executionMode"] != nil,
                 ]
             }
-            let next = try ClaudeSessionConfiguration.resolve(request, current: selection(session))
+            let next = try ClaudeSessionConfiguration.resolve(
+                request, current: selection(session), models: try modelCatalog(transcript.cwd, false))
             let previous = settings[session]
             settings[session] = next
             do { try saveSettings() } catch {
@@ -753,7 +772,7 @@ final class ClaudeBridge: @unchecked Sendable {
                 }
                 return try deliverDesktop(prompt, session: session, host: host, ticket: ticket)
             }
-            if ClaudeDesktop.running {
+            if ClaudeDesktop.running || ClaudeDesktop.installed {
                 // Nothing has it open: continue it in the desktop app (importing it first) so it shows up there, not as a headless run.
                 return try ScreenLock.unlocked {
                     try deliverDesktop(
@@ -940,23 +959,24 @@ final class ClaudeBridge: @unchecked Sendable {
         {
             value["executionMode"] = mode
         }
+        if owner?.desktop != true, let model = value["model"] as? String, model.hasPrefix("claude-") {
+            value["modelLabel"] = Self.modelName(model)
+        }
         return value
     }
-    private func models(_ session: String) -> [[String: Any]] {
+    private func models(_ session: String, refresh: Bool = false) throws -> [[String: Any]] {
         if let live = desktopControls[session], owner(session)?.desktop == true {
+            guard !live.models.isEmpty else { throw ClaudeModelCatalog.unavailable }
             return live.models.map {
                 ["id": $0, "name": $0, "efforts": ClaudeDesktop.efforts(for: $0), "defaultEffort": "medium"]
             }
         }
-        guard let current = currentModel(session)?.label else { return Self.models }
-        return Self.models.map { entry in
-            var entry = entry
-            if entry["id"] as? String == "default" {
-                entry["name"] = L10n.text("provider.default_currently_0", current)
-            }
-            return entry
+        if owner(session)?.desktop == true {
+            throw ClaudeModelCatalog.unavailable
         }
+        return try modelCatalog(transcripts[session]?.cwd ?? "", refresh)
     }
+
     private func selection(_ session: String) -> [String: String] {
         var value = settings[session] ?? [:]
         if value["mode"] == nil {
@@ -1032,8 +1052,11 @@ final class ClaudeBridge: @unchecked Sendable {
             self?.queue.async { [weak self] in
                 guard let self, self.runs[session]?.token == token else { return }
                 self.runs.removeValue(forKey: session)
-                if fresh, failure == nil, ClaudeDesktop.running, self.owner(session) == nil {
-                    DispatchQueue.global().async { _ = try? ClaudeDesktop.adopt(session, restoreFocus: true) }
+                if fresh, failure == nil, self.owner(session) == nil {
+                    // Import the new session into Claude Desktop right after its first turn, so later turns render live.
+                    DispatchQueue.global().async {
+                        _ = try? ScreenLock.preferUnlocked { try ClaudeDesktop.adopt(session, restoreFocus: true) }
+                    }
                 }
                 if let failure {
                     self.runErrors[session] = [

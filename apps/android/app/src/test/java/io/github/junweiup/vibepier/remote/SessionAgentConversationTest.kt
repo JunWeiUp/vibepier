@@ -7,6 +7,63 @@ import org.junit.Assert.*
 import org.junit.Test
 
 class SessionAgentConversationTest {
+    @Test fun restoredProjectOptionsResolveMissingWorkspaceWithoutReturningToProjectList() {
+        val harness = Harness()
+        assertNull(harness.client.workspace("codex", "/another-project"))
+        var result: JSONObject? = null
+        harness.conversation.request("newOptions", harness.creationFields().put("cwd", "/another-project")) { result = it }
+        assertTrue(result!!.getBoolean("ok"))
+        assertEquals("discovered-workspace", harness.client.workspace("codex", "/another-project"))
+        assertEquals(listOf("workspace.list", "session.creationOptions"), harness.methods())
+        harness.conversation.request("newOptions", harness.creationFields().put("cwd", "/another-project")) { }
+        assertEquals(1, harness.methods().count { it == "workspace.list" })
+        assertTrue(harness.store.rows.isEmpty())
+    }
+    @Test fun restoredProjectListResolvesBeforeReadingItsSessionsAndLateTabResultsStayIsolated() {
+        val harness = Harness()
+        var result: JSONObject? = null
+        harness.conversation.request("list", JSONObject().put("cwd", "/another-project")) { result = it }
+        assertTrue(result!!.getBoolean("ok"))
+        assertEquals(listOf("workspace.list", "session.list"), harness.methods())
+        val changed = Harness(); changed.holdReads = true
+        changed.conversation.request("newOptions", changed.creationFields().put("cwd", "/another-project")) { result = it }
+        changed.provider = "zcode"
+        val held = changed.held.single(); changed.answer(held.first, held.second)
+        assertEquals("stale_state", result!!.getString("code"))
+        assertNull(changed.client.workspace("codex", "/another-project"))
+        assertEquals(listOf("workspace.list"), changed.methods())
+        assertTrue(changed.store.rows.isEmpty())
+    }
+
+    @Test fun nativeReadFailureKeepsAValidDiagnosticAndRejectsUnsafeDetails() {
+        val conversation = Harness().conversation
+        assertEquals("Unlock failed", conversation.legacyReply(SessionAgentProtocol.Reply.Failure("agent_native_unavailable", "Unlock failed"), JSONObject()).getString("error"))
+        assertEquals("agent_native_unavailable", conversation.legacyReply(SessionAgentProtocol.Reply.Failure("agent_native_unavailable", "unsafe\u0000text"), JSONObject()).getString("error"))
+    }
+    @Test fun nativeRejectionKeepsItsActualCodeAndPlainDiagnosticAcrossAllOperations() {
+        val conversation = Harness().conversation
+        val detail = "上次解锁未成功，请手动解锁 Mac"
+        for (op in listOf("new", "send", "settings", "interrupt")) {
+            val result = JSONObject().put("code", "agent_native_rejected").put("error", detail)
+            val response = conversation.legacyReply(SessionAgentProtocol.Reply.Mutation(SessionAgentProtocol.Status.REJECTED, "operation", null, result, JSONObject()), JSONObject().put("op", op))
+            assertEquals("agent_native_rejected", response.getString("code"))
+            assertEquals(detail, response.getString("error"))
+            assertFalse(response.getBoolean("ok")); assertFalse(response.getBoolean("unknown"))
+        }
+    }
+    @Test fun malformedDiagnosticFallsBackWhileUnknownReceiptNeverBecomesAConfirmedFailure() {
+        val conversation = Harness().conversation
+        for (detail: Any in listOf(42, "", "unsafe\u0000text", "x".repeat(4_097))) {
+            val result = JSONObject().put("code", "agent_native_rejected").put("error", detail)
+            val reply = SessionAgentProtocol.Reply.Mutation(SessionAgentProtocol.Status.REJECTED, "operation", null, result, JSONObject())
+            assertEquals("agent_native_rejected", conversation.legacyReply(reply, JSONObject().put("op", "new")).getString("error"))
+        }
+        val reply = SessionAgentProtocol.Reply.Mutation(SessionAgentProtocol.Status.UNKNOWN, "operation", null, JSONObject().put("error", "Native acknowledgement lost"), JSONObject())
+        val response = conversation.legacyReply(reply, JSONObject().put("op", "send"))
+        assertTrue(response.getBoolean("unknown")); assertFalse(response.getBoolean("ok"))
+        assertTrue(response.getString("error").startsWith("receipt_unknown"))
+    }
+
     private class Store : SessionAgentClient.Storage {
         val rows = linkedMapOf<String, String>()
         override fun pending() = rows.toMap()
@@ -28,6 +85,7 @@ class SessionAgentConversationTest {
         var holdReads = false
         var holdObservation = false
         var capabilityRemembered: () -> Unit = {}
+        var permission: (JSONObject, String) -> Boolean = { _, _ -> true }
         var dirtyNotifications = 0
         var contentNotifications = 0
         var clock = 0L
@@ -54,8 +112,8 @@ class SessionAgentConversationTest {
             if (holdReads && method in setOf("session.list", "workspace.list", "session.snapshot", "session.open", "session.creationOptions") || holdObservation && method == "session.observe") held.add(copy to done)
             else answer(copy, done)
         }, store, { source, selected -> source == "codex" && selected == adapter }, { adapter })
-        val conversation = SessionAgentConversation(client, { provider }, { view }, { ++view }, { adapter }, { _, _ -> false },
-            { _, _ -> capabilityRemembered() }, { _, _ -> true }, { it },
+        val conversation = SessionAgentConversation(client, { provider }, { view }, { ++view }, { adapter },
+            { _, _ -> capabilityRemembered() }, { fields, key -> permission(fields, key) }, { it },
             { delay, work -> scheduledDelays.add(delay); clock += delay; beforeScheduledRead?.invoke(); work() }, { clock })
         init {
             client.discover(JSONObject().put("versions", JSONArray().put(2)).put("minimumClientVersion", 2)
@@ -74,6 +132,7 @@ class SessionAgentConversationTest {
             return JSONObject().put("id", body.getString("requestId")).put("ok", true)
                 .put("body", JSONObject().put("agentProtocol", 2).put("requestId", body.getString("requestId")).put("result", result))
         }
+        var operationNotFound = false
         fun answer(wire: JSONObject, done: (JSONObject) -> Unit) {
             val body = wire.getJSONObject("body")
             when (body.getString("method")) {
@@ -91,7 +150,9 @@ class SessionAgentConversationTest {
                 }
                 "operation.get" -> {
                     val original = wires.first { it.getJSONObject("body").optString("operationId").isNotBlank() }.getJSONObject("body")
-                    done(readReply(wire, JSONObject().put("operation", unknownBody(original))))
+                    if (operationNotFound) done(readReply(wire, JSONObject().put("operation", JSONObject()
+                        .put("operationId", original.getString("operationId")).put("status", "notFound"))))
+                    else done(readReply(wire, JSONObject().put("operation", unknownBody(original))))
                 }
                 "session.creationOptions" -> done(readReply(wire, JSONObject().put("options", JSONObject(creationOptions.toString()))
                     .put("creationLease", JSONObject().put("target", JSONObject().put("adapterId", adapter).put("workspaceRef", "workspace")
@@ -119,6 +180,59 @@ class SessionAgentConversationTest {
         fun methods() = wires.map { it.getJSONObject("body").getString("method") }
     }
 
+    @Test fun transientNativeAdmissionOnlyRetriesReadsBeforeOneSubmission() {
+        for (op in listOf("new", "send", "settings")) {
+            val harness = Harness()
+            var reads = 0
+            harness.capabilityRemembered = { reads++ }
+            harness.permission = { _, _ -> reads >= 3 }
+            val fields = if (op == "new") harness.creationFields() else harness.fields()
+            if (op == "settings") fields.put("model", "model-a")
+            harness.conversation.request(op, fields) { }
+            val read = if (op == "new") "session.creationOptions" else "session.snapshot"
+            val write = when(op) { "new" -> "session.create"; "settings" -> "session.configure"; else -> "message.submit" }
+            assertEquals(3, harness.methods().count { it == read })
+            assertEquals(1, harness.methods().count { it == write })
+            assertEquals(1, harness.store.rows.size)
+        }
+    }
+    @Test fun notFoundReceiptKeepsIntentAndResendReusesOperationIdentity() {
+        val harness = Harness()
+        var created: JSONObject? = null
+        val id = harness.conversation.request("new", harness.creationFields()) { created = it }!!
+        assertTrue(created!!.optBoolean("unknown"))
+        harness.operationNotFound = true
+        var receipt: JSONObject? = null
+        harness.conversation.request("receipt", JSONObject().put("operation", id)) { receipt = it }
+        assertEquals("notFound", receipt!!.optString("state"))
+        assertEquals(1, harness.store.rows.size)
+        val first = harness.wires.first { it.getJSONObject("body").optString("method") == "session.create" }.getJSONObject("body")
+        harness.client.resend(id) { }
+        val resent = harness.wires.last().getJSONObject("body")
+        assertEquals("session.create", resent.getString("method"))
+        assertEquals(first.getString("operationId"), resent.getString("operationId"))
+        assertEquals(first.getJSONObject("params").toString(), resent.getJSONObject("params").toString())
+        assertNotEquals(first.getString("requestId"), resent.getString("requestId"))
+    }
+    @Test fun settledOperationReceiptNeverFallsBackToLegacyLookup() {
+        val harness = Harness()
+        harness.conversation.rememberSettled("op-1", JSONObject().put("ok", true).put("provider", "codex").put("threadId", "thread"))
+        val before = harness.wires.size
+        var receipt: JSONObject? = null
+        assertNotNull(harness.conversation.request("receipt", JSONObject().put("operation", "op-1")) { receipt = it })
+        assertEquals("complete", receipt!!.optString("state"))
+        assertEquals("thread", receipt!!.getJSONObject("receipt").optString("threadId"))
+        assertEquals(before, harness.wires.size)
+    }
+    @Test fun permanentlyUnavailableNativeAdmissionNeverJournalsOrSubmits() {
+        val harness = Harness()
+        harness.permission = { _, _ -> false }
+        var response: JSONObject? = null
+        harness.conversation.request("new", harness.creationFields()) { response = it }
+        assertEquals("agent_state_not_ready", response!!.optString("code"))
+        assertTrue(harness.methods().all { it == "session.creationOptions" })
+        assertTrue(harness.store.rows.isEmpty())
+    }
     @Test fun expiredLeaseIsRenewedBeforeOnlyOneFirstSubmissionAndReadonlyPreparationDoesNotJournal() {
         val harness = Harness()
         var prepared: JSONObject? = null

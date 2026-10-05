@@ -109,6 +109,7 @@ class SessionClient(context: Context, private val sender: SessionTransport, priv
         adapterAllowed = { source, id -> agentNegotiation.host?.adapter(source, id) != null },
         selectedAdapter = { source -> selectedAgentAdapter(source)?.id },
     ).apply {
+        onPreservedRead = { id -> preservedAgentReads.add(id) }
         onSession = { session ->
             val key = "agentSession.$authorizationIdentity.${session.adapterId}.${session.nativeThreadId}"
             val encoded = session.descriptor.toString()
@@ -142,7 +143,9 @@ class SessionClient(context: Context, private val sender: SessionTransport, priv
                 clearSentAttachmentsInScope(thread, original.optJSONArray("attachments"), source)
             }
             if (original != null && reply.status in setOf(SessionAgentProtocol.Status.CONFIRMED, SessionAgentProtocol.Status.REJECTED)) {
-                onEvent(agentConversation.legacyReply(reply, original).put("event", "lateReceipt").put("operation", original))
+                val legacy = agentConversation.legacyReply(reply, original)
+                agentConversation.rememberSettled(operation, legacy)
+                onEvent(JSONObject(legacy.toString()).put("event", "lateReceipt").put("operation", original))
             }
             onEvent(JSONObject().put("event", "agentOperationUpdated").put("operationId", operation).put("status", reply.status.wire))
         }
@@ -151,7 +154,6 @@ class SessionClient(context: Context, private val sender: SessionTransport, priv
         if (viewVersion == Long.MAX_VALUE || !prefs.edit().putLong("viewVersion", viewVersion + 1).commit()) null
         else { viewVersion++; viewVersion }
     }, adapter = { source -> selectedAgentAdapter(source)?.id },
-        legacyPending = { source, thread -> uncertainLegacy(thread, source).isNotEmpty() },
         rememberCapabilities = { fields, value ->
             if (fields.optString("provider") == provider && fields.optLong("viewVersion", -1) == viewVersion &&
                 value.optJSONObject("agentCapabilities")?.optString("adapterId") == selectedAgentAdapter()?.id) {
@@ -171,7 +173,8 @@ class SessionClient(context: Context, private val sender: SessionTransport, priv
             "receipt_unknown" -> R.string.client_unknown_result
             "agent_protocol_invalid" -> R.string.agent_protocol_invalid
             "agent_state_changed", "agent_options_changed", "approval_expired", "turn_changed", "queue_changed", "agent_turn_changed", "agent_queue_changed", "agent_approval_changed" -> R.string.agent_state_changed
-            "stale_state", "content_incomplete" -> R.string.agent_state_not_ready
+            "stale_state", "content_incomplete", "agent_native_unavailable", "agent_state_not_ready",
+            "agent_session_view_closed", "agent_session_not_open" -> R.string.agent_state_not_ready
             else -> R.string.agent_capability_unavailable
         }) },
         scheduleRead = { delay, work -> main.postDelayed({ work() }, delay) },
@@ -189,10 +192,10 @@ class SessionClient(context: Context, private val sender: SessionTransport, priv
     internal fun agentActionSupported(key: String, sourceProvider: String = provider): Boolean =
         providerEnabled(sourceProvider) && selectedAgentAdapter(sourceProvider)?.actions?.get(key)?.supported == true
     internal fun sessionControlKnown(thread: String) = if (agent.negotiated) agent.session(provider, thread) != null else agentCapabilitiesKnown
-    internal fun creationCapability(key: String, draft: SessionCreationDraft) = agentNegotiation.target(
-        JSONObject().put("provider", draft.provider).put("cwd", draft.cwd).put("draftId", draft.id))?.let {
-        it.adapterId == selectedAgentAdapter(draft.provider)?.id && it.actions[key]?.supported == true
-    } == true
+    // Draft declarations can disappear after discovery or reconnect. The UI only
+    // checks adapter support; prepareLegacyMutation obtains fresh authorization.
+    internal fun creationCapability(key: String, draft: SessionCreationDraft) =
+        agentActionSupported(key, draft.provider)
     fun providerEnabled(value: String) = value in enabledProviders
     fun refreshProviderAccess() {
         if (!online || !paired || refreshingProviderAccess) return
@@ -365,8 +368,11 @@ class SessionClient(context: Context, private val sender: SessionTransport, priv
             if (!sender.enrollmentReady) { pairDeadline = 0; main.removeCallbacks(pairRetry) }
             apkDownloadToken = null; apkDownloadConnection = null
             inbox.clearPartial()
-            val requests = pending.toMap(); pending.clear()
-            requests.values.forEach { it.deliver(JSONObject().put("ok", false).put("unknown", uncertainOnTimeout(it.json.optString("op"), it.json.optJSONObject("body"))).put("error", context.getString(R.string.client_disconnected))) }
+            // Mutations keep waiting through a brief transport drop: their own deadline still applies, and a reply
+            // delivered after reconnecting settles them. Marking them unknown here only produced false uncertainty.
+            val requests = pending.filterValues { !uncertainOnTimeout(it.json.optString("op"), it.json.optJSONObject("body")) }
+            requests.keys.forEach(pending::remove)
+            requests.values.forEach { it.deliver(JSONObject().put("ok", false).put("unknown", false).put("error", context.getString(R.string.client_disconnected))) }
         }
     }
     fun pair() {
@@ -520,6 +526,15 @@ class SessionClient(context: Context, private val sender: SessionTransport, priv
         catch (_: Exception) {
             callback(JSONObject().put("id", id).put("ok", false).put("unknown", true).put("error", context.getString(R.string.client_receipt_save_failed))); return id
         }
+        // Another creation may finish preparation while this request is reading
+        // options. Recheck at the journal boundary without blocking original-ID retries.
+        if (op == "new" && savedOriginal == null && SessionWaitingPolicy.duplicateCreation(
+                uncertain("", request.optString("provider")), request.optString("cwd"), request.optString("text"),
+                request.optJSONArray("attachments") ?: JSONArray(), id)) {
+            callback(JSONObject().put("id", id).put("ok", false).put("code", "operation_conflict")
+                .put("error", context.getString(R.string.creation_duplicate_pending)))
+            return id
+        }
         if (op in setOf("send", "new", "settings", "approve", "interrupt", "queueSteer", "queueDelete") && savedOriginal == null) {
             val capability = SessionV1Contract.operation(op)?.capability
             val declaration = agentNegotiation.target(request)
@@ -587,7 +602,7 @@ class SessionClient(context: Context, private val sender: SessionTransport, priv
         if (reading) networkReads++
         transmit(request, encodedRequest)
         // Desktop actions may first unlock the Mac and switch apps, which takes several seconds.
-        main.postDelayed({ timeout(id, item) }, if (replyTimeoutMs == 0L && op in listOf("send", "new", "approve", "settings", "interrupt", "queueSteer", "queueDelete", "lockScreen", "unlockScreen")) maxOf(responseTimeout, 30_000L) else responseTimeout)
+        main.postDelayed({ timeout(id, item) }, SessionRequestTiming.initial(responseTimeout, replyTimeoutMs, op, request.optJSONObject("body")))
         return id
     }
     private fun timeout(id: String, item: Request) {
@@ -619,8 +634,14 @@ class SessionClient(context: Context, private val sender: SessionTransport, priv
     internal fun cancelCreationOptions(id: String?) {
         if (id != null && pending[id]?.json?.optString("op") == "newOptions") pending.remove(id)
     }
+    internal fun cancelCreationReceiptReads(operation: String) {
+        pending.entries.removeAll { SessionCreationWaitState.isReceiptRead(it.value.json, operation) }
+    }
+    /** Agent reads that a mutation preparation or receipt lookup waits on; dropping them would strand that wait. */
+    private val preservedAgentReads = java.util.Collections.newSetFromMap(java.util.concurrent.ConcurrentHashMap<String, Boolean>())
     fun cancelPageReads() {
-        pending.entries.removeAll { it.value.json.optString("op") in setOf("open", "close", "list", "projects", "sync", "history", "parts", "message", "image", "composerOptions", "newOptions", "contextUsage", "browseFiles", "readMarkdownFile", "approvalDetails", "fileChanges", "readFile", "readImageFile", "readVideoFile", "fileDiff", "searchFiles") ||
+        preservedAgentReads.retainAll(pending.keys)
+        pending.entries.removeAll { it.key !in preservedAgentReads && it.value.json.optString("op") in setOf("open", "close", "list", "projects", "sync", "history", "parts", "message", "image", "composerOptions", "newOptions", "contextUsage", "browseFiles", "readMarkdownFile", "approvalDetails", "fileChanges", "readFile", "readImageFile", "readVideoFile", "fileDiff", "searchFiles") ||
             it.value.json.optString("op") == "agentRequest" && !uncertainOnTimeout("agentRequest", it.value.json.optJSONObject("body")) }
     }
     private fun uncertainLegacy(thread: String, sourceProvider: String): List<JSONObject> = prefs.all.filterKeys { it.startsWith("pending.") }.values.mapNotNull {
@@ -637,11 +658,32 @@ class SessionClient(context: Context, private val sender: SessionTransport, priv
         val ids = operations.map { it.optString("id") }.filter { it.isNotBlank() }.toSet()
         return prefs.edit().putStringSet(stoppedWaitingKey(thread), ids).commit()
     }
+    // The fresh draft and stopped operation must persist together before the editor is released.
+    @android.annotation.SuppressLint("ApplySharedPref")
+    internal fun stopCreationWaiting(original: JSONObject): Boolean = try {
+        val operation = original.getString("id"); val cwd = original.getString("cwd")
+        require(original.optString("op") == "new" && original.optString("provider") == provider)
+        require(operation.isNotBlank())
+        val operations = SessionWaitingPolicy.creationWaits(uncertain("", provider), provider, cwd) + original
+        val previous = creationDraft(cwd)
+        val next = SessionWaitingPolicy.freshCreationDraft(previous, operations)
+        val ids = (prefs.getStringSet(stoppedWaitingKey(""), emptySet()) ?: emptySet()) +
+            operations.map { it.optString("id") }.filter { it.isNotBlank() }
+        prefs.edit().putStringSet(stoppedWaitingKey(""), ids)
+            .putString("creationDraft.${localScope(provider)}.${SessionCreationDraft.key(cwd)}", next.value().toString()).commit()
+    } catch (_: Exception) { false }
+    internal fun duplicateUnconfirmedCreation(cwd: String, text: String, attachments: JSONArray, operation: String = ""): Boolean =
+        SessionWaitingPolicy.duplicateCreation(uncertain("", provider), cwd, text, attachments, operation)
     fun waitingOperations(thread: String): List<JSONObject> = uncertain(thread).filter { !waitingStopped(thread, it) }
     fun duplicateUnconfirmedSend(thread: String, text: String, attachments: JSONArray): Boolean =
         SessionWaitingPolicy.duplicateSend(uncertain(thread), text, attachments)
     fun clearReceipt(id: String) { prefs.edit().remove("pending.$id").apply() }
     fun retryPending(id: String, callback: (JSONObject) -> Unit) {
+        agent.context(id)?.let { original ->
+            // Only reached after the Mac reported notFound: the same operation ID and body, never a fresh mutation.
+            agent.resend(id) { reply -> callback(agentConversation.legacyReply(reply, original)) }
+            return
+        }
         val saved = prefs.getString("pending.$id", null)
         if (saved == null) { callback(JSONObject().put("ok", false).put("unknown", true).put("error", context.getString(R.string.client_unknown_result))); return }
         val original = runCatching { JSONObject(saved) }.getOrNull()

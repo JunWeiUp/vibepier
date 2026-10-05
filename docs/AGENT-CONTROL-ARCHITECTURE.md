@@ -8,6 +8,10 @@
 
 VibePier 已经有共用的加密 Session RPC、provider 路由、消息投影和持久回执。本次补齐明确契约与适配边界，沿用 BLE/UDP/WSS 和二进制 HTTPS，无需重写成 Go/Rust，也无需再造一个中继。
 
+默认 `codex.currentV1` 现在将手机新建会话交给后台 App Server，使用 Mac 原生 Codex home 与现有账号，无需解锁或桌面接管。`CodexBackgroundSessions` 的私有持久登记表只路由本路径创建的 `vibepier` 会话；原桌面已有会话继续走 owner-bound IPC，不能通过同一账号或历史 ID 自动转交后台。这个默认路径与下文显式启用、独立 `CODEX_HOME` 的共享运行时原型分别维护契约。
+
+The default `codex.currentV1` adapter now creates owned background App Server threads using the Mac's native Codex home/account, without unlocking the screen or desktop takeover. A persistent registry retains only those created threads' backend ownership. Existing desktop sessions keep their original IPC owner. This default path is separate from the explicitly configured isolated runtime described below.
+
 ## Mimi Remote 值得借鉴的部分
 
 核验上游 HEAD 为 `38fbc1cf4707cc8eb0b64947f94f9f4874e20644`，与上一轮研究相同。以下来自源码检查，不是实际运行验收；依据为 [Mimi 固定源码](https://github.com/gaixianggeng/mimi-remote/tree/38fbc1cf4707cc8eb0b64947f94f9f4874e20644)。版本与能力以实际源码契约为准，README/设计文档可能落后于实现。
@@ -33,12 +37,13 @@ flowchart TB
     Client <-->|Agent Session API；现有授权加密通道| Boundary[SessionRemote：鉴权 / 重放防护 / 配额 / journal]
     Boundary --> Coordinator[SessionCoordinator：操作路由 / 订阅 / 状态恢复]
     Coordinator --> Registry[AgentRegistry：版本 / 健康 / 会话能力]
-    Registry --> CD[CodexDesktopAdapter]
+    Registry --> CD[Codex currentV1]
     Registry --> CR[CodexRuntimeAdapter]
     Registry --> CC[ClaudeDesktopAdapter]
     Registry --> CM[ClaudeRuntimeAdapter]
     Registry --> Z[ZCodeDesktopAdapter]
     CD --> IPC[原桌面 owner 的版本化 IPC]
+    CD --> BG[登记的自有后台 App Server 会话]
     CR --> AS[显式共享的官方 App Server]
     CC --> Mods[优先验证 Mods driver；现有 AX driver]
     CM --> CLI[受管理的 SDK / stream-json 进程]
@@ -57,7 +62,8 @@ flowchart TB
 
 | 接入方式 | 当前基础或官方依据 | 建议 |
 | --- | --- | --- |
-| Codex 普通本地桌面会话 | 现有 versioned IPC，绑定原 owner；当前源码 allowlist 见兼容性文档 | 保留 DesktopAdapter，继续做构建与原生回执门禁 |
+| Codex 普通本地桌面会话 | 现有 versioned IPC，绑定原 owner；不按桌面构建号禁用 | 保留 DesktopAdapter，继续校验实际接口与原生回执 |
+| 手机默认新建 Codex 会话 | `codex.currentV1` 使用现有账号的内置 App Server；私有登记表持久保存自有线程 | 全程后台执行；只处理登记的自有线程，不接管普通桌面历史；空闲发送，不提供队列控制 |
 | Codex 可共享的新工作流 | 官方 App Server 支持结构化会话、轮次、审批和事件；官方桌面提供 SSH 项目连接 | 增加可选 RuntimeAdapter；显式让桌面/终端/手机连接同一个 backend |
 | Claude Code 原桌面会话 | 现有 AX + 原生 JSONL 回执；官方 Mods 提供进程内扩展 | 优先验证 Mods driver，符合版本/契约后才对相应会话启用；现有 AX 有隔离测试，真实桌面仍须单独验收 |
 | VibePier 创建/持有的 Claude 会话 | 现有 CLI stream-json；官方 Agent SDK 的会话与权限接口 | 单独 RuntimeAdapter，进程跟任务走，断线不重复启动、不接管外部活跃会话 |
@@ -100,21 +106,29 @@ Codex App Server 文档将相关命令/WebSocket 标为 experimental，并提供
 
 每项能力声明 `supported / available / reason / constraints`。生效能力是 adapter 契约、实际版本与健康、Mac 开关、可信设备权限、当前会话归属/状态的交集。手机缺失声明时默认关闭，不能再按 `provider == codex` 猜队列支持。
 
+`codex.currentV1` 原生页与新建选项以 `backendKind: appServer` 标识默认自有后台路径。协调层仅接受其明确提供的原生 capability flags，缺失或显式 `false` 不由旧 Codex 桌面契约覆盖；发送另要求空闲状态，队列、队列删除、引导恒不支持。后台 `canSend` 来自后端连接健康，不依赖桌面 IPC 状态或 Mac 解锁；已有桌面路径维持原有验证。The background page's explicit flags and idle state govern control; desktop defaults cannot grant missing App Server capabilities.
+
 基本动作统一为 `message.submit / turn.interrupt / approval.resolve / question.answer / session.create / session.configure / session.observe / operation.get`。`message.submit.mode` 区分 `start/queue/steer`，只有有相同原生语义的 adapter 才声明；不把 CLI resume、普通消息或进程终止伪装成 steer。
 
 模型、推理和权限选项由 adapter 返回有版本的 option ID、标签、说明和有效范围，手机提交选中的 ID 与 revision。权限模式不跨 provider 强行等价；比如会话允许与规则更新必须显示各自作用范围。初期用有限的组件类型渲染选项，不加载任意远端 UI 或代码。
 
-手机已有会话和新建会话提供「任务模式：计划/执行」，以 `executionMode: default|plan` 表达，与消息的 start/queue/steer 及权限 `mode` 分开。入口需实际 `executionMode` 能力及 `executionModes` 目录；已有任务仅空闲时可切换。Codex 通过原生 collaboration mode 并保持独立权限；Claude 通过显式 `executionModePermissionCoupled` 与目录 `permissionMode` 绑定，计划中隐藏权限入口，执行默认回到安全权限。原生实际设置、首轮身份与模式分别核验，setter ACK 或本地草稿不能替代证据。详见[兼容性边界](COMPATIBILITY.md#phone-plan-mode--手机计划模式)。
+手机已有会话和新建会话提供「任务模式：计划/执行」，以 `executionMode: default|plan` 表达，与消息的 start/queue/steer 及权限 `mode` 分开。入口需实际 `executionMode` 能力及 `executionModes` 目录；已有任务仅空闲时可切换。Codex 通过原生 collaboration mode 并保持独立权限；ZCode 将计划复选项与文件权限单选项分别核验，允许两者同时勾选且切换任务模式不改变权限；Claude 通过显式 `executionModePermissionCoupled` 与目录 `permissionMode` 绑定，计划中隐藏权限入口，执行默认回到安全权限。原生实际设置、首轮身份与模式分别核验，setter ACK 或本地草稿不能替代证据。详见[兼容性边界](COMPATIBILITY.md#phone-plan-mode--手机计划模式)。
 
 ## 发送、回执和恢复
 
-新操作的唯一输入是用户意图与已选目标，显示缓存不能授权或阻止它。手机先自动读取当前原生状态，再把最终请求单次写入日志并发送。普通 Send 沿用当前模型/权限；Mac 原生状态决定直接 start 或支持的 queue，不能用旧页面的忙闲状态提前拒绝。高级调用者明确指定的 start/queue 不变；停止轮次、审批指纹/已展示修订与所选队列内容继续精确绑定。设置只验证明确的新选项及权限确认，不要求旧 composer 保持不变；新建省略的缺省值由本次可信目录决定。
+新操作的唯一输入是用户意图与已选目标，显示缓存不能授权或阻止它。手机先自动读取当前原生状态，再把最终请求单次写入日志并发送。普通 Send 沿用当前模型/权限；Mac 原生状态决定直接 start 或支持的 queue，默认自有 App Server 仅允许空闲 start 且没有 queue。高级调用者明确指定的 start/queue 不变；停止轮次、审批指纹/已展示修订与所选队列内容继续精确绑定。设置只验证明确的新选项及权限确认，不要求旧 composer 保持不变；新建省略的缺省值由本次可信目录决定。
+
+新会话入口只依据所选适配器是否支持创建；草稿能力缓存缺失或被重新发现清除时，不提前拒绝点击“开始”。创建请求仍先读取 `newOptions`，核对当前选项与权限后单次提交。This also applies to creation: adapter support controls the entry point; fresh `newOptions` authorizes the single submission even when the draft capability cache has been cleared.
+
+同一设备、适配器、目录和草稿的并发选项读取合并到一次原生读取，共享本次回执中的租约；不同草稿仍隔离。创建、发送和设置遇到短暂不可用时，手机在 10 秒预算内仅重试只读准备；持久写入及发送只执行一次，结果未知后继续查询原操作。Concurrent creation-option reads share one native read only within the same device/adapter/workspace/draft. Transient creation, send and settings admission retries only read preparation within a ten-second budget; no unknown effect is resubmitted.
+
+创建选项修订只绑定目录内容与原生能力，不包含读取的请求 ID、视图代次、操作名或发送时间。同一草稿重新读取相同选项不撤销已有创建租约；真实选项或能力变化仍使旧租约失效。Creation revisions exclude read correlation fields, so rereading identical native options does not revoke existing creation authority.
 
 界面依据实际后端的 supported 能力提供入口，available、lease 与 owner 验证由本次控制准备和 Mac 写边界处理。断线或 opening 在相同目标下自动有限恢复，最多 7 次只读准备、总预算 10 秒；作用域变化立即停止。设置目录与审批详情也沿所选 adapter 的 typed read 路由恢复。
 
 内容和控制分开失效：正文、token、进度与用量更新只通知重新读取，不撤销写 lease。Mac 比较完整可信控制摘要；轮次、审批、队列、权限、owner 或可执行能力改变，以及不完整/未知事件仍撤权。连续的 contentDirty=false 事件保留客户端控制状态；流缺口和 epoch 变化必须重新核验。相同 client/adapter/sessionRef/view 的并发快照共享一次原生读取，最多 16 个等待者，各自返回自己的 request ID；换目标/视图的旧回包不能覆盖新状态。同 scope 的读取不自行制造能力修订变化。
 
-New actions acquire current native evidence automatically; display caches are neither permission nor an admission gate. Standard Send uses current native settings and resolves start/queue before journaling. Explicit choices and concrete stop/approval/queue targets remain exact. Menus use the selected adapter. Content-only updates preserve authority; genuine control changes and incomplete events revoke it. Same-scope snapshots coalesce, and read recovery is bounded. An admitted write is never automatically resent.
+New actions acquire current native evidence automatically; display caches are neither permission nor an admission gate. Standard Send uses current native settings and resolves start/queue before journaling; the default owned App Server path supports idle start only. Explicit choices and concrete stop/approval/queue targets remain exact. Menus use the selected adapter. Content-only updates preserve authority; genuine control changes and incomplete events revoke it. Same-scope snapshots coalesce, and read recovery is bounded. An admitted write is never automatically resent.
 
 ```mermaid
 sequenceDiagram
@@ -190,13 +204,17 @@ Mac `AgentAdapter` 最小接口：`describe / discover / open / snapshot / obser
 
 The development implementation now includes profile 2, current-provider wrappers, a typed Android client and opt-in runtime drivers. Installation and real native delivery require separate verification. VibePier already shares authenticated session RPC, normalized conversation data and durable mutation receipts. Formalize that boundary into a typed Agent Session API and an injectable adapter registry; retain the current transports and binary media plane.
 
-Separate desktop-attached sessions from managed runtimes, even for the same provider. Preserve the existing Codex owner-bound desktop IPC adapter. Add a shared App Server mode only after explicit setup and compatibility acceptance. For Claude Desktop's Code tab, validate the official Mods API as a new in-process driver; the inspected standalone CLI is below its documented minimum version, and Desktop's embedded runtime remains unverified. SDK/CLI resume is a separate managed-runtime path. Chat, Cowork and cloud control remain unsupported in VibePier. A future ClaudeCloudAdapter may use documented asynchronous CLI follow-ups, subject to separate observation and control validation.
+Separate desktop-attached sessions from managed runtimes, even for the same provider. Preserve the existing Codex owner-bound desktop IPC adapter. Default phone creation uses an owned App Server thread through `codex.currentV1`, the existing account and a persistent ownership registry; it needs no screen unlock and cannot adopt arbitrary desktop history. The separate shared App Server adapter still requires explicit isolated-home setup and compatibility acceptance. For Claude Desktop's Code tab, validate the official Mods API as a new in-process driver; the inspected standalone CLI is below its documented minimum version, and Desktop's embedded runtime remains unverified. SDK/CLI resume is a separate managed-runtime path. Chat, Cowork and cloud control remain unsupported in VibePier. A future ClaudeCloudAdapter may use documented asynchronous CLI follow-ups, subject to separate observation and control validation.
 
 Capabilities are the intersection of verified interface support, runtime health, Mac policy, device authorization and current session ownership. Requests use durable operation identities; native submission confirmation and turn completion are separate. Reconnection restores observation through snapshots/cursors/history, never by resending a prompt. Workspace, media, account and desktop controls stay independent services. The shared current v1 definitions, typed profile 2 and both optional drivers have isolated regression coverage; real-desktop acceptance remains a separate step.
 
 ## 本地可选运行时 / Optional local runtime setup
 
 默认保留 `codex.currentV1`、`claude.currentV1`、`zcode.currentV1`。新写操作要求 capability version 1；手机仅在 Mac 宣告 profile 2 后使用 `agentRequest`。应同步更新 Mac 和手机；旧端可以读取或查询原回执，缺少协商不能新发起 Agent 变更。
+
+默认 Codex 后台创建无需执行下列 enable 命令，也不建立独立账号 home。它单独核验内置 **0.160.0** 的 stable／experimental schema，并保留模型、推理、权限、计划／执行、加速和附件的真实选项；配置及首条副作用缺少原生证据时保持 unknown。下面的 **0.159.0** 私有 socket adapter 是可选的独立共享运行时，不能据其版本或设置推断默认路径已通过验收。
+
+Default background creation does not require these enable commands or a separate account home. Its bundled **0.160.0** contract is checked independently; native evidence is required for requested configuration and the first message. The **0.159.0** private-socket driver below remains a separate optional shared runtime.
 
 `vibepier agents status` 只读取状态。所有 enable/disable/bind 命令通过本机同 UID 的私有 ControlSocket，手机不能启用后端或指定执行文件。
 
@@ -227,3 +245,13 @@ Gateway snapshots 标为 `reconciled` 或 `partial`，不会宣称缺失原生�
 Optional drivers require explicit local configuration. They do not reuse default-provider credentials, auto-install plugins, terminate foreign owners or submit prompts during build/test. Claude Mods remains observation-only until its exact native ABI and independent delivery evidence are accepted; ordinary Claude Chat, Cowork and cloud control are outside this implementation.
 
 The phone's native Plan / Execute selection is separate from message submission and permission options. Codex retains independent permissions; Claude explicitly declares native permission coupling and uses a safe default when leaving Plan. Native readback is required for configuration, and creation verifies the requested first-turn mode. The managed Codex driver confirms settings only from a matching native update notification, then applies the verified configuration to future turns. Fixture/emulator evidence does not replace live native acceptance.
+
+新会话选项读取遇到原生状态暂不可用时，在同一可见、已授权草稿范围内最多追加两次只读重试；持续失败会提示点「开始」重载，空消息也可重载。ZCode 的每个执行方式条目必须包含非空 `name`，手机继续严格拒绝不完整目录；创建和发送不会因此自动重复。
+
+新会话入口直接打开当前草稿，不自动恢复未知创建弹窗；所有同项目旧创建回执均可从“核对先前新建结果”显式打开。停止等待一次结束当前适配器/项目已有的新建等待，保留原请求和附件，旧版无 draftId 请求也释放原草稿文字；这不表示原生任务已经中断。同文或同附件未知请求仍禁止重复提交。
+
+New session opens the current draft without automatically reopening an unknown creation. Earlier creation receipts remain explicitly accessible. Stop waiting ends existing creation waits in the selected adapter/workspace and releases legacy drafts without deleting requests or attachments; it does not confirm native task cancellation. Duplicate unconfirmed text or attachments remain blocked.
+
+ZCode 已核验首条消息的成功回执以原生 user message ID 作为轮次锚点（`turnIdentityKind=nativeMessageAnchor`），与当前任务的 `activeTurnId` 保持一致；新建、发送及回执查询共用此归一化，未知回执不补造成功。模型调用失败与消息接收分别展示：1113 显示账户额度不足，其他原生错误显示失败并引导到 Mac 查看，不传输原始错误正文。
+
+Verified ZCode message receipts use the native user message ID as the turn anchor, matching `activeTurnId`. Creation, send and receipt lookup share this normalization; unknown outcomes remain unknown. Provider error 1113 displays an account-quota failure separately from message acceptance. Other failures direct the user to the Mac; raw provider diagnostics are not forwarded.

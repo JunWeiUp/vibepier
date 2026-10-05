@@ -12,7 +12,7 @@ enum ZCodeDesktop {
             snapshot: { try snapshot($0) }, execute: { try execute($0, session: $1, cwd: $2, client: $3) },
             prepareSnapshot: { try prepareSnapshot($0) })
     }
-    struct Choice: Sendable {
+    struct Choice: Codable, Sendable {
         let id: String
         let title: String
         let label: String
@@ -29,6 +29,32 @@ enum ZCodeDesktop {
         }
     }
     private static let cache = Cache()
+    private static let optionCatalog = OptionCatalog(
+        file: Paths.supportDirectory.appendingPathComponent("agent-options/zcode-native.json"))
+    static func warmOptions() {
+        optionCatalog.warm(canReadNative: !ScreenLock.locked()) { try readOptionCatalog(allowUnlock: false) }
+    }
+    private static func readOptionCatalog(allowUnlock: Bool = true) throws -> Entry {
+        try DesktopInteractions.acquire()
+        defer { DesktopInteractions.lock.unlock() }
+        let read: () throws -> Entry = {
+            guard !ScreenLock.locked(), AXIsProcessTrusted(), supportsNew,
+                let running = NSRunningApplication.runningApplications(withBundleIdentifier: bundleID).first
+            else {
+                throw CLIError(L10n.text("provider.open_zcode_and_grant_vibepier_accessibility_permission_first"))
+            }
+            let previous = NSWorkspace.shared.frontmostApplication
+            let app = AXUIElementCreateApplication(running.processIdentifier)
+            defer { if frontmost(app), previous?.bundleIdentifier != bundleID { previous?.activate() } }
+            AXUIElementSetAttributeValue(app, "AXManualAccessibility" as CFString, kCFBooleanTrue)
+            running.activate()
+            guard wait(3, { frontmost(app) }), dismissNavigation(app), composer(app) != nil else {
+                throw CLIError(L10n.text("provider.the_zcode_navigation_view_is_still_open_check_on_the_mac"))
+            }
+            return try readOptions(app, entry: Entry())
+        }
+        return try allowUnlock ? ScreenLock.unlocked(read) : read()
+    }
     private static let ownership = VerifiedOwner<DesktopAXTraversal.Identity>()
     struct OwnerScope<Window: Equatable>: Equatable {
         let session: String
@@ -80,6 +106,59 @@ enum ZCodeDesktop {
         }
     }
     static let modeLabels = ["plan": "计划模式", "build": "变更前确认", "edit": "自动编辑", "yolo": "完全访问"]
+    static func isDefaultWorkspace(_ cwd: String, home: String) -> Bool {
+        cwd == home + "/.zcode/workspace/default"
+    }
+    static func defaultProjectOrdinal(cwd: String, home: String, labels: [String]) -> Int? {
+        guard isDefaultWorkspace(cwd, home: home) else { return nil }
+        let rows = labels.indices.filter { ["不在项目中工作", "Work outside a project"].contains(labels[$0]) }
+        return rows.count == 1 ? rows[0] : nil
+    }
+    static func executionOptions(mode: String) -> [[String: Any]] {
+        [
+            ["id": "default", "name": L10n.text("agent.execution_mode.default")],
+            ["id": "plan", "name": L10n.text("agent.execution_mode.plan")],
+        ]
+    }
+    /// The plan checkbox is independent of the mutually exclusive file permissions.
+    static func modeSelection(ids: [String], selected: Set<Int>) throws -> [String: String] {
+        guard Set(ids).count == ids.count, ids.contains("plan"),
+            ids.allSatisfy({ modeLabels[$0] != nil }), selected.allSatisfy({ ids.indices.contains($0) })
+        else { throw CLIError(L10n.text("core.invalid_receipt")) }
+        let permissions = selected.map { ids[$0] }.filter { $0 != "plan" }
+        guard permissions.count == 1, let permission = permissions.first else {
+            throw CLIError(L10n.text("provider.the_native_zcode_option_change_is_unconfirmed_check_on_the_mac"))
+        }
+        return [
+            "mode": permission, "executionMode": selected.contains(ids.firstIndex(of: "plan")!) ? "plan" : "default",
+        ]
+    }
+    static func executionSelection(_ request: [String: Any], currentMode: String) throws -> [String: Any] {
+        let result = request
+        if let execution = request["executionMode"] {
+            guard let execution = execution as? String, ["default", "plan"].contains(execution) else {
+                throw CLIError(L10n.text("core.invalid_receipt"))
+            }
+        }
+        let mode = request["mode"] as? String ?? currentMode
+        guard mode != "plan", modeLabels[mode] != nil,
+            request["mode"] == nil || request["mode"] is String
+        else { throw CLIError(L10n.text("core.invalid_receipt")) }
+        // Execution-only changes must not request or re-authorize the current permissions.
+        return result
+    }
+    static func creationMode(before: [String: Any], after: [String: Any], requested: String?) throws -> String {
+        guard let mode = before["mode"] as? String, mode != "plan", modeLabels[mode] != nil,
+            let execution = before["executionMode"] as? String, ["default", "plan"].contains(execution),
+            let model = before["model"] as? String, !model.isEmpty,
+            NSDictionary(dictionary: before).isEqual(NSDictionary(dictionary: after)),
+            requested == nil || requested == execution
+        else {
+            throw CLIError(
+                L10n.text("provider.native_settings_for_the_new_zcode_task_are_unconfirmed_nothing_was_sent"))
+        }
+        return execution
+    }
     /// Permission choices need known semantics; an opaque ordinal must never bypass full-access confirmation.
     static func nativeModeIDs(_ labels: [String]) throws -> [String] {
         let ids = try labels.map { label in
@@ -361,6 +440,7 @@ enum ZCodeDesktop {
             "send": available && indexed, "new": available && supportsNew, "interrupt": available && indexed,
             "settings": available && indexed, "modelSelection": available && indexed,
             "permissionMode": available && indexed,
+            "executionMode": available && indexed,
             "attachments": false, "approvals": false, "queue": false,
         ]
         let effortIDs = entry.efforts.map(\.id)
@@ -379,12 +459,20 @@ enum ZCodeDesktop {
         }
         var result: [String: Any] = [
             "capabilities": flags, "composer": entry.composer, "models": models,
-            "permissionModes": entry.modes.map(\.object), "efforts": entry.efforts.map(\.object),
+            "permissionModes": entry.modes.filter { $0.id != "plan" }.map(\.object),
+            "efforts": entry.efforts.map(\.object),
             "status": busy ? "running" : "idle",
             "canSend": available && indexed && !session.isEmpty && !busy && entry.draftEmpty != false,
             "readOnlyReason": available && indexed
                 ? "" : L10n.text("provider.open_zcode_desktop_and_grant_vibepier_accessibility_permission_first"),
         ]
+        if let mode = entry.composer["mode"] as? String, modeLabels[mode] != nil {
+            var composer = entry.composer
+            composer["executionMode"] = entry.composer["executionMode"] ?? "default"
+            result["composer"] = composer
+            result["executionModes"] = executionOptions(mode: mode)
+            result["executionModePermissionCoupled"] = false
+        }
         if busy, let anchor = try? store.window(session, count: 1).turns.last?.userID {
             result["activeTurnId"] = anchor
         }
@@ -404,23 +492,18 @@ enum ZCodeDesktop {
     /// A fresh action may verify an already visible task; this does not activate, navigate or enter input.
     static func prepareSnapshot(_ session: String) throws -> [String: Any] {
         let summary = try ZCodeSessionStore().summary(session)
-        guard !ScreenLock.locked(), AXIsProcessTrusted(), let app = application(), frontmost(app),
-            visibleTitle(app) == summary["title"] as? String, composer(app) != nil,
-            let before = ownerScope(app, session: session)
-        else { return try snapshot(session) }
-        if cache.isCurrent(session), cache.entry(session).verified, ownership.current(before) != nil {
+        guard !ScreenLock.locked(), AXIsProcessTrusted(), application() != nil else { return try snapshot(session) }
+        if let app = application(), cache.isCurrent(session), cache.entry(session).verified,
+            visibleTitle(app) == summary["title"] as? String,
+            let before = ownerScope(app, session: session), ownership.current(before) != nil
+        {
             return try snapshot(session)
         }
         try DesktopInteractions.acquire()
         defer { DesktopInteractions.lock.unlock() }
-        guard frontmost(app), try copiedSessionID(app) == session,
-            ownerScope(app, session: session) == before,
-            visibleTitle(app) == summary["title"] as? String, composer(app) != nil
-        else {
-            ownership.invalidate()
-            throw CLIError(L10n.text("provider.the_current_native_zcode_session_id_does_not_match_no_action_was_taken"))
-        }
-        _ = remember(app, session, summary["title"] as? String ?? "")
+        let previous = NSWorkspace.shared.frontmostApplication
+        let app = try reveal(session, summary: summary)
+        defer { if frontmost(app), previous?.bundleIdentifier != bundleID { previous?.activate() } }
         return try snapshot(session)
     }
 
@@ -477,6 +560,10 @@ enum ZCodeDesktop {
                     "accepted": true, "sessionId": nativeSession, "threadId": nativeSession, "messageId": latest.id,
                     "nativeMessageId": latest.id,
                 ]
+                if let prior = cache.receipt(receiptKey), prior["executionModeVerified"] as? Bool == true {
+                    result["effectiveExecutionMode"] = prior["effectiveExecutionMode"]
+                    result["executionModeVerified"] = true
+                }
                 if let cwd = pending.creationCwd { result["cwd"] = cwd }
                 try cache.record(receiptKey, result)
                 return result
@@ -486,10 +573,20 @@ enum ZCodeDesktop {
         guard ["send", "new", "newOptions", "interrupt", "settings", "composerOptions"].contains(op) else {
             throw CLIError(L10n.text("provider.this_feature_is_not_yet_connected_to_native_zcode_desktop_sessions"))
         }
+        if op == "newOptions" { return try newOptions(request, cwd: cwd, client: client) }
+        if op == "composerOptions" {
+            let summary = try ZCodeSessionStore().summary(session)
+            guard cwd.isEmpty || summary["cwd"] as? String == cwd else {
+                throw CLIError(L10n.text("core.invalid_receipt"))
+            }
+            if request["refreshOptions"] as? Bool == true {
+                _ = try optionCatalog.load(refresh: true) { try readOptionCatalog() }
+            }
+            return try options(session: session, summary: summary)
+        }
         try DesktopInteractions.acquire()
         defer { DesktopInteractions.lock.unlock() }
         return try ScreenLock.unlocked {
-            if op == "newOptions" { return try newOptions(request, cwd: cwd, client: client) }
             if op == "new" { return try createNew(request, cwd: cwd, receiptKey: receiptKey, client: client) }
             let store = ZCodeSessionStore()
             let summary = try store.summary(session)
@@ -509,7 +606,7 @@ enum ZCodeDesktop {
             }
             switch op {
             case "composerOptions":
-                return try options(app, session: session, summary: summary)
+                return try options(session: session, summary: summary)
             case "settings":
                 let result = try settings(request, app: app, session: session)
                 return result
@@ -616,30 +713,28 @@ enum ZCodeDesktop {
             throw CLIError(L10n.text("provider.attachments_for_new_zcode_sessions_are_not_yet_supported"))
         }
         return try withNewDraft(cwd: cwd) { app, _, priorIDs in
-            if ["draftId", "model", "mode", "effort"].contains(where: { request[$0] != nil }) {
-                let draft = try SessionCreationDraft(request, project: cwd, provider: "zcode")
-                let key = Self.receiptKey(client: client, session: draft.scope, operation: "creation-options")
-                let previous = cache.entry(key)
-                let current = try readOptions(app, entry: Entry())
-                _ = try creationSelection(request, previous: choices(previous), current: choices(current))
-                cache.put(current, id: key)
-                _ = try settings(request, app: app, session: key, verifyTarget: { try verifyNewDraft(app, cwd: cwd) })
+            let selection = try DesktopMutationScope.beforeCreationSubmission {
+                try prepareNewSelection(request, app: app, cwd: cwd, client: client)
             }
-            try verifyNewDraft(app, cwd: cwd)
-            let selection = readControls(app)
             guard let fresh = composer(app) else {
                 throw CLIError(
                     L10n.text("provider.native_settings_for_the_new_zcode_task_are_unconfirmed_nothing_was_sent"))
             }
             try paste(text, into: fresh, app: app)
+            let finalSelection = try readOptions(app, entry: Entry()).composer
+            let verifiedMode = try creationMode(
+                before: selection, after: finalSelection,
+                requested: request["executionMode"] as? String)
             guard frontmost(app), supportsNew, activeDirectory() == cwd, visibleTitle(app).isEmpty,
-                NSDictionary(dictionary: readControls(app)).isEqual(NSDictionary(dictionary: selection)),
                 let send = sendButton(app), enabled(send), let current = composer(app), sameDraft(value(current), text)
             else {
                 throw CLIError(
                     L10n.text("provider.the_new_zcode_task_state_changed_the_content_remains_in_the_desktop_draft"))
             }
-            var receipt: [String: Any] = ["accepted": false, "unknown": true]
+            var receipt: [String: Any] = [
+                "accepted": false, "unknown": true,
+                "effectiveExecutionMode": verifiedMode, "executionModeVerified": true,
+            ]
             try cache.record(receiptKey, receipt, text: text, creationCwd: cwd)
             try UnconfirmedDesktopMutation.attempting { try press(send, app: app) }
             var nativeSession: String?
@@ -669,16 +764,72 @@ enum ZCodeDesktop {
                         return true
                     })
                 if confirmed, let nativeMessage {
-                    receipt = [
+                    receipt.merge([
                         "accepted": true, "threadId": nativeSession, "sessionId": nativeSession,
                         "messageId": nativeMessage,
                         "nativeMessageId": nativeMessage, "cwd": cwd,
-                    ]
+                    ]) { _, fresh in fresh }
+                    receipt.removeValue(forKey: "unknown")
                     try cache.record(receiptKey, receipt)
                     _ = remember(app, nativeSession, (try? store.summary(nativeSession)["title"] as? String) ?? "")
                 }
             }
             return receipt
+        }
+    }
+
+    private static func prepareNewSelection(
+        _ request: [String: Any], app: AXUIElement, cwd: String, client: String
+    ) throws -> [String: Any] {
+        let draft = try SessionCreationDraft(request, project: cwd, provider: "zcode")
+        let key = Self.receiptKey(client: client, session: draft.scope, operation: "creation-options")
+        let previous = cache.entry(key)
+        let current = try readOptions(app, entry: Entry())
+        let selectedRequest = try executionSelection(request, currentMode: current.composer["mode"] as? String ?? "")
+        _ = try creationSelection(selectedRequest, previous: choices(previous), current: choices(current))
+        cache.put(current, id: key)
+        _ = try settings(selectedRequest, app: app, session: key, verifyTarget: { try verifyNewDraft(app, cwd: cwd) })
+        try verifyNewDraft(app, cwd: cwd)
+        let selection = try readOptions(app, entry: Entry()).composer
+        _ = try creationMode(before: selection, after: selection, requested: request["executionMode"] as? String)
+        return selection
+    }
+
+    static func creationDiagnosticRequest(cwd: String, draftID: String, composer: [String: Any], execution: String)
+        throws -> [String: Any]
+    {
+        guard let model = composer["model"] as? String, !model.isEmpty, ["default", "plan"].contains(execution) else {
+            throw CLIError(L10n.text("core.invalid_request"))
+        }
+        var request: [String: Any] = [
+            "cwd": cwd, "draftId": draftID, "model": model, "mode": "build", "executionMode": execution,
+        ]
+        request["effort"] = composer["effort"]
+        _ = try SessionCreationDraft(request, project: cwd, provider: "zcode")
+        return request
+    }
+
+    /// Owner-only diagnostic: exercises actual creation preparation without pasting or sending any message.
+    static func prepareCreationDiagnostics(cwd: String, execution: String) throws -> [String: Any] {
+        guard ["default", "plan"].contains(execution) else { throw CLIError(L10n.text("core.invalid_request")) }
+        let client = "local-" + UUID().uuidString
+        let draftID = UUID().uuidString
+        let catalog = try newOptions(["draftId": draftID, "cwd": cwd], cwd: cwd, client: client)
+        guard let composer = catalog["composer"] as? [String: Any] else {
+            throw CLIError(L10n.text("core.invalid_receipt"))
+        }
+        let request = try creationDiagnosticRequest(
+            cwd: cwd, draftID: draftID, composer: composer, execution: execution)
+        try DesktopInteractions.acquire()
+        defer { DesktopInteractions.lock.unlock() }
+        return try ScreenLock.unlocked {
+            try withNewDraft(cwd: cwd) { app, _, _ in
+                let selection = try prepareNewSelection(request, app: app, cwd: cwd, client: client)
+                return [
+                    "ok": true, "prepared": true, "submitted": false, "composer": selection,
+                    "draftEmpty": self.composer(app).map { draftIsEmpty(value($0)) } ?? false,
+                ]
+            }
         }
     }
 
@@ -719,7 +870,9 @@ enum ZCodeDesktop {
         }
         // Bind an already available project through the native picker. External
         // workspace URLs trigger a trust sheet, which the bridge must not accept.
-        do {
+        if isDefaultWorkspace(cwd, home: FileManager.default.homeDirectoryForCurrentUser.path) {
+            try selectDefaultWorkspace(app, cwd: cwd)
+        } else {
             guard
                 let binding = projectBinding(
                     cwd: cwd, workspaces: desktopSettings()["lastWorkspaceSession"] as? [[String: Any]] ?? [])
@@ -800,6 +953,46 @@ enum ZCodeDesktop {
         return try action(app, fresh, priorIDs)
     }
 
+    private static func selectDefaultWorkspace(_ app: AXUIElement, cwd: String) throws {
+        guard isDefaultWorkspace(cwd, home: FileManager.default.homeDirectoryForCurrentUser.path),
+            let project = find(
+                window(app),
+                {
+                    role($0) == "AXPopUpButton" && ["选择项目", "Select project"].contains(label($0))
+                }
+            ).first
+        else {
+            throw CLIError(
+                L10n.text("provider.the_project_selector_for_the_new_zcode_task_could_not_be_verified_nothing_wa"))
+        }
+        try press(project, app: app)
+        var row: AXUIElement?
+        guard
+            wait(
+                2,
+                {
+                    guard let menu = visibleMenus(app).last else { return false }
+                    let rows = projectRows(menu)
+                    guard
+                        let index = defaultProjectOrdinal(
+                            cwd: cwd, home: FileManager.default.homeDirectoryForCurrentUser.path,
+                            labels: rows.map(label))
+                    else { return false }
+                    row = rows[index]
+                    return true
+                }), let row
+        else {
+            dismissMenu(app)
+            throw CLIError(
+                L10n.text("provider.the_project_selector_for_the_new_zcode_task_could_not_be_verified_nothing_wa"))
+        }
+        try press(row, app: app)
+        guard wait(8, { activeDirectory() == cwd && visibleTitle(app).isEmpty && visibleMenus(app).isEmpty }) else {
+            throw CLIError(
+                L10n.text("provider.the_project_path_for_the_new_zcode_task_does_not_match_nothing_was_sent"))
+        }
+    }
+
     private static func verifyNewDraft(_ app: AXUIElement, cwd: String) throws {
         guard frontmost(app), supportsNew, activeDirectory() == cwd, visibleTitle(app).isEmpty,
             visibleMenus(app).isEmpty, stopButton(app) == nil,
@@ -819,7 +1012,7 @@ enum ZCodeDesktop {
         _ request: [String: Any], previous: [String: [Choice]], current: [String: [Choice]]
     ) throws -> [String: String] {
         guard let model = request["model"] as? String, !model.isEmpty,
-            let mode = request["mode"] as? String, !mode.isEmpty,
+            let mode = request["mode"] as? String, mode != "plan", modeLabels[mode] != nil,
             request["effort"] == nil || request["effort"] is String
         else { throw CLIError(L10n.text("provider.reopen_the_zcode_model_and_permission_options_first")) }
         if mode == "yolo", SessionProviderReply.boolean(request["confirmFullAccess"]) != true {
@@ -838,9 +1031,10 @@ enum ZCodeDesktop {
 
     private static func newOptions(_ request: [String: Any], cwd: String, client: String) throws -> [String: Any] {
         let draft = try SessionCreationDraft(request, project: cwd, provider: "zcode")
-        return try withNewDraft(cwd: cwd) { app, _, _ in
-            let entry = try readOptions(app, entry: Entry())
-            try verifyNewDraft(app, cwd: cwd)
+        let entry = try optionCatalog.load(refresh: request["refreshOptions"] as? Bool == true) {
+            try readOptionCatalog()
+        }
+        do {
             guard let model = entry.composer["model"] as? String,
                 entry.models.contains(where: { $0.id == model }),
                 let mode = entry.composer["mode"] as? String, entry.modes.contains(where: { $0.id == mode })
@@ -849,18 +1043,20 @@ enum ZCodeDesktop {
                     L10n.text("provider.native_settings_for_the_new_zcode_task_are_unconfirmed_nothing_was_sent"))
             }
             cache.put(entry, id: receiptKey(client: client, session: draft.scope, operation: "creation-options"))
-            let models = entry.models.map { choice -> [String: Any] in
-                var value = choice.object
-                if choice.id == model {
-                    value["efforts"] = entry.efforts.map(\.id)
-                    value["defaultEffort"] = entry.composer["effort"]
-                }
-                return value
-            }
+            let models = catalogModels(entry)
+            var composer = entry.composer
+            composer["executionMode"] = entry.composer["executionMode"] ?? "default"
             return [
-                "creationVersion": 1, "draftId": draft.id, "composer": entry.composer, "models": models,
-                "permissionModes": entry.modes.map(\.object), "efforts": entry.efforts.map(\.object),
-                "capabilities": ["new": true, "attachments": false],
+                "creationVersion": 1, "draftId": draft.id, "composer": composer, "models": models,
+                "optionsCached": true,
+                "permissionModes": entry.modes.filter { $0.id != "plan" }.map(\.object),
+                "efforts": entry.efforts.map(\.object),
+                "executionModes": executionOptions(mode: mode), "executionModePermissionCoupled": false,
+                "capabilities": [
+                    "new": AXIsProcessTrusted() && supportsNew
+                        && NSRunningApplication.runningApplications(withBundleIdentifier: bundleID).first != nil,
+                    "attachments": false, "executionMode": true,
+                ],
             ]
         }
     }
@@ -1019,12 +1215,41 @@ enum ZCodeDesktop {
         return id
     }
 
-    private static func options(_ app: AXUIElement, session: String, summary: [String: Any]) throws -> [String: Any] {
-        var entry = try readOptions(app, entry: cache.entry(session))
+    /// Reasoning choices belong to the model for which the menu was actually read.
+    static func catalogModels(_ entry: Entry) -> [[String: Any]] {
+        let model = entry.composer["model"] as? String ?? ""
+        return entry.models.map { choice in
+            var value = choice.object
+            if choice.id == model {
+                value["efforts"] = entry.efforts.map(\.id)
+                value["defaultEffort"] = entry.composer["effort"]
+            }
+            return value
+        }
+    }
+    private static func options(session: String, summary: [String: Any]) throws -> [String: Any] {
+        var entry = cache.entry(session)
+        let catalog = try optionCatalog.load { try readOptionCatalog() }
+        entry.models = catalog.models
+        entry.modes = catalog.modes
+        entry.efforts = []
+        let current = baseComposer(summary)
+        entry.composer.merge(current) { _, fresh in fresh }
+        if let label = entry.composer["modelLabel"] as? String {
+            let matching = catalog.models.filter { $0.label == label }
+            if matching.count == 1 { entry.composer["model"] = matching[0].id }
+        }
+        if entry.composer["model"] as? String == catalog.composer["model"] as? String {
+            entry.efforts = catalog.efforts
+        }
         entry.title = summary["title"] as? String ?? ""
         entry.observed = 0
         cache.put(entry, id: session)
-        return try snapshot(session)
+        var result = try snapshot(session)
+        // An ambiguous native display name cannot create a selectable phantom ID.
+        result["models"] = catalogModels(catalog)
+        result["efforts"] = entry.efforts.map(\.object)
+        return result
     }
     private static func readOptions(_ app: AXUIElement, entry source: Entry) throws -> Entry {
         var entry = source
@@ -1040,10 +1265,8 @@ enum ZCodeDesktop {
         if let button = modeButton(app) {
             let menu = try readMenu(button, kind: "mode", app: app)
             entry.modes = menu.choices
-            if menu.selectedOrdinals.count == 1, let index = menu.selectedOrdinals.first,
-                menu.choices.indices.contains(index)
-            {
-                entry.composer["mode"] = menu.choices[index].id
+            entry.composer.merge(try modeSelection(ids: menu.choices.map(\.id), selected: menu.selectedOrdinals)) {
+                _, fresh in fresh
             }
         }
         if let button = effortButton(app) {
@@ -1072,9 +1295,10 @@ enum ZCodeDesktop {
                 "model": L10n.text("provider.model"), "mode": L10n.text("provider.permission_mode"),
                 "effort": L10n.text("provider.reasoning_effort"),
             ][kind] ?? kind
+        let trigger = (kind: kind, label: label(button), role: role(button))
         try press(button, app: app)
         var finished = false
-        defer { if !finished { dismissMenu(app) } }
+        defer { if !finished { dismissMenu(app, trigger: trigger) } }
         var menus: [AXUIElement] = []
         guard
             wait(
@@ -1138,7 +1362,7 @@ enum ZCodeDesktop {
         }
         let result = Menu(
             choices: choices, items: items, selectedOrdinals: Set(items.indices.filter { selected(items[$0]) }))
-        if dismiss, !dismissMenu(app) {
+        if dismiss, !dismissMenu(app, trigger: trigger) {
             throw CLIError(L10n.text("provider.the_native_zcode_0_menu_is_still_open_try_again", caption))
         }
         finished = true
@@ -1147,7 +1371,9 @@ enum ZCodeDesktop {
     private static func settings(
         _ request: [String: Any], app: AXUIElement, session: String, verifyTarget: (() throws -> Void)? = nil
     ) throws -> [String: Any] {
-        try DesktopMutationScope.run { mutation in
+        let request = try executionSelection(
+            request, currentMode: cache.entry(session).composer["mode"] as? String ?? "")
+        return try DesktopMutationScope.run { mutation in
             let entry = cache.entry(session)
             for (keyName, kind, choices) in [
                 ("model", "model", entry.models),
@@ -1182,19 +1408,57 @@ enum ZCodeDesktop {
                 let checked = try readMenu(currentButton, kind: kind, app: app)
                 guard checked.choices.first?.signature == choice.signature,
                     checked.items.indices.contains(choice.ordinal),
-                    checked.selectedOrdinals == Set([choice.ordinal])
+                    kind == "mode"
+                        ? try modeSelection(ids: checked.choices.map(\.id), selected: checked.selectedOrdinals)["mode"]
+                            == target
+                        : checked.selectedOrdinals == Set([choice.ordinal])
                 else {
                     throw CLIError(L10n.text("provider.the_native_zcode_option_change_is_unconfirmed_check_on_the_mac"))
                 }
                 if let verifyTarget { try verifyTarget() } else { try verify(app, session) }
             }
-            var updated = cache.entry(session)
-            updated.composer.merge(readControls(app)) { _, fresh in fresh }
-            for key in ["model", "mode", "effort"] {
-                if let value = request[key] as? String { updated.composer[key] = value }
+            if let execution = request["executionMode"] as? String {
+                guard let button = modeButton(app) else { throw CLIError(L10n.text("core.invalid_receipt")) }
+                if let verifyTarget { try verifyTarget() } else { try verify(app, session) }
+                let menu = try readMenu(button, kind: "mode", app: app, dismiss: false)
+                let before = try modeSelection(ids: menu.choices.map(\.id), selected: menu.selectedOrdinals)
+                if before["executionMode"] != execution {
+                    guard let plan = menu.choices.first(where: { $0.id == "plan" }),
+                        menu.items.indices.contains(plan.ordinal)
+                    else {
+                        dismissMenu(app)
+                        throw CLIError(L10n.text("core.invalid_receipt"))
+                    }
+                    try mutation.attempt { try press(menu.items[plan.ordinal], app: app) }
+                    guard wait(2, { visibleMenus(app).isEmpty }), let currentButton = modeButton(app) else {
+                        throw CLIError(L10n.text("provider.the_zcode_option_change_did_not_finish"))
+                    }
+                    let checked = try readMenu(currentButton, kind: "mode", app: app)
+                    let after = try modeSelection(ids: checked.choices.map(\.id), selected: checked.selectedOrdinals)
+                    guard checked.choices.first?.signature == menu.choices.first?.signature,
+                        after["executionMode"] == execution, after["mode"] == before["mode"]
+                    else {
+                        throw CLIError(
+                            L10n.text("provider.the_native_zcode_option_change_is_unconfirmed_check_on_the_mac"))
+                    }
+                } else {
+                    guard dismissMenu(app, trigger: (kind: "mode", label: label(button), role: role(button))) else {
+                        throw CLIError(L10n.text("provider.the_zcode_option_change_did_not_finish"))
+                    }
+                }
+                if let verifyTarget { try verifyTarget() } else { try verify(app, session) }
+            }
+            let updated = try readOptions(app, entry: cache.entry(session))
+            for key in ["model", "mode", "effort", "executionMode"] {
+                if let target = request[key] as? String, updated.composer[key] as? String != target {
+                    throw CLIError(L10n.text("provider.the_native_zcode_option_change_is_unconfirmed_check_on_the_mac"))
+                }
             }
             cache.put(updated, id: session)
-            return ["accepted": true, "applied": true, "composer": updated.composer]
+            return [
+                "accepted": true, "applied": true, "composer": updated.composer,
+                "executionModeVerified": request["executionMode"] != nil,
+            ]
         }
     }
 
@@ -1209,6 +1473,12 @@ enum ZCodeDesktop {
         if let button = modelButton(app) { result["modelLabel"] = label(button) }
         if let button = effortButton(app) { result["effortLabel"] = label(button) }
         if let button = modeButton(app) { result["modeLabel"] = label(button) }
+        if let scope = composerScope(app) {
+            result["executionMode"] =
+                find(scope) {
+                    role($0) == "AXButton" && ["关闭计划模式", "Close plan mode"].contains(label($0))
+                }.isEmpty ? "default" : "plan"
+        }
         return result
     }
     private static func composer(_ app: AXUIElement) -> AXUIElement? {
@@ -1385,7 +1655,27 @@ enum ZCodeDesktop {
                 L10n.text("provider.the_content_could_not_be_verified_in_the_current_zcode_composer_nothing_was_"))
         }
     }
-    @discardableResult private static func dismissMenu(_ app: AXUIElement) -> Bool {
+    private static func menuTrigger(_ menu: AXUIElement, app: AXUIElement) -> (
+        kind: String, label: String, role: String
+    )? {
+        let items = distinct(
+            find(menu) {
+                role($0) != "AXStaticText" && enabled($0) && hasPress($0)
+                    && attribute($0, kAXValueAttribute) is NSNumber
+            })
+        if !items.isEmpty, (try? nativeModeIDs(items.map(label))) != nil, let button = modeButton(app) {
+            return ("mode", label(button), role(button))
+        }
+        let selectedRows = distinct(find(menu) { role($0) == "AXMenuItem" && selected($0) && hasPress($0) })
+        guard selectedRows.count == 1 else { return nil }
+        let caption = label(selectedRows[0])
+        if let button = modelButton(app), label(button) == caption { return ("model", caption, role(button)) }
+        if let button = effortButton(app), label(button) == caption { return ("effort", caption, role(button)) }
+        return nil
+    }
+    @discardableResult private static func dismissMenu(
+        _ app: AXUIElement, trigger: (kind: String, label: String, role: String)? = nil
+    ) -> Bool {
         guard let menu = visibleMenus(app).last else { return true }
         guard frontmost(app) else { return false }
         // Escape is the native Stop action. Closing any popup must never post it,
@@ -1393,6 +1683,25 @@ enum ZCodeDesktop {
         _ = AXUIElementPerformAction(menu, "AXCancel" as CFString)
         if wait(0.4, { !popupPresent(menu, app: app) && visibleMenus(app).isEmpty }) { return true }
         guard frontmost(app) else { return false }
+        // Electron popups can cover the empty-task composer, with no task heading
+        // available as an outside target. Toggle the exact original menu trigger.
+        // A stale AX menu must not reopen a popup that is already gone.
+        if let trigger = trigger ?? menuTrigger(menu, app: app),
+            visibleMenus(app).contains(where: { CFEqual($0, menu) })
+        {
+            let button: AXUIElement? =
+                switch trigger.kind {
+                case "model": modelButton(app)
+                case "mode": modeButton(app)
+                case "effort": effortButton(app)
+                default: nil
+                }
+            if let button, label(button) == trigger.label, role(button) == trigger.role, !contains(menu, button) {
+                do { try press(button, app: app) } catch {  // Keep the verified outside-target fallback.
+                }
+                if wait(1, { !popupPresent(menu, app: app) && visibleMenus(app).isEmpty }) { return true }
+            }
+        }
         var targets: [AXUIElement] = []
         if let field = composer(app), !contains(menu, field) { targets.append(field) }
         let headings = distinct(

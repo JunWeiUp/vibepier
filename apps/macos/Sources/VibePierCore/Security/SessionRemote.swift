@@ -93,6 +93,9 @@ public final class SessionRemote: @unchecked Sendable {
     private var pairing = Set<String>()
     private var outgoing:
         [String: (device: String, frames: [Data], created: Double, fastPeer: String?, provider: String?)] = [:]
+    /// Final replies produced while the phone had no live route (e.g. its screen locked mid-creation). Bounded and
+    /// short-lived; the journal stays authoritative and the phone's read-only operation lookup covers anything dropped.
+    private var undelivered: [String: [(data: Data, created: Double)]] = [:]
     private var readReplies = SessionReadReplies()
     private var providerPolicy = SessionProviderPolicy()
     private let executions = SessionWorkBudget(lanes: SessionRequestLane.limits)
@@ -116,6 +119,10 @@ public final class SessionRemote: @unchecked Sendable {
                     provider: adapter.hasPrefix("codex.") ? "codex" : "claude", client: client)
             }
         }
+    }
+    func warmOptions() {
+        let policy = queue.sync { providerPolicy }
+        coordinator.warmOptions(policy: policy)
     }
     func restoreAgentRuntimes() { runtimeHost.restoreExplicitConfiguration() }
     func agentRuntimeCommand(_ request: [String: Any], completion: @escaping @Sendable (Data) -> Void) {
@@ -456,6 +463,9 @@ public final class SessionRemote: @unchecked Sendable {
         routes[device] = Route(peer: peer, sender: sender, send: send)
         lastPeer[peer] = now
         armLease()
+        if let held = undelivered.removeValue(forKey: device) {
+            for reply in held where now - reply.created < 600 { self.send(reply.data, device: device) }
+        }
         if request["op"] as? String == "resend", let original = request["packet"] as? String,
             let saved = outgoing[original], saved.device == device,
             saved.fastPeer == nil || saved.fastPeer == peer
@@ -594,10 +604,8 @@ public final class SessionRemote: @unchecked Sendable {
                     lookup["action"] = original["op"] as? String == "queueDelete" ? "delete" : "steer"
                     lookup["op"] = "queueReceiptCheck"
                 }
-                if original?["op"] as? String == "new" {
-                    lookup["op"] = "newReceiptCheck"
-                    lookup["cwd"] = original?["cwd"]
-                    lookup["executionMode"] = original?["executionMode"]
+                if let original, original["op"] as? String == "new" {
+                    lookup = Self.creationReceiptLookup(original, operation: operation, thread: saved.thread)
                 }
                 if original?["op"] as? String == "codexUsageReset" {
                     lookup["op"] = "codexUsageResetReceipt"
@@ -802,6 +810,15 @@ public final class SessionRemote: @unchecked Sendable {
                 self.send(bytes, device: device, provider: !mutable && !independent ? accessProvider : nil)
             }
         }
+    }
+    /// The durable original carries the exact configuration and attachment scope.
+    /// Receipt recovery changes only routing fields and never submits that intent again.
+    static func creationReceiptLookup(_ original: [String: Any], operation: String, thread: String) -> [String: Any] {
+        var lookup = original
+        lookup["op"] = "newReceiptCheck"
+        lookup["operation"] = operation
+        lookup["threadId"] = thread
+        return lookup
     }
     private func requestAndroidUpdate(_ request: [String: Any], device: String, id: String, bytes: Int, now: Double) {
         let receiptKey = device + ":" + id
@@ -1154,7 +1171,22 @@ public final class SessionRemote: @unchecked Sendable {
             // A pushed page has no request to answer; pages are budgeted well under this, and the next sync repairs it.
             return
         }
-        guard let route = routes[device], let key = trust.key(for: device) else { return }
+        guard let route = routes[device], let key = trust.key(for: device) else {
+            // Only request replies are held; pushed pages and events are repaired by the next sync.
+            if trust.key(for: device) != nil, requestID == nil,
+                (try? JSONSerialization.jsonObject(with: data) as? [String: Any])?["id"] is String
+            {
+                let now = ProcessInfo.processInfo.systemUptime
+                var held = (undelivered[device] ?? []).filter { now - $0.created < 600 }
+                if held.count >= 32 { held.removeFirst() }
+                held.append((data, now))
+                undelivered[device] = held
+                if undelivered.count > 16, let stale = undelivered.keys.first(where: { $0 != device }) {
+                    undelivered.removeValue(forKey: stale)
+                }
+            }
+            return
+        }
         let packet = UUID().uuidString
         guard let sealed = try? SessionEnvelope.seal(data, key: key, device: device, packet: packet, direction: "mac")
         else { return }

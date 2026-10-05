@@ -27,3 +27,10 @@ Event payload: `{"event":"taskCompleted","eventId":"<64 lowercase hex SHA-256>",
 The Android session client belongs to `RemoteSender` and survives Activity recreation while `RemoteConnectionService` retains the connection. UI callback detachment leaves encrypted event handling active. `TaskCompletionNotifications` validates and deduplicates authenticated events before posting to the `task_completion` notification channel. Design-review fixtures do not subscribe or post completion notifications.
 
 Android permission and channel behavior follows [Android notification permission documentation](https://developer.android.com/develop/ui/views/notifications/notification-permission).
+
+## Quick reply / 快捷回复
+
+A task-completion notification offers **Reply** (Android `RemoteInput`), usable from the shade or lock screen. The text is sent only through the live, authenticated session client of the authorization that posted the notification, as an ordinary journaled `send`; the notification is then replaced with the actual state (sending, sent, unknown or not sent). An unknown result is never resent automatically, and a missing connection or a session the phone has not opened asks the user to open VibePier instead.
+
+任务完成通知提供「回复」（Android `RemoteInput`），可在通知栏或锁屏直接使用。文字只经发出该通知的同一授权、当前在线的已认证会话客户端，以普通的带回执 `send` 发送；随后通知改为真实状态（发送中、已发送、结果未知或未发送）。结果未知时绝不自动重发；连接未就绪或手机尚未打开该会话时，提示打开 VibePier 处理。
+

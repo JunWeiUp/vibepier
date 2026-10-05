@@ -34,6 +34,9 @@ class RemoteConnectionService : Service() {
 
         fun release(owner: Any) { lifetime?.release(owner) }
 
+        /** The authenticated session client of the live connection, for notification actions; null when disconnected. */
+        internal fun activeSessionClient() = lifetime?.current?.sessionClient
+
         fun start(context: Context) {
             context.startForegroundService(Intent(context, RemoteConnectionService::class.java))
         }

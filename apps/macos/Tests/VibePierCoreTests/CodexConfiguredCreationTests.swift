@@ -4,15 +4,6 @@ import XCTest
 @testable import VibePierCore
 
 final class CodexConfiguredCreationTests: XCTestCase {
-    func testConfiguredCreationOnlyAcceptsInspectedDesktopBuilds() {
-        for build in ["12553", "12947"] {
-            XCTAssertTrue(CodexBridge.supportsConfiguredCreation(build: build))
-        }
-        for build: String? in [nil, "", "11645", "12404", "12948", "unknown"] {
-            XCTAssertFalse(CodexBridge.supportsConfiguredCreation(build: build))
-        }
-    }
-
     private let thread = UUID().uuidString
     private let project = CodexCreationProject(id: UUID().uuidString, name: "Fixture", cwd: "/fixture")
     private let settings: [String: Any] = [
@@ -79,7 +70,46 @@ final class CodexConfiguredCreationTests: XCTestCase {
         XCTAssertEqual(events, ["start", "open", "view", "arm", "send"])
     }
 
-    func testChangedProjectExistingTurnAndUnconfirmedSubmitNeverRetry() throws {
+    func testFirstTurnSpeedIsExplicitAndUnverifiedReadbackIsAWarningNeverAResend() throws {
+        for tier in ["standard", "priority"] {
+            for actual in [tier, "missing", "other-owner"] {
+                var chosen = settings
+                chosen["serviceTier"] = tier == "priority" ? "priority" : NSNull()
+                var sends = 0
+                let services = CodexConfiguredCreation.Services(
+                    start: { _ in self.started() }, open: { _ in },
+                    view: { _ in
+                        var state: [String: Any] = ["cwd": self.project.cwd, "turns": []]
+                        if sends > 0 && actual != "missing" {
+                            state["latestThreadSettings"] = ["serviceTier": chosen["serviceTier"]!]
+                        }
+                        return .init(owner: sends > 0 && actual == "other-owner" ? "other" : "owner", state: state)
+                    },
+                    send: { _, params in
+                        sends += 1
+                        let turn = try XCTUnwrap(params["turnStart"] as? [String: Any])
+                        let request = try XCTUnwrap(turn["request"] as? [String: Any])
+                        if tier == "priority" {
+                            XCTAssertEqual(request["serviceTier"] as? String, tier)
+                        } else {
+                            XCTAssertTrue(request["serviceTier"] is NSNull)
+                        }
+                        return ["result": ["result": ["turn": ["id": UUID().uuidString]]]]
+                    })
+                let bytes = try CodexConfiguredCreation.run(
+                    input(settings: chosen), services: services, observation: .init(), arm: {})
+                let result = try XCTUnwrap(JSONSerialization.jsonObject(with: bytes) as? [String: Any])
+                // The native turn ACK proves creation; a speed readback mismatch is reported, not unknown.
+                XCTAssertEqual(result["ok"] as? Bool, true)
+                XCTAssertNil(result["unknown"])
+                let warnings = result["warnings"] as? [[String: Any]] ?? []
+                XCTAssertEqual(warnings.first?["field"] as? String, actual == tier ? nil : "serviceTier")
+                XCTAssertEqual(sends, 1)
+            }
+        }
+    }
+
+    func testFailuresBeforeSubmissionAreDefinitiveAndOnlyALostSubmitIsUnknown() throws {
         for failure in ["settings", "project", "history", "send"] {
             var starts = 0
             var sends = 0
@@ -105,7 +135,14 @@ final class CodexConfiguredCreationTests: XCTestCase {
             XCTAssertThrowsError(
                 try CodexConfiguredCreation.run(input(), services: services, observation: .init(), arm: {})
             ) {
-                XCTAssertTrue($0 is UnconfirmedDesktopMutation)
+                if failure == "send" {
+                    XCTAssertTrue($0 is UnconfirmedDesktopMutation)
+                } else {
+                    let notSubmitted = $0 as? CodexConfiguredCreation.NotSubmitted
+                    XCTAssertNotNil(notSubmitted)
+                    // A verified empty thread is reported so the phone can open it; a rejected start has none.
+                    XCTAssertEqual(notSubmitted?.thread, failure == "settings" ? nil : self.thread)
+                }
             }
             XCTAssertEqual(starts, 1)
             XCTAssertEqual(sends, failure == "send" ? 1 : 0)
@@ -114,7 +151,7 @@ final class CodexConfiguredCreationTests: XCTestCase {
         XCTAssertFalse(CodexConfiguredCreation.emptyHistory(["turnHistory": ["history": [:]]]))
     }
 
-    func testPlanFirstTurnCarriesNativePresetAndRequiresOwnerBoundReadback() throws {
+    func testPlanFirstTurnCarriesNativePresetAndReportsUnverifiedReadbackAsWarning() throws {
         for actual in ["plan", "default", "missing", "other-owner"] {
             let turnID = UUID().uuidString
             var settings = self.settings
@@ -155,10 +192,11 @@ final class CodexConfiguredCreationTests: XCTestCase {
             XCTAssertEqual(sends, 1)
             XCTAssertEqual(views, 2)
             XCTAssertEqual(result["executionModeVerified"] as? Bool, actual == "plan")
-            XCTAssertEqual(result["ok"] as? Bool, actual == "plan")
-            XCTAssertEqual(result["threadId"] as? String, thread, "Unknown native mode must retain created identity")
+            XCTAssertEqual(result["ok"] as? Bool, true)
+            XCTAssertEqual(result["threadId"] as? String, thread)
             XCTAssertNotNil(result["nativeMessageId"] as? String)
-            if actual != "plan" { XCTAssertEqual(result["unknown"] as? Bool, true) }
+            let warnings = result["warnings"] as? [[String: Any]] ?? []
+            XCTAssertEqual(warnings.first?["field"] as? String, actual == "plan" ? nil : "executionMode")
         }
     }
 
@@ -180,6 +218,45 @@ final class CodexConfiguredCreationTests: XCTestCase {
         XCTAssertNil(try observation.receipt { _ in view(self.project.cwd, "different") })
         XCTAssertNil(try observation.receipt { _ in view("/different", id) })
         XCTAssertEqual(try observation.receipt { _ in view(self.project.cwd, id) }?["threadId"] as? String, thread)
+    }
+
+    func testLateReceiptRequiresExactFirstTextAndEveryAttachment() throws {
+        let observation = CodexConfiguredCreation.Observation()
+        let marker = UUID().uuidString
+        let expected: [[String: Any]] = [
+            ["type": "text", "text": "exact synthetic prompt", "text_elements": []],
+            ["type": "localImage", "path": "/synthetic/image.png"],
+        ]
+        observation.bind(
+            .init(id: thread, cwd: project.cwd, projectID: project.id), nativeID: marker,
+            expectedInput: CodexConfiguredCreation.Observation.canonicalInput(expected))
+        observation.arm()
+        func result(_ content: [[String: Any]]) throws -> [String: Any]? {
+            try observation.receipt { _ in
+                .init(
+                    owner: "owner",
+                    state: [
+                        "cwd": self.project.cwd,
+                        "turns": [
+                            [
+                                "items": [
+                                    [
+                                        "type": "userMessage", "clientId": marker, "content": content,
+                                    ]
+                                ]
+                            ]
+                        ],
+                    ])
+            }
+        }
+        XCTAssertNotNil(try result(expected))
+        var changed = expected
+        changed[0]["text"] = "different synthetic prompt"
+        XCTAssertNil(try result(changed))
+        XCTAssertNil(try result(Array(expected.prefix(1))))
+        changed = expected
+        changed[1]["path"] = "/synthetic/other.png"
+        XCTAssertNil(try result(changed))
     }
 
     func testLatePlanReceiptRequiresOriginalMessageTurnPresetEvenIfComposerLaterChanges() throws {

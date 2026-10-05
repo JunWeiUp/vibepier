@@ -429,37 +429,27 @@
               },
               "sequence": {
                 "type": "boolean"
+              },
+              "refreshOptions": {
+                "type": "boolean"
               }
             },
             "allOf": [
               {
                 "if": {
                   "required": [
-                    "kind"
-                  ],
-                  "properties": {
-                    "kind": {
-                      "const": "parts"
-                    }
-                  }
+                    "refreshOptions"
+                  ]
                 },
                 "then": {
                   "properties": {
-                    "before": {
-                      "type": "integer",
-                      "minimum": 0,
-                      "maximum": 1000000
+                    "kind": {
+                      "const": "composerOptions"
                     }
-                  }
-                },
-                "else": {
-                  "properties": {
-                    "before": {
-                      "type": "string",
-                      "minLength": 1,
-                      "maxLength": 1024
-                    }
-                  }
+                  },
+                  "required": [
+                    "kind"
+                  ]
                 }
               }
             ]
@@ -590,6 +580,9 @@
                 "type": "string",
                 "format": "uuid",
                 "pattern": "^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$"
+              },
+              "refreshOptions": {
+                "type": "boolean"
               }
             }
           }

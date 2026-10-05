@@ -17,6 +17,9 @@ final class AgentSessionServiceTests: XCTestCase {
         var heldOpen: (@Sendable (Data) -> Void)?
         var heldOpens: [@Sendable (Data) -> Void] = []
         var holdItems = false
+        var holdCreationOptions = false
+        var creationFailure: String?
+        var heldCreation: (@Sendable (Data) -> Void)?
         var heldItem: (@Sendable (Data) -> Void)?
         var nativeHeld: (@Sendable () -> Void)?
         var page: [String: Any]
@@ -80,6 +83,18 @@ final class AgentSessionServiceTests: XCTestCase {
                         nativeHeld?()
                         return
                     }
+                    if operation == "newOptions", let creationFailure {
+                        completion(AgentSessionProfile.data(["ok": false, "error": creationFailure]))
+                        return
+                    }
+                    if lock.withLock({ holdCreationOptions && operation == "newOptions" }) {
+                        lock.withLock {
+                            requests.append(bytes)
+                            heldCreation = completion
+                        }
+                        nativeHeld?()
+                        return
+                    }
                     let reply: Data = lock.withLock {
                         requests.append(bytes)
                         let native = (try? JSONSerialization.jsonObject(with: bytes) as? [String: Any]) ?? [:]
@@ -117,8 +132,10 @@ final class AgentSessionServiceTests: XCTestCase {
                         case "new": value = newReply
                         case "newOptions":
                             value = [
+                                "id": native["id"] ?? "",
                                 "ok": true, "creationVersion": 1, "draftId": native["draftId"] ?? "",
-                                "models": [["id": "fixture-model", "efforts": ["medium"]]],
+                                "models": page["creationModels"] ?? [["id": "fixture-model", "efforts": ["medium"]]],
+                                "composer": page["creationComposer"] ?? [:],
                                 "permissionModes": [["id": "auto"]],
                                 "executionModes": page["executionModes"] ?? [],
                                 "agentCapabilities": page["agentCapabilities"] ?? [:],
@@ -285,6 +302,39 @@ final class AgentSessionServiceTests: XCTestCase {
         let response = try perform(harness, submit(opened, operation: operation))
         XCTAssertEqual(response["code"] as? String, "operation_id_conflict")
         XCTAssertEqual(harness.count("send"), 0)
+    }
+    func testCreationOptionReadKeepsNativeFailureReasonWithoutAuthorizingAWrite() throws {
+        let harness = try Harness()
+        harness.creationFailure = "Unlock failed; unlock the Mac manually"
+        let listing = try result(perform(harness, request("workspace.list", target: ["adapterId": "codex.currentV1"])))
+        let workspace = try XCTUnwrap((listing["workspaces"] as? [[String: Any]])?.first?["workspaceRef"] as? String)
+        let response = try perform(
+            harness,
+            request(
+                "session.creationOptions", target: ["adapterId": "codex.currentV1"],
+                params: ["workspaceRef": workspace, "draftId": UUID().uuidString.lowercased()]))
+        XCTAssertEqual(response["ok"] as? Bool, false)
+        XCTAssertEqual((response["body"] as? [String: Any])?["error"] as? String, harness.creationFailure)
+        XCTAssertEqual(harness.count("new"), 0)
+    }
+    func testUnknownNativeMutationRetainsBoundedReasonWithoutChangingReceiptStatus() throws {
+        for reason in ["Native acknowledgement lost", "unsafe\0diagnostic", String(repeating: "x", count: 4097)] {
+            let harness = try Harness()
+            let opened = try open(harness)
+            harness.sendReply["ok"] = false
+            harness.sendReply["unknown"] = true
+            harness.sendReply["error"] = reason
+            harness.sendReply["code"] = "native_ack_unconfirmed"
+            let operation = UUID().uuidString.lowercased()
+            let response = try perform(harness, submit(opened, operation: operation))
+            XCTAssertEqual(response["unknown"] as? Bool, true)
+            XCTAssertEqual(try result(response)["code"] as? String, "native_ack_unconfirmed")
+            XCTAssertEqual(
+                try result(response)["error"] as? String, reason == "Native acknowledgement lost" ? reason : nil)
+            XCTAssertNil(harness.journal.receipt("phone:" + operation)?.result)
+            _ = try perform(harness, submit(opened, operation: operation))
+            XCTAssertEqual(harness.count("send"), 1)
+        }
     }
     func testWrongNativeIdentityAndPersistenceFailureRemainUnknown() throws {
         let harness = try Harness()
@@ -478,6 +528,14 @@ final class AgentSessionServiceTests: XCTestCase {
     func testPlanCreationMapsVerifiedNativeFirstInputAndKeepsUnknownEvidence() throws {
         let replies: [(String, [String: Any], String)] = [
             ("codex", ["nativeTurnId": "creation-turn"], "confirmed"),
+            ("zcode", [:], "unknown"),
+            (
+                "zcode",
+                ZCodeBridge.withMessageAnchor([
+                    "accepted": true, "threadId": "00000000-0000-4000-8000-000000000011",
+                    "nativeMessageId": "creation-message",
+                ]), "confirmed"
+            ),
             (
                 "claude",
                 [
@@ -500,7 +558,8 @@ final class AgentSessionServiceTests: XCTestCase {
                     "turnIdentityKind": "nativeMessageAnchor",
                 ], "unknown"
             ),
-            ("codex", ["nativeTurnId": "creation-turn", "executionModeVerified": false], "unknown"),
+            // Native thread and turn prove creation; an unverified mode is reported as a warning.
+            ("codex", ["nativeTurnId": "creation-turn", "executionModeVerified": false], "confirmed"),
         ]
         for (provider, proof, expected) in replies {
             let harness = try Harness(provider: provider)
@@ -536,11 +595,15 @@ final class AgentSessionServiceTests: XCTestCase {
             XCTAssertEqual(value["sessionCreated"] as? Bool, true)
             if expected == "confirmed" {
                 XCTAssertEqual(value["initialInput"] as? String, "confirmed")
-                XCTAssertEqual(value["executionModeState"] as? String, "confirmed")
+                let verified = proof["executionModeVerified"] as? Bool != false
+                XCTAssertEqual(value["executionModeState"] as? String, verified ? "confirmed" : "unverified")
+                XCTAssertEqual(
+                    (value["warnings"] as? [[String: Any]])?.first?["field"] as? String,
+                    verified ? nil : "executionMode")
                 XCTAssertEqual(value["messageId"] as? String, "creation-message")
                 XCTAssertNotNil(value["turnId"] as? String)
                 XCTAssertEqual(
-                    value["turnIdentityKind"] as? String, provider == "claude" ? "nativeMessageAnchor" : "nativeTurn")
+                    value["turnIdentityKind"] as? String, provider == "codex" ? "nativeTurn" : "nativeMessageAnchor")
             } else {
                 XCTAssertNil(harness.journal.receipt("phone:" + operation)?.result)
             }
@@ -962,6 +1025,113 @@ final class AgentSessionServiceTests: XCTestCase {
             XCTAssertEqual(try result(value)["controlLease"] as? String, opened.lease)
         }
         XCTAssertEqual(harness.count("send"), 1)
+    }
+    func testCreationSpeedRequiresAdvertisedModelTierAndReachesProvider() throws {
+        for supported in [true, false] {
+            let harness = try Harness()
+            harness.page["creationComposer"] = ["serviceTier": "standard"]
+            harness.page["creationModels"] = [
+                [
+                    "id": "fixture-model", "efforts": ["medium"],
+                    "serviceTiers": supported ? ["standard", "priority"] : ["standard"],
+                ]
+            ]
+            let listing = try result(
+                perform(harness, request("workspace.list", target: ["adapterId": "codex.currentV1"])))
+            let workspace = try XCTUnwrap(
+                (listing["workspaces"] as? [[String: Any]])?.first?["workspaceRef"] as? String)
+            let options = try result(
+                perform(
+                    harness,
+                    request(
+                        "session.creationOptions", target: ["adapterId": "codex.currentV1"],
+                        params: ["workspaceRef": workspace, "draftId": UUID().uuidString.lowercased()])))
+            let lease = try XCTUnwrap(options["creationLease"] as? [String: Any])
+            let target = try XCTUnwrap(lease["target"] as? [String: Any])
+            let reply = try perform(
+                harness,
+                request(
+                    "session.create", target: target,
+                    params: ["options": ["model": "fixture-model", "serviceTier": "priority"]],
+                    operation: UUID().uuidString, lease: lease["controlLease"] as? String))
+            XCTAssertEqual(reply["ok"] as? Bool, supported)
+            XCTAssertEqual(harness.count("new"), supported ? 1 : 0)
+        }
+    }
+
+    func testSameDraftRereadChangesCorrelationIDWithoutRevokingCreationLease() throws {
+        let harness = try Harness()
+        let listing = try result(perform(harness, request("workspace.list", target: ["adapterId": "codex.currentV1"])))
+        let workspace = try XCTUnwrap((listing["workspaces"] as? [[String: Any]])?.first?["workspaceRef"] as? String)
+        let params: [String: Any] = ["workspaceRef": workspace, "draftId": UUID().uuidString.lowercased()]
+        let first = try result(
+            perform(
+                harness, request("session.creationOptions", target: ["adapterId": "codex.currentV1"], params: params)))
+        let firstLease = try XCTUnwrap(first["creationLease"] as? [String: Any])
+        let target = try XCTUnwrap(firstLease["target"] as? [String: Any])
+        let second = try result(
+            perform(
+                harness, request("session.creationOptions", target: ["adapterId": "codex.currentV1"], params: params)))
+        let secondTarget = (second["creationLease"] as? [String: Any])?["target"] as? [String: Any]
+        XCTAssertNotEqual(
+            (first["options"] as? [String: Any])?["id"] as? String,
+            (second["options"] as? [String: Any])?["id"] as? String)
+        XCTAssertEqual(target["optionsRevision"] as? String, secondTarget?["optionsRevision"] as? String)
+        let result = try perform(
+            harness,
+            request(
+                "session.create", target: target,
+                operation: UUID().uuidString, lease: firstLease["controlLease"] as? String))
+        XCTAssertEqual(result["ok"] as? Bool, true)
+        XCTAssertEqual(harness.count("new"), 1)
+        harness.page["executionModes"] = [["id": "default"], ["id": "plan"]]
+        _ = try perform(
+            harness, request("session.creationOptions", target: ["adapterId": "codex.currentV1"], params: params))
+        let rejected = try perform(
+            harness,
+            request(
+                "session.create", target: target,
+                operation: UUID().uuidString, lease: firstLease["controlLease"] as? String))
+        XCTAssertEqual(rejected["ok"] as? Bool, false)
+        XCTAssertEqual(harness.count("new"), 1, "Changed native options still revoke the old authority")
+    }
+    func testSameDraftConcurrentOptionsShareOneNativeReadAndLease() throws {
+        let harness = try Harness()
+        let listing = try result(perform(harness, request("workspace.list", target: ["adapterId": "codex.currentV1"])))
+        let workspace = try XCTUnwrap((listing["workspaces"] as? [[String: Any]])?.first?["workspaceRef"] as? String)
+        let draft = UUID().uuidString.lowercased()
+        harness.holdCreationOptions = true
+        let held = expectation(description: "native creation read")
+        harness.nativeHeld = { held.fulfill() }
+        let done = expectation(description: "coalesced creation replies")
+        done.expectedFulfillmentCount = 2
+        let replies = [Response(), Response()]
+        for response in replies {
+            harness.service.perform(
+                try request(
+                    "session.creationOptions", target: ["adapterId": "codex.currentV1"],
+                    params: ["workspaceRef": workspace, "draftId": draft]), client: "phone"
+            ) {
+                response.data = $0
+                done.fulfill()
+            }
+        }
+        wait(for: [held], timeout: 2)
+        _ = try perform(harness, request("workspace.list", target: ["adapterId": "codex.currentV1"]))
+        XCTAssertEqual(harness.count("newOptions"), 1)
+        harness.heldCreation?(
+            AgentSessionProfile.data([
+                "ok": true, "creationVersion": 1, "draftId": draft,
+                "agentCapabilities": harness.page["agentCapabilities"] ?? [:],
+            ]))
+        wait(for: [done], timeout: 2)
+        let first = try result(try replies[0].data.flatMapJSON())
+        let second = try result(try replies[1].data.flatMapJSON())
+        XCTAssertNotNil(first["creationLease"])
+        XCTAssertEqual(
+            (first["creationLease"] as? [String: Any])?["controlLease"] as? String,
+            (second["creationLease"] as? [String: Any])?["controlLease"] as? String)
+        XCTAssertEqual(harness.count("new"), 0)
     }
     func testCrossScopeConcurrentSnapshotCannotCoalesceOrReplaceTheNewViewWithALateOldReply() throws {
         let harness = try Harness()

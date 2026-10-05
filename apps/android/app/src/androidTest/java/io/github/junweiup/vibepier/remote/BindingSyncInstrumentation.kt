@@ -70,9 +70,10 @@ class BindingSyncInstrumentation : Instrumentation() {
             check(probeName in setOf("binding-sync", "session-response", "private-storage", "controls-localization",
                 "screen-controls", "new-session-receipts", "new-session-composer", "relay-store", "enrollment", "background-connection",
                 "protocol-negotiation", "relay-framing", "apk", "composer", "microphone", "controls", "dock",
-                "codex", "codex-panel", "providers", "provider-access", "tool-groups", "markdown", "app-usage", "conversation-images", "codex-usage", "application-picker", "brand-icons", "codec-compatibility", "readme-previews", "session-blocker", "voice-layout", "conversation-scroll", "binary-files", "binary-media", "attachment-upload", "attachment-network-upload", "task-notifications", "app-versions", "html-preview", "video-preview", "audit-runtime", "audit-conversation", "plan-mode", "agent-open", "image-zoom")) {
+                "codex", "codex-panel", "providers", "provider-access", "tool-groups", "markdown", "app-usage", "conversation-images", "codex-usage", "application-picker", "brand-icons", "codec-compatibility", "readme-previews", "session-blocker", "voice-layout", "conversation-scroll", "binary-files", "binary-media", "attachment-upload", "attachment-network-upload", "task-notifications", "app-versions", "html-preview", "video-preview", "audit-runtime", "audit-conversation", "plan-mode", "zcode-creation", "agent-open", "image-zoom")) {
                 "Unknown instrumentation probe"
             }
+            if (probeName == "zcode-creation") { result.putString("stream", ZCodeCreationProbe.run(this)); finish(Activity.RESULT_OK, result); return }
             if (probeName == "plan-mode") { result.putString("stream", PlanModeProbe.run(this)); finish(Activity.RESULT_OK, result); return }
             if (probeName == "agent-open") { result.putString("stream", AgentOpenProbe.run(this)); finish(Activity.RESULT_OK, result); return }
             if (probeName == "image-zoom") { result.putString("stream", ImageZoomProbe.run(this)); finish(Activity.RESULT_OK, result); return }

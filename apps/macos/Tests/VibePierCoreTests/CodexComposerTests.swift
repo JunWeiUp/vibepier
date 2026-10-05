@@ -49,6 +49,21 @@ final class CodexComposerTests: XCTestCase {
                 as? String, "priority")
     }
 
+    func testCatalogUsesLaunchCacheAndExplicitRefresh() throws {
+        let url = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+        defer { try? FileManager.default.removeItem(at: url) }
+        func write(_ name: String) throws {
+            try JSONSerialization.data(withJSONObject: ["models": [["slug": name, "visibility": "list"]]]).write(
+                to: url)
+        }
+        try write("first")
+        let composer = CodexComposer(catalogURL: url)
+        XCTAssertEqual(try composer.models().first?["id"] as? String, "first")
+        try write("second")
+        XCTAssertEqual(try composer.models().first?["id"] as? String, "first")
+        XCTAssertEqual(try composer.models(refresh: true).first?["id"] as? String, "second")
+    }
+
     func testCatalogFiltersHiddenModelsAndValidatesEffort() throws {
         let url = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
         defer { try? FileManager.default.removeItem(at: url) }

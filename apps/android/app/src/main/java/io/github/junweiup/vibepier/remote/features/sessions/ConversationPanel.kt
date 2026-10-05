@@ -10,6 +10,7 @@ import io.github.junweiup.vibepier.remote.MainActivity
 import io.github.junweiup.vibepier.remote.R
 import io.github.junweiup.vibepier.remote.core.session.SessionClient
 import io.github.junweiup.vibepier.remote.core.session.SessionCreationDraft
+import io.github.junweiup.vibepier.remote.core.session.SessionCreationWaitState
 import io.github.junweiup.vibepier.remote.core.session.SessionExecutionModes
 import io.github.junweiup.vibepier.remote.core.session.SessionProvider
 import io.github.junweiup.vibepier.remote.core.ui.CanvasLabel
@@ -150,6 +151,9 @@ class ConversationPanel(private val activity: Activity, private val client: Sess
     private var uploadProgressLabel: CanvasLabel? = null
     private var creationAttachment: ((android.net.Uri) -> Unit)? = null
     private var creationPickerToken = ""
+    /** The open new-session dialog; it survives backgrounding so a pending creation can finish or be checked. */
+    private var creationDialog: AlertDialog? = null
+    private val autoChecks = listOf(3_000L, 8_000L, 20_000L, 45_000L, 90_000L)
     private var creationAttachmentIsCurrent: () -> Boolean = { false }
     private var uploading = false
     private var uploadLabel = ""
@@ -424,7 +428,8 @@ class ConversationPanel(private val activity: Activity, private val client: Sess
         foreground = false; ui.removeCallbacks(waitCheck); saveDraft(); stopOpening(); client.cancelPageReads(); pauseProcessReads()
         if (!reviews) client.flushContentCache()
         ready = false; stopSync(); loadingHistory = false
-        auxiliaryDialogs.toList().forEach { it.dismiss() }; auxiliaryDialogs.clear()
+        // A creation in flight keeps its dialog: locking the phone must not hide the result or strand its wait.
+        auxiliaryDialogs.toList().filter { it !== creationDialog }.forEach { it.dismiss() }; auxiliaryDialogs.retainAll { it === creationDialog }
         approvalDialog?.dismiss(); openApproval = ""; loadingApproval = false
         updateComposer()
     }
@@ -630,7 +635,7 @@ class ConversationPanel(private val activity: Activity, private val client: Sess
 
     /**
      * The Mac's login password, so desktop actions (typing into Claude, creating a Codex session) work while it is locked.
-     * It goes over the paired encrypted channel into the Mac's Keychain; the phone keeps no copy.
+     * It goes over the paired encrypted channel into the Mac's local unlock preferences; the phone keeps no copy.
      */
     private fun showUnlockSettings() {
         if (!connected || !authorized) return
@@ -695,24 +700,39 @@ class ConversationPanel(private val activity: Activity, private val client: Sess
         if (reviews || client.canPrepareCreation || pendingCreation) { newSession.visibility = VISIBLE; newSession.contentDescription = context.getString(R.string.session_new_in_project, project, agent) }
     }
     /** Starts a session in the open project with its first message, then opens it. */
-    private fun showNewSession() {
+    private fun showNewSession() { showNewSession(null) }
+    private fun showNewSession(checkPending: JSONObject?) {
         val pendingCreation = client.uncertain("", client.provider).any { it.opt("cwd") == projectCwd && it.opt("op") == "new" }
         if (!connected || !authorized || projectCwd.isEmpty() || (!reviews && !client.canPrepareCreation && !pendingCreation)) return
         hideKeyboard()
         val cwd = projectCwd; val provider = client.provider; var busy = false
-        val token = generation
         val authorization = authorizationSource(); val pickerToken = java.util.UUID.randomUUID().toString()
-        var original = client.uncertain("", provider).firstOrNull { it.optString("op") == "new" && it.optString("cwd") == cwd }
+        var original = checkPending?.takeIf { it.optString("op") == "new" && it.optString("cwd") == cwd && it.optString("provider") == provider }
+        val waiting = SessionCreationWaitState()
+        original?.let { waiting.begin(it) }
+
         var creation = try {
             if (original?.has("draftId") == true) SessionCreationDraft.restore(original.toString(), cwd, provider)
-            else client.creationDraft(cwd, provider)
+            else client.creationDraft(cwd, provider).let { previous ->
+                val fresh = io.github.junweiup.vibepier.remote.core.session.SessionWaitingPolicy.freshCreationDraft(previous, client.uncertain("", provider))
+                if (fresh != previous && !client.saveCreationDraft(fresh)) error("Creation draft unavailable")
+                fresh
+            }
         } catch (_: Exception) {
             menu(context.getString(R.string.session_new_session), context.getString(R.string.creation_draft_unavailable), emptyList()); return
         }
         lateinit var options: NewSessionOptionsView
         lateinit var dialog: AlertDialog
         var optionsRequest: String? = null
-        fun sameCreationScope() = token == generation && provider == client.provider && authorization == authorizationSource()
+        lateinit var refreshCreationOptions: () -> Unit
+        lateinit var resumeCreation: (SessionCreationDraft) -> Unit
+        var creationFailure: String? = null
+        // Automatic read-only checks after an uncertain result; they never resubmit the creation.
+        var autoCheck = Runnable {}
+        var autoCheckCount = 0
+        var scheduleAutoCheck: () -> Unit = {}
+        // Drawer refreshes and reconnects bump the panel generation; the creation dialog is scoped by provider and authorization only.
+        fun sameCreationScope() = provider == client.provider && authorization == authorizationSource()
 
         val field = EditText(context).apply {
             hint = context.getString(R.string.session_first_message); textSize = Ui.BODY; setTextColor(Palette.text); setHintTextColor(Palette.faint)
@@ -721,7 +741,7 @@ class ConversationPanel(private val activity: Activity, private val client: Sess
             setPadding(dp(12), dp(12), dp(12), dp(12))
         }
         field.setText(creation.text)
-        val hintText = when { claude -> context.getString(R.string.session_claude_new_explanation) + "\n" + context.getString(R.string.creation_claude_images); zcode -> context.getString(R.string.session_create_a_session_in_zcode_on_the_mac_and_send_the_first_message); else -> context.getString(R.string.session_codex_on_the_mac_will_come_to_the_foreground_create_a_session_an) }
+        val hintText = when { claude -> context.getString(R.string.session_claude_new_explanation) + "\n" + context.getString(R.string.creation_claude_images); zcode -> context.getString(R.string.session_create_a_session_in_zcode_on_the_mac_and_send_the_first_message); else -> context.getString(R.string.session_codex_new_background_explanation) }
         val state = label(hintText, Ui.CAPTION, Palette.faint)
         val attachmentList = column()
         fun draftFields() = JSONObject().put("cwd", cwd).put("provider", provider).put("draftId", creation.id)
@@ -732,6 +752,9 @@ class ConversationPanel(private val activity: Activity, private val client: Sess
         fun saveCreation(): Boolean {
             creation = creation.copy(text = field.text.toString())
             return try { client.saveCreationDraft(creation) } catch (_: Exception) { false }
+        }
+        fun readCreationDraft(): SessionCreationDraft? = try { client.creationDraft(cwd, provider) } catch (_: Exception) {
+            state.text = context.getString(R.string.creation_draft_unavailable); null
         }
         val persistDraft = Runnable {
             if (dialog.isShowing && original == null && !saveCreation()) state.text = context.getString(R.string.creation_draft_unavailable)
@@ -765,7 +788,21 @@ class ConversationPanel(private val activity: Activity, private val client: Sess
                 context.getString(R.string.session_add_image_phone_gallery) to { (activity as? MainActivity)?.pickCodexAttachment(true) },
                 context.getString(R.string.session_add_file_phone_files) to { (activity as? MainActivity)?.pickCodexAttachment(false) }
             ))
-        }, permits = { key -> reviews || client.creationCapability(key, creation) })
+        }, permits = { key -> reviews || client.creationCapability(key, creation) }, refreshOptions = { refreshCreationOptions() })
+        fun earlierCreations() = client.uncertain("", provider).filter { it.optString("op") == "new" && it.optString("cwd") == cwd }
+        val earlierReceipts = button(context.getString(R.string.creation_pending_history)) {
+            if (busy || !sameCreationScope()) return@button
+            menu(context.getString(R.string.creation_pending_history), context.getString(R.string.creation_old_receipts_kept), earlierCreations().map { pending ->
+                pending.optString("text").take(40).ifBlank { context.getString(R.string.session_check_result) } to {
+                    dialog.dismiss(); showNewSession(pending)
+                }
+            })
+        }
+        val earlierHint = label(context.getString(R.string.creation_old_receipts_kept), Ui.CAPTION, Palette.muted)
+        fun renderEarlierReceipts() {
+            val visibility = if (original == null && earlierCreations().isNotEmpty()) VISIBLE else GONE
+            earlierReceipts.visibility = visibility; earlierHint.visibility = visibility
+        }
         val body = column().apply {
             addView(label("$agent · $projectName", Ui.LABEL, Palette.muted).apply { maxLines = 1; ellipsize = android.text.TextUtils.TruncateAt.END },
                 LinearLayout.LayoutParams(-1, -2).apply { bottomMargin = dp(10) })
@@ -773,10 +810,27 @@ class ConversationPanel(private val activity: Activity, private val client: Sess
             addView(options, LinearLayout.LayoutParams(-1, -2))
             addView(attachmentList, LinearLayout.LayoutParams(-1, -2))
             addView(state, LinearLayout.LayoutParams(-1, -2).apply { topMargin = dp(8) })
-            addView(label(context.getString(R.string.session_stop_waiting_detail), Ui.CAPTION, Palette.muted), LinearLayout.LayoutParams(-1, -2))
+            addView(earlierReceipts, LinearLayout.LayoutParams(-1, -2))
+            addView(earlierHint, LinearLayout.LayoutParams(-1, -2))
+            addView(label(context.getString(R.string.creation_stop_waiting_detail), Ui.CAPTION, Palette.muted), LinearLayout.LayoutParams(-1, -2))
         }
         val footer = row(); dialog = canvasDialog(context.getString(R.string.session_new_session), ScrollView(context).apply { addView(body) }, footer, compact = true)
-        val cancelWaiting = button(context.getString(if (original == null) R.string.cancel else R.string.session_stop_waiting)) { dialog.dismiss() }
+        creationDialog = dialog
+        val cancelWaiting = button(context.getString(if (original == null) R.string.cancel else R.string.session_stop_waiting)) {
+            val pending = original
+            if (pending != null) {
+                if (!sameCreationScope()) return@button
+                val saved = if (reviews) client.saveCreationDraft(io.github.junweiup.vibepier.remote.core.session.SessionWaitingPolicy.freshCreationDraft(creation, listOf(pending)))
+                    else client.stopCreationWaiting(pending)
+                if (!saved) { state.text = context.getString(R.string.creation_draft_unavailable); return@button }
+                val next = readCreationDraft() ?: return@button
+                waiting.stop(); client.cancelCreationReceiptReads(pending.getString("id")); ui.removeCallbacks(autoCheck)
+                original = null
+                resumeCreation(next)
+                return@button
+            }
+            dialog.dismiss()
+        }
         footer.addView(cancelWaiting, LinearLayout.LayoutParams(0, -2, 1f).apply { marginEnd = dp(8) })
         var retryOriginal = false
         if (original != null) {
@@ -784,20 +838,29 @@ class ConversationPanel(private val activity: Activity, private val client: Sess
             state.text = context.getString(R.string.session_result_still_unknown_check_on_the_mac_to_avoid_a_duplicate_opera)
         }
         lateinit var start: CanvasLabel
-        fun loadCreationOptions() {
-            if (!sameCreationScope()) return
+        fun loadCreationOptions(attempt: Int = 0, refresh: Boolean = false) {
+            if (!dialog.isShowing || !sameCreationScope() || original != null) return
             client.cancelCreationOptions(optionsRequest)
             val id = java.util.UUID.randomUUID().toString(); optionsRequest = id
-            state.text = context.getString(R.string.creation_loading_options)
-            call("newOptions", draftFields().put("id", id)) { result ->
-                if (!dialog.isShowing || !sameCreationScope() || optionsRequest != id) return@call
-                if (!result.optBoolean("ok")) { state.text = result.optString("error", context.getString(R.string.creation_options_unavailable)); return@call }
+            val draftToken = waiting.draftToken(creation.id)
+            if (creationFailure == null) state.text = context.getString(R.string.creation_loading_options)
+            call("newOptions", draftFields().put("id", id).apply { if (refresh) put("refreshOptions", true) }) { result ->
+                if (!dialog.isShowing || !sameCreationScope() || optionsRequest != id || !waiting.accepts(draftToken, creation.id)) return@call
+                if (!result.optBoolean("ok")) {
+                    if (attempt < 2 && result.optString("code") in setOf("agent_native_unavailable", "agent_state_not_ready", "agent_session_view_closed", "agent_session_not_open")) {
+                        ui.postDelayed({ if (dialog.isShowing && sameCreationScope() && optionsRequest == id && waiting.accepts(draftToken, creation.id)) loadCreationOptions(attempt + 1, refresh) }, if (attempt == 0) 300 else 900)
+                    } else state.text = result.optString("error").takeIf { it.isNotBlank() }?.let { "$it\n${context.getString(R.string.creation_options_unavailable)}" }
+                        ?: context.getString(R.string.creation_options_unavailable)
+                    return@call
+                }
                 options.applyOptions(result)
-                state.text = if (reviews || client.creationCapability("new", creation)) hintText else context.getString(R.string.agent_upgrade_required)
+                state.text = creationFailure ?: if (reviews || client.creationCapability("new", creation)) hintText else context.getString(R.string.agent_upgrade_required)
+                state.setTextColor(if (creationFailure != null) Palette.red else Palette.faint)
             }
         }
-        fun receive(result: JSONObject) {
-            if (!dialog.isShowing || !sameCreationScope()) return
+        refreshCreationOptions = { loadCreationOptions(refresh = true) }
+        fun receive(result: JSONObject, callback: SessionCreationWaitState.CallbackToken) {
+            if (!dialog.isShowing || !sameCreationScope() || !waiting.accepts(callback)) return
             busy = false; start.alpha = 1f; options.setLocked(original != null)
             val unknown = result.optBoolean("unknown") || (result.optBoolean("ok") && result.optString("threadId").isBlank())
             if (unknown || !result.optBoolean("ok")) {
@@ -807,12 +870,13 @@ class ConversationPanel(private val activity: Activity, private val client: Sess
                     field.isEnabled = false; options.setLocked(true); retryOriginal = false
                     start.text = context.getString(R.string.session_check_result)
                     state.text = context.getString(R.string.session_result_still_unknown_check_on_the_mac_to_avoid_a_duplicate_opera)
+                    scheduleAutoCheck()
                 } else {
-                    original = null; retryOriginal = false; field.isEnabled = true; options.setLocked(false)
-                    cancelWaiting.text = context.getString(R.string.cancel)
-                    start.text = context.getString(R.string.session_start)
-                    state.text = result.optString("error", context.getString(R.string.session_could_not_create_session))
-                    if (!options.loaded) loadCreationOptions()
+                    val next = readCreationDraft() ?: return
+                    creationFailure = result.optString("error").takeIf { it.isNotBlank() } ?: context.getString(R.string.session_could_not_create_session)
+                    waiting.stop(); original = null; resumeCreation(next)
+                    state.setTextColor(Palette.red)
+                    state.text = creationFailure ?: context.getString(R.string.session_could_not_create_session)
                 }
                 return
             }
@@ -823,93 +887,134 @@ class ConversationPanel(private val activity: Activity, private val client: Sess
                     state.text = context.getString(R.string.creation_draft_unavailable); return
                 }
             }
-            original = null
-            dialog.setOnDismissListener { client.cancelCreationOptions(optionsRequest); ui.removeCallbacks(persistDraft); options.closeMenus(); clearCreationAttachment(pickerToken); auxiliaryDialogs.remove(dialog) }
+            waiting.stop(); original = null
+            if ((result.optJSONArray("warnings")?.length() ?: 0) > 0) {
+                android.widget.Toast.makeText(context, context.getString(R.string.session_created_with_unverified_options), android.widget.Toast.LENGTH_LONG).show()
+            }
+            dialog.setOnDismissListener { client.cancelCreationOptions(optionsRequest); ui.removeCallbacks(persistDraft); ui.removeCallbacks(autoCheck); if (creationDialog === dialog) creationDialog = null; options.closeMenus(); clearCreationAttachment(pickerToken); auxiliaryDialogs.remove(dialog) }
             dialog.dismiss()
             if (drawer && client.provider == provider) open(result.optString("threadId"), result.optString("title").ifBlank { field.text.toString().take(40) })
         }
-        start = button(context.getString(if (original == null) R.string.session_start else R.string.session_check_result), true) {
-            if (busy || !dialog.isShowing || !sameCreationScope()) return@button
-            val pending = original
-            if (pending != null) {
-                busy = true; start.alpha = .5f
-                if (retryOriginal) {
-                    if (reviews) call("new", pending, ::receive) else client.retryPending(pending.getString("id"), ::receive)
-                } else {
-                    call("receipt", JSONObject().put("operation", pending.getString("id")).put("provider", provider)) { result ->
-                        if (!dialog.isShowing) return@call
-                        busy = false; start.alpha = 1f
-                        when (result.optString("state")) {
-                            "complete" -> {
-                                val receipt = result.optJSONObject("receipt")
-                                if (receipt != null && receipt.has("ok") && !receipt.optBoolean("unknown") && (!receipt.optBoolean("ok") || receipt.optString("threadId").isNotBlank())) {
-                                    if (!pending.has("draftId") || !receipt.optBoolean("ok")) client.clearReceipt(pending.getString("id"))
-                                    receive(receipt)
-                                }
-                            }
-                            "notFound" -> {
-                                retryOriginal = true; start.text = context.getString(R.string.session_retry_original_request)
-                                state.text = context.getString(R.string.session_mac_has_not_received_it_tap_to_retry_the_original_operation)
-                            }
-                            else -> state.text = context.getString(R.string.session_result_still_unknown_check_on_the_mac_to_avoid_a_duplicate_opera)
-                        }
+        /** Read-only lookup of the original operation; a retry of the same operation only follows an explicit notFound tap. */
+        fun checkOriginal(automatic: Boolean) {
+            val pending = original ?: return
+            if (busy || !dialog.isShowing || !sameCreationScope() || (automatic && retryOriginal)) return
+            busy = true; start.alpha = .5f
+            val callback = waiting.begin(pending)
+            if (retryOriginal) {
+                if (reviews) call("new", pending) { receive(it, callback) } else client.retryPending(pending.getString("id")) { receive(it, callback) }
+                return
+            }
+            call("receipt", JSONObject().put("operation", pending.getString("id")).put("provider", provider)) { result ->
+                if (!dialog.isShowing || !sameCreationScope() || !waiting.accepts(callback)) return@call
+                busy = false; start.alpha = 1f
+                when (result.optString("state")) {
+                    "complete" -> {
+                        val receipt = result.optJSONObject("receipt")
+                        if (receipt != null && receipt.has("ok") && !receipt.optBoolean("unknown") && (!receipt.optBoolean("ok") || receipt.optString("threadId").isNotBlank())) {
+                            if (!pending.has("draftId") || !receipt.optBoolean("ok")) client.clearReceipt(pending.getString("id"))
+                            receive(receipt, callback)
+                        } else scheduleAutoCheck()
+                    }
+                    "notFound" -> {
+                        retryOriginal = true; start.text = context.getString(R.string.session_retry_original_request)
+                        state.text = context.getString(R.string.session_mac_has_not_received_it_tap_to_retry_the_original_operation)
+                    }
+                    else -> {
+                        state.text = context.getString(R.string.session_result_still_unknown_check_on_the_mac_to_avoid_a_duplicate_opera)
+                        scheduleAutoCheck()
                     }
                 }
-                return@button
             }
+        }
+        autoCheck = Runnable { checkOriginal(true) }
+        scheduleAutoCheck = {
+            ui.removeCallbacks(autoCheck)
+            autoChecks.getOrNull(autoCheckCount++)?.let { delay -> ui.postDelayed(autoCheck, delay) }
+        }
+        start = button(context.getString(if (original == null) R.string.session_start else R.string.session_check_result), true) {
+            if (busy || !dialog.isShowing || !sameCreationScope()) return@button
+            if (original != null) { checkOriginal(false); return@button }
+            if (!options.loaded) { loadCreationOptions(); return@button }
             val text = field.text.toString().trim()
             if (text.isEmpty() && attachmentIDsForDraft().length() == 0) { state.text = context.getString(R.string.session_enter_the_first_message); state.setTextColor(Palette.amber); return@button }
             if (!reviews && !client.creationCapability("new", creation)) { state.text = context.getString(R.string.agent_capability_unavailable); return@button }
-            if (!options.loaded || !options.ready) { state.text = context.getString(R.string.creation_choose_options); return@button }
+            if (!options.ready) { state.text = context.getString(R.string.creation_choose_options); return@button }
+            if (!reviews && client.duplicateUnconfirmedCreation(cwd, text, attachmentIDsForDraft())) {
+                state.text = context.getString(R.string.creation_duplicate_pending); return@button
+            }
             if (!saveCreation()) { state.text = context.getString(R.string.creation_draft_unavailable); return@button }
             val intent = try { creation.request(java.util.UUID.randomUUID().toString(), attachmentIDsForDraft()) }
                 catch (_: Exception) { state.text = context.getString(R.string.creation_invalid_prompt); return@button }
+            creationFailure = null
             busy = true; start.alpha = .5f; field.isEnabled = false; state.setTextColor(Palette.faint); options.setLocked(true)
             state.text = if (claude) context.getString(R.string.session_starting_claude_code_in_the_background_on_the_mac) else context.getString(R.string.session_creating_in_provider, agent)
-            original = intent
+            original = intent; autoCheckCount = 0
+            val callback = waiting.begin(intent)
+            renderEarlierReceipts()
             cancelWaiting.text = context.getString(R.string.session_stop_waiting)
-            call("new", original!!, ::receive)
+            call("new", intent) { receive(it, callback) }
         }
         footer.addView(start, LinearLayout.LayoutParams(0, -2, 1f))
+        resumeCreation = { next ->
+            client.cancelCreationOptions(optionsRequest); optionsRequest = null; ui.removeCallbacks(persistDraft)
+            busy = false; retryOriginal = false
+            creation = next
+            field.setText(creation.text); field.isEnabled = true
+            options.resetDraft(creation); renderAttachments(); renderEarlierReceipts()
+            start.alpha = 1f; start.text = context.getString(R.string.session_start)
+            cancelWaiting.text = context.getString(R.string.cancel); state.setTextColor(if (creationFailure != null) Palette.red else Palette.faint)
+            loadCreationOptions(); field.requestFocus()
+        }
         creationPickerToken = pickerToken
-        creationAttachmentIsCurrent = { dialog.isShowing && token == generation && authorization == authorizationSource() &&
+        creationAttachmentIsCurrent = { dialog.isShowing && authorization == authorizationSource() &&
             provider == client.provider && !busy && original == null }
         creationAttachment = { uri ->
             if (creationPickerToken == pickerToken && creationAttachmentIsCurrent()) {
                 busy = true; options.setLocked(true); state.text = context.getString(R.string.session_reading_attachment)
                 val target = creation
+                val attachmentToken = waiting.draftToken(target.id)
+                fun attachmentCurrent() = dialog.isShowing && sameCreationScope() && waiting.accepts(attachmentToken, creation.id)
+                fun attachmentFields() = JSONObject().put("cwd", target.cwd).put("provider", target.provider).put("draftId", target.id)
                 CodexFileUpload.prepare(context, uri) { file, name, mime, error ->
                     releasePickerPermission(uri)
-                    if (!dialog.isShowing || token != generation || authorization != authorizationSource() || provider != client.provider) { file?.delete(); return@prepare }
+                    if (!attachmentCurrent()) { file?.delete(); return@prepare }
                     if (file == null) { busy = false; options.setLocked(false); state.text = error ?: context.getString(R.string.attachment_unreadable); return@prepare }
                     CodexFileUpload.upload(resources, client, target.attachmentScope, file, name, mime, { progress ->
-                        if (dialog.isShowing) state.text = context.getString(R.string.session_upload_progress, name, progress.optInt("progress"))
-                    }, cancelled = { !dialog.isShowing || token != generation || authorization != authorizationSource() || provider != client.provider }, creation = target) { result ->
-                        if (!dialog.isShowing || token != generation || authorization != authorizationSource() || provider != client.provider || !result.optBoolean("ok")) {
+                        if (attachmentCurrent()) state.text = context.getString(R.string.session_upload_progress, name, progress.optInt("progress"))
+                    }, cancelled = { !attachmentCurrent() }, creation = target) { result ->
+                        val current = attachmentCurrent()
+                        if (!current || !result.optBoolean("ok")) {
                             file.delete()
-                            if (authorization == authorizationSource()) client.request("newAttachmentRemove", draftFields().put("attachmentId", result.optString("attachmentId"))) {}
+                            if (sameCreationScope()) client.request("newAttachmentRemove", attachmentFields().put("attachmentId", result.optString("attachmentId"))) {}
                         } else {
                             val entries = client.attachments(target.attachmentScope, provider); entries.put(result)
                             if (!client.saveAttachments(target.attachmentScope, entries, provider)) {
                                 file.delete()
-                                client.request("newAttachmentRemove", draftFields().put("attachmentId", result.optString("attachmentId"))) {}
+                                client.request("newAttachmentRemove", attachmentFields().put("attachmentId", result.optString("attachmentId"))) {}
                                 state.text = context.getString(R.string.creation_draft_unavailable)
                             }
                             else state.text = context.getString(R.string.session_attachment_ready_tap_send_to_submit_it)
                             renderAttachments()
                         }
-                        busy = false; options.setLocked(original != null)
-                        if (dialog.isShowing && !result.optBoolean("ok")) state.text = result.optString("error")
+                        if (current) {
+                            busy = false; options.setLocked(original != null)
+                            if (!result.optBoolean("ok")) state.text = result.optString("error")
+                        }
                     }
                 }
             }
         }
         dialog.setOnDismissListener {
-            client.cancelCreationOptions(optionsRequest); ui.removeCallbacks(persistDraft); saveCreation(); options.closeMenus(); clearCreationAttachment(pickerToken); auxiliaryDialogs.remove(dialog)
+            client.cancelCreationOptions(optionsRequest); ui.removeCallbacks(persistDraft); ui.removeCallbacks(autoCheck)
+            if (creationDialog === dialog) creationDialog = null
+            if (original == null) saveCreation()
+            options.closeMenus(); clearCreationAttachment(pickerToken); auxiliaryDialogs.remove(dialog)
         }
         watch(field) { if (original == null) { ui.removeCallbacks(persistDraft); ui.postDelayed(persistDraft, 250) } }
         renderAttachments()
-        if (original == null) loadCreationOptions()
+        renderEarlierReceipts()
+        if (original == null) loadCreationOptions() else ui.postDelayed(autoCheck, 300)
         field.requestFocus()
     }
     /** Starts a new rounded group of rows, under an overline when the list has named sections. */
@@ -1854,8 +1959,15 @@ class ConversationPanel(private val activity: Activity, private val client: Sess
         menu(context.getString(R.string.session_session_settings), reason, emptyList())
         return false
     }
+    private val composerOptionCatalogs = mutableMapOf<String, JSONObject>()
     private fun requestComposerOptions(fields: JSONObject, callback: (JSONObject) -> Unit) {
         val token = generation
+        val catalogKey = "${authorizationSource()}|${client.provider}|${client.selectedAgentAdapter()?.id}|$thread"
+        if (fields.opt("refreshOptions") != true) composerOptionCatalogs[catalogKey]?.let { cached ->
+            val current = JSONObject(cached.toString()).put("composer", JSONObject(selection().toString()))
+            for (key in listOf("executionModes", "executionModePermissionCoupled")) if (page.has(key)) current.put(key, page.get(key))
+            callback(current); return
+        }
         hideKeyboard()
         val loading = canvasDialog(context.getString(R.string.session_session_settings),
             label(context.getString(R.string.session_loading), 14f), row(), compact = true)
@@ -1868,7 +1980,18 @@ class ConversationPanel(private val activity: Activity, private val client: Sess
                 }, emptyList())
                 return@call
             }
+            if (composerOptionCatalogs.size >= 16) composerOptionCatalogs.clear()
+            composerOptionCatalogs[catalogKey] = JSONObject().put("ok", true).apply {
+                for (key in listOf("models", "modes", "permissionModes", "efforts", "executionModes", "executionModePermissionCoupled", "description")) if (result.has(key)) put(key, result.get(key))
+            }
             callback(result)
+        }
+    }
+    private fun refreshComposerOptions() {
+        requestComposerOptions(JSONObject().put("threadId", thread).put("refreshOptions", true)) { result ->
+            result.optJSONObject("composer")?.let { page.put("composer", it) }
+            for (key in listOf("executionModes", "executionModePermissionCoupled")) if (result.has(key)) page.put(key, result.get(key))
+            updateComposer()
         }
     }
     private fun executionName(id: String) = context.getString(when (id) {
@@ -1892,7 +2015,7 @@ class ConversationPanel(private val activity: Activity, private val client: Sess
             val permission = SessionExecutionModes.defaultPermissionLabel(result, choices)
             val description = if (permission != null) context.getString(R.string.session_execution_coupled_description, permission)
                 else context.getString(if (choices.isEmpty()) R.string.session_execution_unavailable else R.string.session_execution_description)
-            menu(context.getString(R.string.session_execution_mode), description, actions)
+            menu(context.getString(R.string.session_execution_mode), description, actions + (context.getString(R.string.creation_refresh_options) to { refreshComposerOptions() }))
         }
     }
     private fun showModeMenu() {
@@ -1921,7 +2044,7 @@ class ConversationPanel(private val activity: Activity, private val client: Sess
                         } else applySettings(JSONObject().put("mode", id))
                     }
                 }
-                menu(context.getString(R.string.session_permission_mode), result.optString("description", context.getString(R.string.session_use_the_permission_modes_available_for_this_zcode_session)), options)
+                menu(context.getString(R.string.session_permission_mode), result.optString("description", context.getString(R.string.session_use_the_permission_modes_available_for_this_zcode_session)), options + (context.getString(R.string.creation_refresh_options) to { refreshComposerOptions() }))
             return
         }
         if (claude) {
@@ -1991,7 +2114,7 @@ class ConversationPanel(private val activity: Activity, private val client: Sess
                         chooseSpeed(model, JSONObject().put("model", model.optString("id")))
                     } else if ((claude || zcode) && efforts.length() == 1) {
                         chooseSpeed(model, JSONObject().put("model", model.optString("id")).put("effort", efforts.getString(0)))
-                    } else menu(model.optString("name"), if (claude && page.optString("owner") == "desktop") context.getString(R.string.session_sync_the_desktop_reasoning_effort_for_subsequent_requests_in_thi) else context.getString(R.string.session_choose_reasoning_effort_the_current_task_keeps_running_new_setti), (0 until efforts.length()).map { i ->
+                    } else menu(context.getString(R.string.session_effort_for_model, model.optString("name")), if (claude && page.optString("owner") == "desktop") context.getString(R.string.session_sync_the_desktop_reasoning_effort_for_subsequent_requests_in_thi) else context.getString(R.string.session_choose_reasoning_effort_the_current_task_keeps_running_new_setti), (0 until efforts.length()).map { i ->
                         val effort = efforts.getString(i); (if (effort == selection().optString("effort")) "✓ " else "") + effortLabel(effort) to { chooseSpeed(model, JSONObject().put("model", model.optString("id")).put("effort", effort)) }
                     })
                 }
@@ -2002,7 +2125,7 @@ class ConversationPanel(private val activity: Activity, private val client: Sess
                     context.getString(R.string.session_speed) + " · " + context.getString(if (selection().optString("serviceTier") == "priority") R.string.session_speed_fast else R.string.session_speed_standard) to { chooseSpeed(currentModel, JSONObject()) }
                 )
             } else emptyList()
-            menu(context.getString(R.string.choose_model), if (claude || zcode) result.optString("description", context.getString(R.string.session_provider_models, agent)) else context.getString(R.string.session_use_the_models_currently_available_in_codex_on_the_mac), speedActions + actions)
+            menu(context.getString(R.string.choose_model), if (claude || zcode) result.optString("description", context.getString(R.string.session_provider_models, agent)) else context.getString(R.string.session_use_the_models_currently_available_in_codex_on_the_mac), speedActions + actions + (context.getString(R.string.creation_refresh_options) to { refreshComposerOptions() }))
         }
     }
     private fun applySettings(fields: JSONObject) {
@@ -2090,7 +2213,8 @@ class ConversationPanel(private val activity: Activity, private val client: Sess
         val settingsUnknown = !reviews && client.uncertain(thread).any { it.optString("op") == "settings" }
         listOf(composerControls.mode, composerControls.model, composerControls.execution).forEach { view ->
             view.isEnabled = settingsOperation.isEmpty() && !settingsUnknown
-            if (view === composerControls.execution) view.isEnabled = view.isEnabled && mutableReady && supports("executionMode")
+            if (view === composerControls.execution) view.isEnabled = view.isEnabled && mutableReady && supports("executionMode") &&
+                (!page.has("executionModes") || SessionExecutionModes.decode(page).isNotEmpty())
             view.alpha = if (view.isEnabled) 1f else .4f
         }
         composerControls.add.visibility = if (supports("attachments")) VISIBLE else GONE

@@ -35,13 +35,20 @@ enum ClaudeSessionConfiguration {
         return permissionMode == "plan" ? "plan" : "default"
     }
 
-    static func resolve(_ request: [String: Any], current: [String: String]) throws -> [String: String] {
+    static func resolve(
+        _ request: [String: Any], current: [String: String],
+        models: [[String: Any]] = [ClaudeModelCatalog.defaultEntry]
+    ) throws -> [String: String] {
         guard keys.allSatisfy({ request[$0] == nil || request[$0] is String }) else {
             throw CLIError(L10n.text("core.invalid_request"))
         }
         var result = current
         let model = request["model"] as? String ?? current["model"] ?? "default"
-        guard let entry = ClaudeBridge.models.first(where: { $0["id"] as? String == model }) else {
+        guard
+            let entry = models.first(where: {
+                $0["id"] as? String == model || ($0["aliases"] as? [String] ?? []).contains(model)
+            })
+        else {
             throw CLIError(L10n.text("provider.this_model_is_not_supported"))
         }
         let effort = request["effort"] as? String ?? (request["model"] == nil ? current["effort"] : nil) ?? "default"
@@ -57,7 +64,7 @@ enum ClaudeSessionConfiguration {
         {
             throw CLIError(L10n.text("provider.bypassing_permissions_requires_explicit_confirmation"))
         }
-        result["model"] = model
+        result["model"] = entry["id"] as? String
         result["effort"] = effort
         result["mode"] = mode
         result["executionMode"] = executionMode(permissionMode: mode)

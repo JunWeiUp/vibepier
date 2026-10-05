@@ -103,7 +103,7 @@ public enum CodexManagedRuntimeContract {
 /// Independent app-server over a private Unix socket. Only its proxy client belongs
 /// to the gateway; disconnect/deinit never sends an interrupt or kills the server.
 final class CodexSocketRuntimeConnection: CodexRuntimeConnection, @unchecked Sendable {
-    private struct Metadata: Codable {
+    struct Metadata: Codable, Equatable {
         let version: String
         let instanceID: String
         let executablePath: String
@@ -113,14 +113,24 @@ final class CodexSocketRuntimeConnection: CodexRuntimeConnection, @unchecked Sen
         let socketDevice: Int32
         let socketInode: UInt64
         let codexHomePath: String
+        var endpointPath: String? = nil
+        var endpointDevice: Int32? = nil
+        var endpointInode: UInt64? = nil
+    }
+    struct SocketIdentity {
+        let advertised: stat
+        let endpointPath: String?
+        let endpointDevice: Int32?
+        let endpointInode: UInt64?
     }
     private final class Pending: @unchecked Sendable {
         let semaphore = DispatchSemaphore(value: 0)
         var response: Result<Data, Error>?
     }
-    let runtimeVersion = CodexManagedRuntimeContract.version
+    let runtimeVersion: String
     let supportsExecutionModes: Bool
     let instanceID: String
+    private let usesNativeHome: Bool
     private var notificationHandler: (@Sendable (String, Data) -> Void)?
     private var serverRequestHandler: (@Sendable (Data, String, Data) -> Bool)?
     var onNotification: (@Sendable (String, Data) -> Void)? {
@@ -150,6 +160,7 @@ final class CodexSocketRuntimeConnection: CodexRuntimeConnection, @unchecked Sen
     private let proxy = Process()
     private let input = Pipe()
     private let output = Pipe()
+    private var webSocketRemainder = Data()
     private let state = NSLock()
     private let writeLock = NSLock()
     private var pending: [Int: Pending] = [:]
@@ -166,17 +177,32 @@ final class CodexSocketRuntimeConnection: CodexRuntimeConnection, @unchecked Sen
         "initialize", "account/read", "thread/start", "thread/read", "turn/start", "turn/interrupt",
         "collaborationMode/list", "model/list", "thread/settings/update",
     ]
+    private static let headlessMethods: Set<String> = [
+        "thread/resume", "thread/name/set", "thread/archive", "thread/unarchive", "turn/steer",
+    ]
 
-    init(configuration: CodexManagedRuntimeConfiguration) throws {
+    /// The native-home path is reserved for the local background provider. The
+    /// managed backend retains its isolated home and separately reviewed release.
+    init(configuration: CodexManagedRuntimeConfiguration, nativeHome: URL? = nil) throws {
         guard configuration.enabled else { throw RuntimeDriverError.disabled }
-        let executable = URL(fileURLWithPath: configuration.executablePath)
+        usesNativeHome = nativeHome != nil
+        runtimeVersion = nativeHome == nil ? CodexManagedRuntimeContract.version : CodexHeadlessRuntimeContract.version
+        let executable = try Self.nativeExecutable(
+            URL(fileURLWithPath: configuration.executablePath), usesNativeHome: usesNativeHome)
+        let executableIdentity = usesNativeHome ? executable.path : executable.resolvingSymlinksInPath().path
         let directory = URL(fileURLWithPath: configuration.directoryPath)
         guard configuration.executablePath.hasPrefix("/"), configuration.directoryPath.hasPrefix("/"),
             FileManager.default.isExecutableFile(atPath: executable.path),
             configuration.socketPath.utf8.count < 100
         else { throw RuntimeDriverError.invalidRequest }
         try RuntimePrivateStorage.ensureDirectory(directory)
-        try RuntimePrivateStorage.ensureDirectory(URL(fileURLWithPath: configuration.codexHomePath))
+        let codexHome: URL
+        if let nativeHome {
+            codexHome = try Self.validatedNativeHome(nativeHome)
+        } else {
+            codexHome = URL(fileURLWithPath: configuration.codexHomePath)
+            try RuntimePrivateStorage.ensureDirectory(codexHome)
+        }
         let version = try RuntimeSubprocess.capture(executable, arguments: ["--version"], timeout: 5)
         guard
             String(data: version, encoding: .utf8)?.trimmingCharacters(in: .whitespacesAndNewlines)
@@ -188,17 +214,27 @@ final class CodexSocketRuntimeConnection: CodexRuntimeConnection, @unchecked Sen
         _ = try RuntimeSubprocess.capture(
             executable,
             arguments: ["app-server", "generate-json-schema", "--out", schemas.path], timeout: 15)
-        try CodexManagedRuntimeContract.validateSchemaDirectory(schemas, runtimeVersion: runtimeVersion)
+        if usesNativeHome {
+            try CodexHeadlessRuntimeContract.validateSchemaDirectory(schemas, runtimeVersion: runtimeVersion)
+        } else {
+            try CodexManagedRuntimeContract.validateSchemaDirectory(schemas, runtimeVersion: runtimeVersion)
+        }
         let experimental = schemas.appendingPathComponent("experimental")
         do {
             _ = try RuntimeSubprocess.capture(
                 executable,
                 arguments: ["app-server", "generate-json-schema", "--experimental", "--out", experimental.path],
                 timeout: 15)
-            try CodexManagedRuntimeContract.validateExecutionModeSchemaDirectory(
-                experimental, runtimeVersion: runtimeVersion)
+            if usesNativeHome {
+                try CodexHeadlessRuntimeContract.validateExecutionModeSchemaDirectory(
+                    experimental, runtimeVersion: runtimeVersion)
+            } else {
+                try CodexManagedRuntimeContract.validateExecutionModeSchemaDirectory(
+                    experimental, runtimeVersion: runtimeVersion)
+            }
             supportsExecutionModes = true
         } catch {
+            if usesNativeHome { throw error }
             // Experimental drift disables only this capability. Never approximate it with a prompt.
             supportsExecutionModes = false
         }
@@ -212,55 +248,61 @@ final class CodexSocketRuntimeConnection: CodexRuntimeConnection, @unchecked Sen
         let metadataURL = directory.appendingPathComponent("server.json")
         let socketURL = URL(fileURLWithPath: configuration.socketPath)
         let metadata: Metadata
+        let reusable: Metadata?
         if FileManager.default.fileExists(atPath: metadataURL.path) {
             guard
                 let known = try? JSONDecoder().decode(
                     Metadata.self,
                     from: RuntimePrivateStorage.read(metadataURL, limit: 4096)),
-                known.version == runtimeVersion, known.executablePath == executable.resolvingSymlinksInPath().path,
-                known.codexHomePath == configuration.codexHomePath,
-                Self.matchesProcess(known), Self.matchesSocket(socketURL, metadata: known)
+                known.version == runtimeVersion, known.executablePath == executableIdentity,
+                known.codexHomePath == codexHome.path
             else { throw RuntimeDriverError.staleOwner }
-            // No automatic replacement of an old socket or unverified process.
-            metadata = known
+            if Self.matchesProcess(known, socketURL: socketURL, allowUnlinkedExecutable: usesNativeHome),
+                Self.matchesSocket(socketURL, metadata: known, allowNativeAlias: usesNativeHome)
+            {
+                reusable = known
+            } else {
+                guard usesNativeHome else { throw RuntimeDriverError.staleOwner }
+                try Self.retireDeadServer(
+                    known, metadataURL: metadataURL, socketURL: socketURL, allowNativeAlias: true)
+                reusable = nil
+            }
+        } else {
+            reusable = nil
+        }
+        if let reusable {
+            metadata = reusable
         } else {
             guard !FileManager.default.fileExists(atPath: socketURL.path) else { throw RuntimeDriverError.staleOwner }
             let server = Process()
             server.executableURL = executable
             server.arguments = ["app-server", "--listen", "unix://" + socketURL.path]
-            let inherited = ProcessInfo.processInfo.environment
-            let allowed: Set<String> = [
-                "PATH", "HOME", "TMPDIR", "LANG", "LC_ALL", "TERM", "SHELL", "USER", "LOGNAME",
-                "http_proxy", "https_proxy", "all_proxy", "no_proxy", "HTTP_PROXY", "HTTPS_PROXY", "ALL_PROXY",
-                "NO_PROXY",
-            ]
-            var environment = inherited.filter { allowed.contains($0.key) }
-            environment["CODEX_HOME"] = configuration.codexHomePath
-            server.environment = environment
+            server.environment = Self.processEnvironment(codexHome: codexHome.path)
             server.standardInput = FileHandle.nullDevice
             server.standardOutput = FileHandle.nullDevice
             server.standardError = FileHandle.nullDevice
             try server.run()
             let until = ProcessInfo.processInfo.systemUptime + 5
-            while !Self.hasPrivateSocket(socketURL), server.isRunning,
+            while Self.socketIdentity(socketURL, allowNativeAlias: usesNativeHome) == nil, server.isRunning,
                 ProcessInfo.processInfo.systemUptime < until
             { Thread.sleep(forTimeInterval: 0.02) }
             var birth = proc_bsdinfo()
-            var socketInfo = stat()
-            guard server.isRunning, Self.hasPrivateSocket(socketURL),
+            guard server.isRunning,
+                let socketIdentity = Self.socketIdentity(socketURL, allowNativeAlias: usesNativeHome),
                 proc_pidinfo(
                     server.processIdentifier, PROC_PIDTBSDINFO, 0, &birth, Int32(MemoryLayout<proc_bsdinfo>.size))
-                    == MemoryLayout<proc_bsdinfo>.size, lstat(socketURL.path, &socketInfo) == 0
+                    == MemoryLayout<proc_bsdinfo>.size
             else {
                 if server.isRunning { server.terminate() }
                 throw RuntimeDriverError.unavailable
             }
             metadata = Metadata(
                 version: runtimeVersion, instanceID: UUID().uuidString,
-                executablePath: executable.resolvingSymlinksInPath().path, processID: server.processIdentifier,
+                executablePath: executableIdentity, processID: server.processIdentifier,
                 processBirthSeconds: birth.pbi_start_tvsec, processBirthMicroseconds: birth.pbi_start_tvusec,
-                socketDevice: socketInfo.st_dev, socketInode: socketInfo.st_ino,
-                codexHomePath: configuration.codexHomePath)
+                socketDevice: socketIdentity.advertised.st_dev, socketInode: socketIdentity.advertised.st_ino,
+                codexHomePath: codexHome.path, endpointPath: socketIdentity.endpointPath,
+                endpointDevice: socketIdentity.endpointDevice, endpointInode: socketIdentity.endpointInode)
             do { try RuntimePrivateStorage.write(try JSONEncoder().encode(metadata), to: metadataURL) } catch {
                 // Explicit startup failed before any client could submit a task.
                 if server.isRunning { server.terminate() }
@@ -269,7 +311,8 @@ final class CodexSocketRuntimeConnection: CodexRuntimeConnection, @unchecked Sen
         }
         instanceID = metadata.instanceID
         proxy.executableURL = executable
-        proxy.arguments = Array(configuration.sharedProxyArguments.dropFirst())
+        proxy.arguments = ["app-server", "proxy", "--sock", socketURL.path]
+        proxy.environment = Self.processEnvironment(codexHome: codexHome.path)
         proxy.standardInput = input
         proxy.standardOutput = output
         proxy.standardError = FileHandle.nullDevice
@@ -282,42 +325,238 @@ final class CodexSocketRuntimeConnection: CodexRuntimeConnection, @unchecked Sen
         try proxy.run()
         try input.fileHandleForReading.close()
         try output.fileHandleForWriting.close()
-        reader.async { [weak self] in self?.readLoop() }
+        var readerStarted = false
         do {
-            var parameters: [String: Any] = ["clientInfo": ["name": "vibepier_managed", "version": "1"]]
-            if supportsExecutionModes { parameters["capabilities"] = ["experimentalApi": true] }
+            if usesNativeHome { webSocketRemainder = try upgradeWebSocket() }
+            reader.async { [weak self] in self?.readLoop() }
+            readerStarted = true
+            var parameters: [String: Any] = [
+                "clientInfo": ["name": usesNativeHome ? "vibepier" : "vibepier_managed", "version": "1"]
+            ]
+            if supportsExecutionModes {
+                var capabilities: [String: Any] = ["experimentalApi": true]
+                if usesNativeHome { capabilities["explicitGatewayOauth"] = true }
+                parameters["capabilities"] = capabilities
+            }
             _ = try request("initialize", params: JSONSerialization.data(withJSONObject: parameters))
             try write(["method": "initialized", "params": [:] as [String: Any]])
         } catch {
             disconnect()
+            if !readerStarted { try? output.fileHandleForReading.close() }
             throw error
         }
     }
     deinit { disconnect() }
+    private static func processEnvironment(codexHome: String) -> [String: String] {
+        let allowed: Set<String> = [
+            "PATH", "HOME", "TMPDIR", "LANG", "LC_ALL", "TERM", "SHELL", "USER", "LOGNAME",
+            "http_proxy", "https_proxy", "all_proxy", "no_proxy", "HTTP_PROXY", "HTTPS_PROXY", "ALL_PROXY", "NO_PROXY",
+        ]
+        var environment = ProcessInfo.processInfo.environment.filter { allowed.contains($0.key) }
+        environment["CODEX_HOME"] = codexHome
+        return environment
+    }
+    /// Foundation normalizes /private/tmp back to /tmp on macOS. Native Codex
+    /// hashes POSIX canonical paths, so its endpoint identity requires realpath.
+    static func nativeCanonicalURL(_ url: URL) -> URL? {
+        guard url.isFileURL, let path = realpath(url.path, nil) else { return nil }
+        defer { free(path) }
+        return URL(fileURLWithPath: String(cString: path))
+    }
+    static func nativeExecutable(_ url: URL, usesNativeHome: Bool) throws -> URL {
+        guard usesNativeHome else { return url }
+        guard url.lastPathComponent == "codex",
+            url.deletingLastPathComponent().lastPathComponent == "bin"
+        else { return nativeCanonicalURL(url) ?? url }
+        let packaged = url.deletingLastPathComponent().deletingLastPathComponent()
+            .appendingPathComponent("CodexCLI.app/Contents/MacOS/codex")
+        guard FileManager.default.isExecutableFile(atPath: packaged.path) else { return nativeCanonicalURL(url) ?? url }
+        let wrapper = try FileHandle(forReadingFrom: url)
+        defer { try? wrapper.close() }
+        let bytes = try wrapper.read(upToCount: 8193) ?? Data()
+        guard bytes.count <= 8192,
+            RuntimeOperationLedger.hash(bytes) == "50ab38ba21d0d9f8346f32f41848382f15b556190f3c7a07e885a4fb73e379c8"
+        else { throw RuntimeDriverError.incompatibleVersion }
+        guard let canonical = nativeCanonicalURL(packaged) else { throw RuntimeDriverError.invalidRequest }
+        return canonical
+    }
+    static func validatedNativeHome(_ url: URL) throws -> URL {
+        guard url.isFileURL, url.path.hasPrefix("/"), url.path != "/", !url.path.contains("\0") else {
+            throw RuntimeDriverError.invalidRequest
+        }
+        guard let resolved = nativeCanonicalURL(url) else { throw RuntimeDriverError.storageUnavailable }
+        var info = stat()
+        // Inspect the existing home without creating it, changing permissions,
+        // copying credentials, or importing user configuration.
+        guard lstat(resolved.path, &info) == 0, (info.st_mode & S_IFMT) == S_IFDIR, info.st_uid == getuid() else {
+            throw RuntimeDriverError.storageUnavailable
+        }
+        return resolved
+    }
+    static func allowsRequest(_ method: String, usesNativeHome: Bool) -> Bool {
+        methods.contains(method) || (usesNativeHome && headlessMethods.contains(method))
+    }
+    static func allowsServerRequest(_ method: String, usesNativeHome: Bool) -> Bool {
+        [
+            "item/commandExecution/requestApproval", "item/fileChange/requestApproval", "item/tool/requestUserInput",
+        ].contains(method) || (usesNativeHome && method == "item/permissions/requestApproval")
+    }
+    /// Called under server.lock only after the native home, executable and release
+    /// have matched. A live or reused PID never authorizes socket replacement.
+    static func retireDeadServer(
+        _ metadata: Metadata, metadataURL: URL, socketURL: URL, allowNativeAlias: Bool = false,
+        aliasRoot: URL? = nil
+    ) throws {
+        guard metadata.processID > 0, kill(metadata.processID, 0) < 0, errno == ESRCH,
+            let current = try? JSONDecoder().decode(
+                Metadata.self, from: RuntimePrivateStorage.read(metadataURL, limit: 4096)), current == metadata
+        else { throw RuntimeDriverError.staleOwner }
+        var socketInfo = stat()
+        if lstat(socketURL.path, &socketInfo) == 0 {
+            if metadata.endpointPath != nil {
+                guard allowNativeAlias, let alias = verifiedNativeAlias(socketURL, aliasRoot: aliasRoot),
+                    alias.info.st_dev == metadata.socketDevice, alias.info.st_ino == metadata.socketInode,
+                    alias.endpoint.path == metadata.endpointPath,
+                    metadata.endpointDevice != nil, metadata.endpointInode != nil
+                else { throw RuntimeDriverError.staleOwner }
+                var endpointInfo = stat()
+                if lstat(alias.endpoint.path, &endpointInfo) == 0 {
+                    guard
+                        matchesSocket(
+                            socketURL, metadata: metadata, allowNativeAlias: true, aliasRoot: aliasRoot)
+                    else { throw RuntimeDriverError.staleOwner }
+                } else {
+                    guard errno == ENOENT else { throw RuntimeDriverError.staleOwner }
+                }
+            } else {
+                guard matchesSocket(socketURL, metadata: metadata) else { throw RuntimeDriverError.staleOwner }
+            }
+            // The native endpoint lives in Codex's shared protected directory.
+            // Only retire our verified advertised leaf, never that endpoint.
+            guard unlink(socketURL.path) == 0 else {
+                throw RuntimeDriverError.staleOwner
+            }
+        } else {
+            guard errno == ENOENT else { throw RuntimeDriverError.staleOwner }
+        }
+        let retired = metadataURL.deletingLastPathComponent().appendingPathComponent(
+            ".retired-server-" + UUID().uuidString + ".json")
+        try FileManager.default.moveItem(at: metadataURL, to: retired)
+    }
     private static func hasPrivateSocket(_ url: URL) -> Bool {
         var info = stat()
         return lstat(url.path, &info) == 0 && info.st_uid == getuid()
             && (info.st_mode & S_IFMT) == S_IFSOCK && info.st_mode & 0o077 == 0
     }
-    private static func matchesSocket(_ url: URL, metadata: Metadata) -> Bool {
-        var info = stat()
-        return hasPrivateSocket(url) && lstat(url.path, &info) == 0
-            && info.st_dev == metadata.socketDevice && info.st_ino == metadata.socketInode
+    /// 0.160 advertises a symlink to a deterministic protected Unix socket.
+    /// A test-only root permits synthetic sockets without touching native daemons.
+    static func nativeEndpoint(_ advertised: URL, aliasRoot: URL? = nil) -> URL? {
+        guard let parent = nativeCanonicalURL(advertised.deletingLastPathComponent()) else { return nil }
+        let canonical = parent.appendingPathComponent(advertised.lastPathComponent)
+        let root: URL
+        if let aliasRoot {
+            guard let physical = nativeCanonicalURL(aliasRoot) else { return nil }
+            root = physical
+        } else {
+            guard let physical = nativeCanonicalURL(URL(fileURLWithPath: "/tmp")) else { return nil }
+            root = physical.appendingPathComponent("codex-daemon-" + String(getuid()))
+        }
+        return root.appendingPathComponent(RuntimeOperationLedger.hash(Data(canonical.path.utf8)))
     }
-    private static func matchesProcess(_ metadata: Metadata) -> Bool {
-        var birth = proc_bsdinfo()
+    private static func privateDirectory(_ url: URL) -> Bool {
+        var info = stat()
+        return lstat(url.path, &info) == 0 && (info.st_mode & S_IFMT) == S_IFDIR
+            && info.st_uid == getuid() && info.st_mode & 0o777 == 0o700
+    }
+    private static func verifiedNativeAlias(_ url: URL, aliasRoot: URL?) -> (info: stat, endpoint: URL)? {
+        var info = stat()
+        guard let endpoint = nativeEndpoint(url, aliasRoot: aliasRoot),
+            privateDirectory(url.deletingLastPathComponent()),
+            lstat(url.path, &info) == 0, (info.st_mode & S_IFMT) == S_IFLNK, info.st_uid == getuid(),
+            let target = try? FileManager.default.destinationOfSymbolicLink(atPath: url.path),
+            target.hasPrefix("/"), target == endpoint.path
+        else { return nil }
+        return (info, endpoint)
+    }
+    static func socketIdentity(_ url: URL, allowNativeAlias: Bool = false, aliasRoot: URL? = nil) -> SocketIdentity? {
+        var info = stat()
+        if hasPrivateSocket(url), lstat(url.path, &info) == 0 {
+            return SocketIdentity(advertised: info, endpointPath: nil, endpointDevice: nil, endpointInode: nil)
+        }
+        guard allowNativeAlias, let alias = verifiedNativeAlias(url, aliasRoot: aliasRoot),
+            privateDirectory(alias.endpoint.deletingLastPathComponent()),
+            lstat(alias.endpoint.path, &info) == 0, (info.st_mode & S_IFMT) == S_IFSOCK,
+            info.st_uid == getuid(), info.st_mode & 0o777 == 0o600
+        else { return nil }
+        return SocketIdentity(
+            advertised: alias.info, endpointPath: alias.endpoint.path,
+            endpointDevice: info.st_dev, endpointInode: info.st_ino)
+    }
+    static func matchesSocket(
+        _ url: URL, metadata: Metadata, allowNativeAlias: Bool = false, aliasRoot: URL? = nil
+    ) -> Bool {
+        guard let identity = socketIdentity(url, allowNativeAlias: allowNativeAlias, aliasRoot: aliasRoot) else {
+            return false
+        }
+        return identity.advertised.st_dev == metadata.socketDevice && identity.advertised.st_ino == metadata.socketInode
+            && identity.endpointPath == metadata.endpointPath && identity.endpointDevice == metadata.endpointDevice
+            && identity.endpointInode == metadata.endpointInode
+    }
+    static func executablePath(_ pid: Int32) -> (path: String?, error: Int32) {
         var path = [UInt8](repeating: 0, count: 4096)
-        guard
-            proc_pidinfo(metadata.processID, PROC_PIDTBSDINFO, 0, &birth, Int32(MemoryLayout<proc_bsdinfo>.size))
-                == MemoryLayout<proc_bsdinfo>.size,
-            birth.pbi_uid == getuid(), birth.pbi_start_tvsec == metadata.processBirthSeconds,
-            birth.pbi_start_tvusec == metadata.processBirthMicroseconds,
-            proc_pidpath(metadata.processID, &path, UInt32(path.count)) > 0
+        guard proc_pidpath(pid, &path, UInt32(path.count)) > 0 else { return (nil, errno) }
+        return (String(decoding: path.prefix(while: { $0 != 0 }), as: UTF8.self), 0)
+    }
+
+    static func matchesProcess(
+        _ metadata: Metadata, socketURL: URL, allowUnlinkedExecutable: Bool = false,
+        readExecutable: (Int32) -> (path: String?, error: Int32) = executablePath
+    ) -> Bool {
+        func sameBirth() -> Bool {
+            var birth = proc_bsdinfo()
+            return metadata.processID > 0
+                && proc_pidinfo(metadata.processID, PROC_PIDTBSDINFO, 0, &birth, Int32(MemoryLayout<proc_bsdinfo>.size))
+                    == MemoryLayout<proc_bsdinfo>.size
+                && birth.pbi_uid == getuid() && birth.pbi_start_tvsec == metadata.processBirthSeconds
+                && birth.pbi_start_tvusec == metadata.processBirthMicroseconds
+        }
+        guard sameBirth() else { return false }
+        let executable = readExecutable(metadata.processID)
+        if let path = executable.path { return path == metadata.executablePath }
+        // An app update can unlink the old Mach-O while its registered server is
+        // still alive. ENOENT alone is insufficient: bind the original process
+        // birth to the unchanged protected socket and its kernel-reported peer.
+        guard allowUnlinkedExecutable, executable.error == ENOENT,
+            matchesSocket(socketURL, metadata: metadata, allowNativeAlias: true)
         else { return false }
-        return String(decoding: path.prefix(while: { $0 != 0 }), as: UTF8.self) == metadata.executablePath
+        let endpoint = metadata.endpointPath ?? socketURL.path
+        let fd = Darwin.socket(AF_UNIX, SOCK_STREAM, 0)
+        guard fd >= 0 else { return false }
+        defer { Darwin.close(fd) }
+        guard fcntl(fd, F_SETFL, O_NONBLOCK) == 0 else { return false }
+        var address = sockaddr_un()
+        address.sun_len = UInt8(MemoryLayout<sockaddr_un>.size)
+        address.sun_family = sa_family_t(AF_UNIX)
+        let bytes = Array(endpoint.utf8) + [UInt8(0)]
+        guard bytes.count <= MemoryLayout.size(ofValue: address.sun_path) else { return false }
+        withUnsafeMutableBytes(of: &address.sun_path) { $0.copyBytes(from: bytes) }
+        let connected = withUnsafePointer(to: &address) {
+            $0.withMemoryRebound(to: sockaddr.self, capacity: 1) {
+                Darwin.connect(fd, $0, socklen_t(MemoryLayout<sockaddr_un>.size))
+            }
+        }
+        guard connected == 0 else { return false }
+        var peer: pid_t = 0
+        var size = socklen_t(MemoryLayout<pid_t>.size)
+        var uid: uid_t = 0
+        var gid: gid_t = 0
+        return getsockopt(fd, SOL_LOCAL, LOCAL_PEERPID, &peer, &size) == 0
+            && size == MemoryLayout<pid_t>.size && peer == metadata.processID
+            && getpeereid(fd, &uid, &gid) == 0 && uid == getuid()
+            && sameBirth() && matchesSocket(socketURL, metadata: metadata, allowNativeAlias: true)
     }
     func request(_ method: String, params: Data) throws -> Data {
-        guard Self.methods.contains(method), params.count <= 280_000,
+        guard Self.allowsRequest(method, usesNativeHome: usesNativeHome), params.count <= 280_000,
             let object = try JSONSerialization.jsonObject(with: params) as? [String: Any]
         else { throw RuntimeDriverError.invalidRequest }
         if ["collaborationMode/list", "model/list", "thread/settings/update"].contains(method), !supportsExecutionModes
@@ -384,7 +623,14 @@ final class CodexSocketRuntimeConnection: CodexRuntimeConnection, @unchecked Sen
     private func write(_ object: [String: Any]) throws {
         var data = try JSONSerialization.data(withJSONObject: object)
         guard data.count <= 300_000 else { throw RuntimeDriverError.invalidRequest }
-        data.append(10)
+        if usesNativeHome {
+            data = try CodexRuntimeWebSocket.frame(data)
+        } else {
+            data.append(10)
+        }
+        try writeBytes(data)
+    }
+    private func writeBytes(_ data: Data) throws {
         writeLock.lock()
         defer { writeLock.unlock() }
         let until = ProcessInfo.processInfo.systemUptime + 5
@@ -402,38 +648,83 @@ final class CodexSocketRuntimeConnection: CodexRuntimeConnection, @unchecked Sen
             }
         }
     }
+    private func upgradeWebSocket() throws -> Data {
+        let handshake = try CodexRuntimeWebSocket.handshake()
+        try writeBytes(handshake.request)
+        let until = ProcessInfo.processInfo.systemUptime + 5
+        var buffer = Data()
+        while ProcessInfo.processInfo.systemUptime < until {
+            var descriptor = pollfd(fd: output.fileHandleForReading.fileDescriptor, events: Int16(POLLIN), revents: 0)
+            let ready = poll(&descriptor, 1, 100)
+            if ready == 0 { continue }
+            if ready < 0, errno == EINTR { continue }
+            guard ready > 0 else { throw RuntimeDriverError.unavailable }
+            var bytes = [UInt8](repeating: 0, count: 65536)
+            let count = Darwin.read(descriptor.fd, &bytes, bytes.count)
+            if count < 0, [EINTR, EAGAIN, EWOULDBLOCK].contains(errno) { continue }
+            guard count > 0 else { throw RuntimeDriverError.unavailable }
+            buffer.append(contentsOf: bytes.prefix(count))
+            if let remainder = try CodexRuntimeWebSocket.validateHandshake(buffer, accept: handshake.accept) {
+                return remainder
+            }
+        }
+        throw RuntimeDriverError.timeout
+    }
     private func readLoop() {
         defer {
             try? output.fileHandleForReading.close()
+            let callback = state.withLock { !closed && usesNativeHome ? notificationHandler : nil }
             disconnect()
+            callback?("vibepier/disconnected", Data("{}".utf8))
         }
         var buffer = Data()
+        var decoder = CodexRuntimeWebSocket.Decoder()
+        var incoming = webSocketRemainder
+        webSocketRemainder.removeAll()
         while true {
             state.lock()
             let shouldClose = closed
             state.unlock()
             if shouldClose { return }
-            var descriptor = pollfd(fd: output.fileHandleForReading.fileDescriptor, events: Int16(POLLIN), revents: 0)
-            let ready = poll(&descriptor, 1, 500)
-            if ready == 0 { continue }
-            if ready < 0, errno == EINTR { continue }
-            guard ready > 0 else { return }
-            var bytes = [UInt8](repeating: 0, count: 65536)
-            let count = Darwin.read(descriptor.fd, &bytes, bytes.count)
-            if count < 0, [EINTR, EAGAIN, EWOULDBLOCK].contains(errno) { continue }
-            guard count > 0, buffer.count + count <= 8_388_608 else { return }
-            buffer.append(contentsOf: bytes.prefix(count))
-            while let end = buffer.firstIndex(of: 10) {
-                let line = Data(buffer[..<end])
-                buffer.removeSubrange(...end)
+            if incoming.isEmpty {
+                var descriptor = pollfd(
+                    fd: output.fileHandleForReading.fileDescriptor, events: Int16(POLLIN), revents: 0)
+                let ready = poll(&descriptor, 1, 500)
+                if ready == 0 { continue }
+                if ready < 0, errno == EINTR { continue }
+                guard ready > 0 else { return }
+                var bytes = [UInt8](repeating: 0, count: 65536)
+                let count = Darwin.read(descriptor.fd, &bytes, bytes.count)
+                if count < 0, [EINTR, EAGAIN, EWOULDBLOCK].contains(errno) { continue }
+                guard count > 0 else { return }
+                incoming = Data(bytes.prefix(count))
+            }
+            var lines: [Data] = []
+            if usesNativeHome {
+                do {
+                    for event in try decoder.append(incoming) {
+                        switch event {
+                        case .text(let line): lines.append(line)
+                        case .ping(let payload): try writeBytes(CodexRuntimeWebSocket.frame(payload, opcode: 10))
+                        case .close: return
+                        }
+                    }
+                } catch { return }
+            } else {
+                guard buffer.count + incoming.count <= 8_388_608 else { return }
+                buffer.append(incoming)
+                while let end = buffer.firstIndex(of: 10) {
+                    lines.append(Data(buffer[..<end]))
+                    buffer.removeSubrange(...end)
+                }
+            }
+            incoming.removeAll(keepingCapacity: true)
+            for line in lines {
                 guard let value = try? JSONSerialization.jsonObject(with: line) as? [String: Any] else { return }
                 if let method = value["method"] as? String {
                     if let id = value["id"] {
                         var accepted = false
-                        if [
-                            "item/commandExecution/requestApproval", "item/fileChange/requestApproval",
-                            "item/tool/requestUserInput",
-                        ].contains(method),
+                        if Self.allowsServerRequest(method, usesNativeHome: usesNativeHome),
                             let idJSON = try? JSONSerialization.data(withJSONObject: id, options: .fragmentsAllowed),
                             idJSON.count <= 300,
                             let params = value["params"],

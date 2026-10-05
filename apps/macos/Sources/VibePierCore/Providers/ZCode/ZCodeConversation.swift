@@ -176,6 +176,14 @@ enum ZCodeConversation {
         }
     }
     static func reply(_ turn: ZCodeSessionStore.Turn) -> [String: Any]? {
+        if turn.latest["role"] as? String == "assistant", let error = turn.latest["errorName"] as? String,
+            !error.isEmpty
+        {
+            let text = L10n.text(
+                turn.latest["providerErrorCode"] as? String == "1113"
+                    ? "provider.zcode_insufficient_balance" : "provider.zcode_reply_failed")
+            return ["id": "reply-" + turn.userID, "role": "assistant", "text": text, "status": "failed"]
+        }
         guard turn.partCount > 0 else { return nil }
         let start = max(0, turn.partCount - turn.parts.count)
         return [

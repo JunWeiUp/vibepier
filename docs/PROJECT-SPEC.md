@@ -44,6 +44,6 @@ There is no iOS client, Windows/Linux desktop host, browser frontend, public rel
 
 ## Phone model speed / 手机模型加速
 
-Existing Codex desktop sessions expose Standard/Fast in the phone model menu when native state is known. Model and reasoning-effort selection also offers speed where supported by the Mac model catalog. Fast may increase usage and applies to subsequent requests; native readback is required before confirming a change. Other providers, managed runtimes and initial session creation do not currently expose speed selection.
+Existing Codex desktop sessions expose Standard/Fast in the phone model menu when native state is known. Model and reasoning-effort selection also offers speed where supported by the Mac model catalog. Fast may increase usage and applies to subsequent requests; native readback is required before confirming a change. Codex new-session options also offer a Fast checkbox for supported models, applied to the first message and saved with the draft. Other providers and managed runtimes do not expose speed selection.
 
-现有 Codex 桌面会话在原生状态已知时，可从手机模型菜单开启或关闭加速；选模型及推理强度后也会提供模型支持的速度选项。加速可能增加用量，仅影响后续请求，回读桌面设置后才确认成功。其他服务商、托管运行时和新建会话暂不提供速度选择。
+现有 Codex 桌面会话在原生状态已知时，可从手机模型菜单开启或关闭加速；选模型及推理强度后也会提供模型支持的速度选项。加速可能增加用量，仅影响后续请求，回读桌面设置后才确认成功。Codex 新建会话也可勾选加速（限支持的模型），随草稿保存并从首条消息生效。其他服务商和托管运行时暂不提供速度选择。

@@ -4,4 +4,11 @@
     <string name="task_notifications_detail">任务完成后发送通知，点击开启或管理通知。</string>
     <string name="task_notification_title">%1$s 任务已完成</string>
     <string name="task_notification_body">打开 VibePier 查看结果。</string>
+    <string name="task_notification_reply">回复</string>
+    <string name="task_notification_reply_hint">发送到 Mac 会话的消息</string>
+    <string name="task_reply_sending">正在把回复发送到 Mac…</string>
+    <string name="task_reply_sent">回复已发送到 Mac 会话。</string>
+    <string name="task_reply_unknown">回复结果未知，请打开 VibePier 核对；不会自动重发。</string>
+    <string name="task_reply_failed">回复未发送。</string>
+    <string name="task_reply_open_app">Mac 连接未就绪，请打开 VibePier 回复。</string>
 </resources>

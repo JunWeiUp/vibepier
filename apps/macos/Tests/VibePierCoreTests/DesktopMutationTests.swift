@@ -3,6 +3,26 @@ import XCTest
 @testable import VibePierCore
 
 final class DesktopMutationTests: XCTestCase {
+    func testCreationPreparationFailureDoesNotClaimMessageSubmissionWhileSettingsStayUnknown() {
+        let prepare = { () throws -> Void in
+            try DesktopMutationScope.run { scope in
+                try scope.attempt {}
+                throw CLIError("Mode readback unavailable")
+            }
+        }
+        XCTAssertThrowsError(try prepare()) { error in
+            XCTAssertTrue(error is UnconfirmedDesktopMutation)
+        }
+        XCTAssertThrowsError(try DesktopMutationScope.beforeCreationSubmission(prepare)) { error in
+            XCTAssertFalse(error is UnconfirmedDesktopMutation)
+            XCTAssertNil(ProviderFailure.reply(error, provider: "zcode")["unknown"])
+        }
+        XCTAssertThrowsError(try UnconfirmedDesktopMutation.attempting { throw CLIError("Send acknowledgement lost") })
+        { error in
+            XCTAssertEqual(ProviderFailure.reply(error, provider: "zcode")["unknown"] as? Bool, true)
+        }
+    }
+
     func testClaudeLateNativeReceiptResolvesOriginalOperationWithoutResubmitting() throws {
         let receipts = ProviderOperationReceipts()
         let request: [String: Any] = ["op": "send", "id": "operation", "threadId": "thread", "text": "fixture"]

@@ -138,6 +138,10 @@ Options include opaque option ID, native-backed display name, explanation, revis
 | `confirmed` | All requested submission/configuration effects have verified native evidence, saved durably | Update draft/queue/UI; keep observing the turn |
 | `unknown` | Effects may have happened or durable evidence is insufficient | Only observational reconciliation; never automatically resubmit |
 
+Creation is confirmed by native identity: the session reference plus, when an initial message was sent, its native message and turn identity. Option readback (execution mode, service tier, permission mode) that cannot be matched is returned as bounded `warnings` with `executionModeState: "unverified"`; it no longer turns a proved creation into `unknown`. `session.configure` remains strict because the setting is its whole effect. A provider failure counts as `rejected` only when the adapter marks it `definitive` with native proof that the input was never submitted; such a creation may report the empty native session as `partialSession`. `operation.get` returns `notFound` when the device's journal has no record, so the phone may explicitly resend the identical body under the same operation ID; the journal deduplicates if the first copy arrived after all.
+
+The device journal keeps a fixed 16 KiB reservation per unresolved record (at most 64 per device) instead of a worst-case result reservation, compacts oversized final results to their identity fields rather than failing after a native effect, and retires unresolved records older than 72 hours into tombstones that keep the fingerprint and still return `unknown`, never fresh admission.
+
 Reserve before the first possible effect. Journal failure before execution prevents execution. Journal completion failure after native confirmation returns unknown. Repeated operation ID with identical fingerprint returns its existing result/state; conflicts are refused. Retired completed bodies retain operation markers and cannot authorize replay. Unknown reservations are never evicted to allow another mutation.
 
 `confirmed` does not mean model inference succeeded. `turn.completed`, `turn.failed`, API/rate-limit blockers and a creation receipt are separate facts. Network timeout, missing transcript text and silence are not evidence of rejection. No end-to-end exactly-once guarantee is inferred from this gateway deduplication.
@@ -221,8 +225,13 @@ Claude's native `ExitPlanMode` is exposed as a single-use approval only for a co
 
 ### Phone speed selection
 
-`session.configure.params.options.serviceTier` accepts `standard` or `priority` for existing Codex desktop sessions with a known native service tier. The model catalog exposes `serviceTiers`; `priority` is offered only when the Mac catalog advertises it. Standard maps to native `serviceTier: null`, priority to `serviceTier: "priority"`; omitted fields remain unchanged. The option applies to subsequent turns and may increase usage. Creation, managed runtimes and other providers do not advertise this control.
+`session.configure.params.options.serviceTier` accepts `standard` or `priority` for existing Codex desktop sessions with a known native service tier. The model catalog exposes `serviceTiers`; `priority` is offered only when the Mac catalog advertises it. Standard maps to native `serviceTier: null`, priority to `serviceTier: "priority"`; omitted fields remain unchanged. The option applies to subsequent turns and may increase usage. Codex creation also accepts `session.create.params.options.serviceTier` when its fresh creation catalog advertises a known composer tier and the selected model lists the requested tier. The phone preserves this selection in its encrypted draft. The first desktop turn carries the explicit tier (including null for standard); success requires owner-bound native tier readback, otherwise the result remains unknown and is never resent automatically. Managed runtimes and other providers do not advertise this control.
 
 The speed setting participates in control revisions and the operation journal. Confirmation requires fresh native readback matching the requested value; setter acknowledgements alone never confirm it, and unknown operations are not resent.
 
 手机端现有 Codex 桌面会话的模型菜单支持加速开关；切换模型和推理强度后也可选择加速。仅在原生状态已知、模型目录支持时提供加速，用于后续请求，可能增加用量。不支持的模型可回到标准速度；新建会话、托管运行时及其他服务商暂不提供此入口。桌面回读不匹配时保留未知回执，不自动重试写入。
+
+
+`session.creationOptions` accepts optional boolean `refreshOptions`; `session.items` accepts it only for `kind: composerOptions`. This is a read-only catalog refresh. Cached catalogs contain presentation choices, never control leases, target ownership or mutation receipts. Automatic reads reuse the launch catalog; mutation authorization and native result evidence remain separate.
+
+`session.creationOptions` 的可选布尔参数 `refreshOptions` 用于只读刷新目录；`session.items` 仅在 `kind: composerOptions` 时接受该参数。缓存只保存展示选项，不能保存或代替控制租约、原生目标身份与操作回执。

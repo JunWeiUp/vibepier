@@ -8,15 +8,10 @@ final class ProviderExecutionModeTests: XCTestCase {
         ["data": [["name": "Default", "mode": "default"], ["name": "Plan", "mode": "plan"]]]
     }
 
-    func testCodexCatalogRequiresInspectedBuildAndExactNativeChoices() throws {
-        for build in ["12553", "12947"] {
-            XCTAssertEqual(try CodexExecutionMode.catalog(nativeModes, build: build).count, 2)
-        }
-        for build: String? in [nil, "12948", "11645"] {
-            XCTAssertThrowsError(try CodexExecutionMode.catalog(nativeModes, build: build))
-        }
+    func testCodexCatalogRequiresExactNativeChoices() throws {
+        XCTAssertEqual(try CodexExecutionMode.catalog(nativeModes).count, 2)
         XCTAssertThrowsError(
-            try CodexExecutionMode.catalog(["data": [["name": "Plan", "mode": "plan"]]], build: "12947"))
+            try CodexExecutionMode.catalog(["data": [["name": "Plan", "mode": "plan"]]]))
         XCTAssertThrowsError(
             try CodexExecutionMode.catalog(
                 [
@@ -24,7 +19,7 @@ final class ProviderExecutionModeTests: XCTestCase {
                         ["name": "Default", "mode": "default"], ["name": "Plan", "mode": "plan"],
                         ["name": "Duplicate", "mode": "plan"],
                     ]
-                ], build: "12947"))
+                ]))
         XCTAssertTrue(CodexStdioRPC.Purpose.catalog.allows("collaborationMode/list", mutable: false))
         for method in ["thread/start", "thread/settings/update", "turn/start", "account/rateLimits/read"] {
             XCTAssertFalse(CodexStdioRPC.Purpose.catalog.allows(method, mutable: false))
@@ -48,7 +43,7 @@ final class ProviderExecutionModeTests: XCTestCase {
         let state: [String: Any] = [
             "latestThreadSettings": ["model": "native-model", "effort": "high", "permissions": ":workspace"]
         ]
-        let catalog = try CodexExecutionMode.catalog(nativeModes, build: "12947")
+        let catalog = try CodexExecutionMode.catalog(nativeModes)
         let settings = try composer.settings(
             ["executionMode": "plan", "mode": "auto"], state: state, executionModes: catalog)
         let preset = try XCTUnwrap(settings["collaborationMode"] as? [String: Any])
@@ -98,7 +93,7 @@ final class ProviderExecutionModeTests: XCTestCase {
         XCTAssertEqual(ClaudeSessionConfiguration.executionModes.last?["permissionMode"] as? String, "plan")
     }
 
-    func testClaudeCreationPlanRequiresFirstNativeMessagePermissionReadback() throws {
+    func testClaudeCreationPlanReportsUnverifiedFirstMessagePermissionAsWarning() throws {
         let root = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
         try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
         defer { try? FileManager.default.removeItem(at: root) }
@@ -118,14 +113,18 @@ final class ProviderExecutionModeTests: XCTestCase {
                 file, session: "session", cwd: "/fixture", proof: proof, executionMode: "plan", permissionMode: "plan")
         }
         try write()
-        XCTAssertEqual(read()?["unknown"] as? Bool, true)
+        // The native first message proves creation; a missing mode readback is a warning, never uncertainty.
+        XCTAssertEqual(read()?["ok"] as? Bool, true)
+        XCTAssertNil(read()?["unknown"])
+        XCTAssertEqual((read()?["warnings"] as? [[String: Any]])?.first?["field"] as? String, "executionMode")
         XCTAssertEqual(read()?["nativeMessageId"] as? String, "actual-message")
         XCTAssertEqual(read()?["turnId"] as? String, "transcript:session:actual-message")
         XCTAssertEqual(read()?["turnIdentityKind"] as? String, "nativeMessageAnchor")
         XCTAssertEqual(read()?["executionModeVerified"] as? Bool, false)
         entry["permissionMode"] = "default"
         try write()
-        XCTAssertEqual(read()?["unknown"] as? Bool, true)
+        XCTAssertEqual(read()?["ok"] as? Bool, true)
+        XCTAssertEqual((read()?["warnings"] as? [[String: Any]])?.first?["observed"] as? String, "default")
         XCTAssertEqual(read()?["turnId"] as? String, "transcript:session:actual-message")
         entry["permissionMode"] = "plan"
         try write()

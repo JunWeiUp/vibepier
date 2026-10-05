@@ -23,6 +23,7 @@
         android:theme="@style/Theme.VibePier">
         <service android:name=".core.transport.RemoteConnectionService"
             android:exported="false" android:foregroundServiceType="connectedDevice" />
+        <receiver android:name=".core.session.TaskReplyReceiver" android:exported="false" />
         <receiver android:name=".features.updates.ApkInstallResult" android:exported="false">
             <intent-filter>
                 <action android:name="android.intent.action.MY_PACKAGE_REPLACED" />

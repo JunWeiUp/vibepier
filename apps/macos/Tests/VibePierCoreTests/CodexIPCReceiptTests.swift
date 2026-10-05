@@ -264,7 +264,7 @@ final class CodexIPCReceiptTests: XCTestCase {
         let ipc = CodexIPC(path: server.path)
         let bridge = CodexBridge(
             ipc: ipc, followUps: CodexFollowUps(file: root.appendingPathComponent("synthetic-queues.json")),
-            attachments: nil, executionModeCatalog: { [] }, desktopBuild: { "12947" },
+            attachments: nil, executionModeCatalog: { [] }, desktopBuild: { "13100" },
             openNativeThread: { counts.open($0) })
         defer {
             bridge.stopAll()

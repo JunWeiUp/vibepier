@@ -280,7 +280,7 @@ final class CodexAttachments {
         failedUploads.remove(value.id)
         try save()
     }
-    func selected(_ ids: [String], device: String, thread: String) throws -> (
+    func selected(_ ids: [String], device: String, thread: String, markUsed: Bool = true) throws -> (
         input: [[String: Any]], files: [[String: Any]], images: [[String: Any]]
     ) {
         guard ids.count <= 6, Set(ids.map(Self.key)).count == ids.count else {
@@ -294,8 +294,10 @@ final class CodexAttachments {
             guard value.managed, value.complete, FileManager.default.fileExists(atPath: value.path) else {
                 throw CLIError(L10n.text("session.the_attachment_is_incomplete_or_no_longer_available"))
             }
-            value.used = true
-            records[Self.key(id)] = value
+            if markUsed {
+                value.used = true
+                records[Self.key(id)] = value
+            }
             let metadata: [String: Any] = ["id": id, "fsPath": value.path, "path": value.path, "label": value.name]
             if value.mime.hasPrefix("image/") {
                 input.append(["type": "localImage", "path": value.path])
@@ -309,7 +311,7 @@ final class CodexAttachments {
                 files.append(metadata)
             }
         }
-        if !ids.isEmpty { try save() }
+        if markUsed && !ids.isEmpty { try save() }
         return (input, files, images)
     }
     func preview(_ id: String, device: String, thread: String) throws -> [String: Any] {

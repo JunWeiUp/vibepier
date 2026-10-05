@@ -83,7 +83,7 @@ class SessionExecutionModesTest {
         assertEquals(SessionAgentProtocol.Status.UNKNOWN, (reply as SessionAgentProtocol.Reply.Mutation).status)
         assertEquals(original, pending.values.single()); assertEquals(1, sent)
     }
-    @Test fun CreatedPlanRequiresConfirmedNativeMode() {
+    @Test fun CreatedPlanAcceptsUnverifiedModeAsWarningButNotADifferentRequest() {
         val target = SessionAgentProtocol.Target.Creation("adapter", "workspace", SessionAgentProtocol.id(), "options")
         val request = SessionAgentProtocol.Request(SessionAgentProtocol.id(), SessionAgentProtocol.Method.CREATE, target,
             JSONObject().put("options", JSONObject().put("executionMode", "plan")), SessionAgentProtocol.id(), "lease")
@@ -93,7 +93,10 @@ class SessionExecutionModesTest {
             .put("requestId", request.requestId).put("operationId", request.operationId).put("status", "confirmed").put("effect", "session.created").put("target", target.json()).put("result", value))
         assertNotNull(SessionAgentProtocol.reply(envelope(result), request))
         assertNull(SessionAgentProtocol.reply(envelope(JSONObject(result.toString()).put("executionMode", "default")), request))
-        assertNull(SessionAgentProtocol.reply(envelope(JSONObject(result.toString()).put("executionModeState", "unknown")), request))
-        assertNull(SessionAgentProtocol.reply(envelope(JSONObject(result.toString()).apply { remove("executionModeState") }), request))
+        // The native thread proves creation; an unverified mode readback arrives as a warning on a confirmed result.
+        val unverified = JSONObject(result.toString()).put("executionModeState", "unverified")
+            .put("warnings", JSONArray().put(JSONObject().put("field", "executionMode").put("requested", "plan")))
+        assertNotNull(SessionAgentProtocol.reply(envelope(unverified), request))
+        assertNotNull(SessionAgentProtocol.reply(envelope(JSONObject(result.toString()).apply { remove("executionModeState") }), request))
     }
 }

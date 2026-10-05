@@ -10,6 +10,8 @@ internal class ConnectionLifetime<T>(
     private val owners = mutableSetOf<Any>()
     private var resource: T? = null
     private var service = false
+    /** The live shared transport, if the user opened a connection; never creates one. */
+    val current: T? get() = resource
 
     fun acquire(owner: Any): T {
         owners.add(owner)

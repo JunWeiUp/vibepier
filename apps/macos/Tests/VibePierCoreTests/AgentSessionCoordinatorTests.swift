@@ -9,6 +9,7 @@ final class AgentSessionCoordinatorTests: XCTestCase {
         var requests: [(Data, String)] = []
         var stops: [String] = []
         var stopAllCount = 0
+        var warmed = 0
         var reply = Data("{}".utf8)
         var callback: (@Sendable (Data) -> Void)?
         var delayed = false
@@ -27,7 +28,7 @@ final class AgentSessionCoordinatorTests: XCTestCase {
                     if let output { completion(output) }
                 }, stop: { [self] client in lock.withLock { stops.append(client) } },
                 stopAll: { [self] in lock.withLock { stopAllCount += 1 } },
-                creationAvailable: { creationAvailable })
+                creationAvailable: { creationAvailable }, warmOptions: { [self] in lock.withLock { warmed += 1 } })
         }
     }
     private func bytes(_ value: [String: Any]) throws -> Data { try JSONSerialization.data(withJSONObject: value) }
@@ -69,6 +70,19 @@ final class AgentSessionCoordinatorTests: XCTestCase {
         try XCTUnwrap((capabilities["actions"] as? [String: [String: Any]])?[name])
     }
 
+    func testStartupCatalogWarmupHonorsDisabledProviderPolicyWithoutNegotiation() throws {
+        let codex = Probe()
+        let claude = Probe()
+        let zcode = Probe()
+        let value = AgentSessionCoordinator(
+            registry: try AgentAdapterRegistry([
+                codex.adapter("codex"), claude.adapter("claude"), zcode.adapter("zcode"),
+            ]))
+        value.warmOptions(policy: SessionProviderPolicy(enabled: ["codex": true, "claude": false, "zcode": false]))
+        XCTAssertEqual(codex.warmed, 1)
+        XCTAssertEqual(claude.warmed, 0)
+        XCTAssertEqual(zcode.warmed, 0)
+    }
     func testSameScopeSnapshotDoesNotRevokeCurrentCapabilitiesWhileItsReadIsPending() throws {
         let probe = Probe()
         probe.reply = try bytes(page)
@@ -153,6 +167,75 @@ final class AgentSessionCoordinatorTests: XCTestCase {
         write = request(caps, op: "settings")
         write["executionMode"] = "default"
         XCTAssertEqual(value.freshMutationFailure(write, client: "phone"), "agent_capability_unavailable")
+    }
+
+    func testAppServerCodexSendsOnlyWhileIdleAndNeverAdvertisesDesktopQueues() throws {
+        let probe = Probe()
+        var native = page
+        native["backendKind"] = "appServer"
+        native["activeTurnId"] = "native-turn"
+        native["queuedMessages"] = [["id": "native-message"]]
+        native["capabilities"] = ["send": true, "queue": true, "queueDelete": true, "queueSteer": true]
+        probe.reply = try bytes(native)
+        let value = try coordinator(probe.adapter("codex"))
+        let opened = try perform(value, ["op": "open", "threadId": "session", "viewVersion": 7])
+        let idle = try XCTUnwrap(opened["agentCapabilities"] as? [String: Any])
+        XCTAssertNil(value.freshMutationFailure(request(idle), client: "phone"))
+        for name in ["queue", "queueDelete", "queueSteer"] {
+            XCTAssertEqual(try action(idle, name)["supported"] as? Bool, false, name)
+            XCTAssertEqual(try action(idle, name)["available"] as? Bool, false, name)
+        }
+        for status in ["active", "waiting", "unknown"] {
+            native["status"] = status
+            probe.reply = try bytes(native)
+            let updated = try perform(value, ["op": "sync", "threadId": "session", "viewVersion": 7])
+            let caps = try XCTUnwrap(updated["agentCapabilities"] as? [String: Any])
+            XCTAssertEqual(try action(caps, "send")["available"] as? Bool, false, status)
+            XCTAssertEqual(value.freshMutationFailure(request(caps), client: "phone"), "agent_capability_unavailable")
+        }
+    }
+
+    func testAppServerCodexCannotOverrideMissingOrFalseNativeFlags() throws {
+        let probe = Probe()
+        var native = page
+        native["backendKind"] = "appServer"
+        native["status"] = "active"
+        native["activeTurnId"] = "native-turn"
+        native["approvals"] = [["kind": "questions", "fingerprint": "native-question"]]
+        native["capabilities"] = [
+            "send": false, "settings": false, "interrupt": false, "approvals": false,
+            "questions": false, "attachments": false, "modelSelection": false,
+            "permissionMode": false, "effortSelection": false,
+        ]
+        probe.reply = try bytes(native)
+        let value = try coordinator(probe.adapter("codex"))
+        let opened = try perform(value, ["op": "open", "threadId": "session", "viewVersion": 7])
+        let caps = try XCTUnwrap(opened["agentCapabilities"] as? [String: Any])
+        for name in [
+            "send", "settings", "interrupt", "approvals", "questions", "attachments",
+            "modelSelection", "permissionMode", "effortSelection", "contextUsage", "projectFiles",
+        ] {
+            XCTAssertEqual(try action(caps, name)["available"] as? Bool, false, name)
+        }
+        let draft = UUID().uuidString.lowercased()
+        for flag: Bool? in [nil, false, true] {
+            var flags: [String: Any] = ["attachments": true, "newAttachments": true]
+            if let flag { flags["new"] = flag }
+            probe.reply = try bytes([
+                "backendKind": "appServer", "creationVersion": 1, "draftId": draft, "capabilities": flags,
+            ])
+            let options = try perform(value, ["op": "newOptions", "cwd": "/synthetic", "draftId": draft])
+            let creation = try XCTUnwrap(options["agentCapabilities"] as? [String: Any])
+            XCTAssertEqual(try action(creation, "new")["available"] as? Bool, flag == true)
+            XCTAssertEqual(try action(creation, "newAttachments")["available"] as? Bool, true)
+        }
+        probe.reply = try bytes([
+            "backendKind": "appServer", "creationVersion": 1, "draftId": draft,
+            "capabilities": ["new": true, "attachments": true, "newAttachments": false],
+        ])
+        let options = try perform(value, ["op": "newOptions", "cwd": "/synthetic", "draftId": draft])
+        let creation = try XCTUnwrap(options["agentCapabilities"] as? [String: Any])
+        XCTAssertEqual(try action(creation, "newAttachments")["available"] as? Bool, false)
     }
 
     func testWrapperPassesOriginalBytesAndTrustedClientWithoutRewriting() {

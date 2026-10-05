@@ -6,6 +6,89 @@ import XCTest
 @testable import VibePierCore
 
 final class ZCodeBridgeTests: XCTestCase {
+    func testProviderFailureWithoutVisiblePartsProducesFailedReplyWithoutRawDiagnostics() throws {
+        let fixture = try fixture()
+        defer { try? FileManager.default.removeItem(at: fixture.directory) }
+        try execute(
+            fixture.database,
+            "UPDATE message SET data='{\"role\":\"assistant\",\"error\":{\"name\":\"AiSdkModelAdapterError\",\"data\":{\"message\":\"private diagnostic\",\"attribution\":{\"providerErrorCode\":\"1113\"}}}}' WHERE id='msg_a_5'"
+        )
+        try execute(fixture.database, "DELETE FROM part WHERE message_id='msg_a_5'")
+        let store = ZCodeSessionStore(path: fixture.database, indexPath: nil)
+        let turn = try XCTUnwrap(store.window("sess_native", count: 1).turns.last)
+        XCTAssertEqual(turn.latest["providerErrorCode"] as? String, "1113")
+        let reply = try XCTUnwrap(ZCodeConversation.reply(turn))
+        XCTAssertEqual(reply["status"] as? String, "failed")
+        XCTAssertTrue((reply["text"] as? String ?? "").contains("1113"))
+        XCTAssertFalse(
+            String(decoding: try JSONSerialization.data(withJSONObject: turn.latest), as: UTF8.self).contains(
+                "private diagnostic"))
+        XCTAssertFalse(
+            String(decoding: try JSONSerialization.data(withJSONObject: reply), as: UTF8.self).contains(
+                "private diagnostic"))
+    }
+
+    func testVerifiedMessageAnchorMatchesNativeActiveTurnAndPreservesUncertainty() {
+        let accepted: [String: Any] = ["accepted": true, "sessionId": "sess_fixture", "nativeMessageId": "msg_fixture"]
+        let result = ZCodeBridge.withMessageAnchor(accepted)
+        XCTAssertEqual(result["threadId"] as? String, "sess_fixture")
+        XCTAssertEqual(result["turnId"] as? String, "msg_fixture")
+        XCTAssertEqual(result["turnIdentityKind"] as? String, "nativeMessageAnchor")
+        for patch: [String: Any] in [["unknown": true], ["accepted": false], ["ok": false], ["nativeMessageId": ""]] {
+            XCTAssertNil(ZCodeBridge.withMessageAnchor(accepted.merging(patch) { $1 })["turnId"])
+        }
+        for patch: [String: Any] in [
+            ["threadId": "other"], ["messageId": "other"], ["turnId": "other"], ["nativeTurnId": "other"],
+        ] {
+            XCTAssertEqual(ZCodeBridge.withMessageAnchor(accepted.merging(patch) { $1 })["unknown"] as? Bool, true)
+        }
+    }
+
+    func testCreationReadDiagnosticsKeepOnlyReadinessFailureAndClearItOnSuccess() throws {
+        let fixture = try fixture()
+        defer { try? FileManager.default.removeItem(at: fixture.directory) }
+        let reply = Value()
+        reply.value = ["ok": false, "error": "Synthetic native menu is not ready"]
+        let bridge = ZCodeBridge(
+            store: ZCodeSessionStore(path: fixture.database, indexPath: nil),
+            desktop: .init(snapshot: { _ in ["capabilities": ["new": true]] }, execute: { _, _, _, _ in reply.value }))
+        defer { bridge.stopAll() }
+        let client = UUID().uuidString
+        let read: [String: Any] = [
+            "op": "newOptions", "draftId": UUID().uuidString, "cwd": "/fixture", "text": "private draft",
+        ]
+        _ = try request(bridge, read, client: client)
+        var row = try XCTUnwrap(ZCodeBridge.recentCreationReads().last { $0["client"] as? String == client })
+        XCTAssertEqual(row["reason"] as? String, "Synthetic native menu is not ready")
+        XCTAssertEqual(Set(row.keys), ["client", "ok", "reason"])
+        XCTAssertFalse(String(describing: row).contains("private draft"))
+        reply.value = ["ok": true, "creationVersion": 1]
+        _ = try request(bridge, read, client: client)
+        row = try XCTUnwrap(ZCodeBridge.recentCreationReads().last { $0["client"] as? String == client })
+        XCTAssertEqual(row["ok"] as? Bool, true)
+        XCTAssertNil(row["reason"])
+    }
+
+    func testExecutionCatalogSurvivesPageAndComposerOptionsProjection() throws {
+        let fixture = try fixture()
+        defer { try? FileManager.default.removeItem(at: fixture.directory) }
+        let native = Value()
+        native.value = [
+            "capabilities": ["send": true, "settings": true, "executionMode": true],
+            "canSend": true, "executionModes": ZCodeDesktop.executionOptions(mode: "build"),
+            "executionModePermissionCoupled": true, "composer": ["mode": "build", "executionMode": "default"],
+        ]
+        let bridge = ZCodeBridge(
+            store: ZCodeSessionStore(path: fixture.database, indexPath: nil),
+            desktop: .init(snapshot: { _ in native.value }, execute: { _, _, _, _ in native.value }))
+        defer { bridge.stopAll() }
+        for op in ["open", "composerOptions"] {
+            let page = try request(bridge, ["op": op, "threadId": "sess_native", "viewVersion": 1])
+            XCTAssertEqual((page["executionModes"] as? [[String: Any]])?.count, 2)
+            XCTAssertEqual(page["executionModePermissionCoupled"] as? Bool, true)
+            XCTAssertEqual((page["capabilities"] as? [String: Bool])?["executionMode"], true)
+        }
+    }
     func testVerifiedDesktopOwnerEpochIsProjectedAndUnsupportedQueueIsExplicitlyEmpty() throws {
         let fixture = try fixture()
         defer { try? FileManager.default.removeItem(at: fixture.directory) }

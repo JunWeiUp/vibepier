@@ -82,11 +82,14 @@ internal class SessionAgentClient(
         session
     }.getOrNull()
 
+    /** Called with the request ID of reads that a pending mutation or receipt depends on; page cancellation must keep them. */
+    var onPreservedRead: (String) -> Unit = {}
     fun read(method: SessionAgentProtocol.Method, target: SessionAgentProtocol.Target? = null,
-             params: JSONObject = JSONObject(), callback: (SessionAgentProtocol.Reply) -> Unit) {
+             params: JSONObject = JSONObject(), preserve: Boolean = false, callback: (SessionAgentProtocol.Reply) -> Unit) {
         if (!supports(method) || method.mutation) { callback(SessionAgentProtocol.Reply.Failure("protocol_incompatible")); return }
         val request = runCatching { SessionAgentProtocol.Request(SessionAgentProtocol.id(), method, target, JSONObject(params.toString())) }.getOrNull()
         if (request == null) { callback(SessionAgentProtocol.Reply.Failure("agent_request_invalid")); return }
+        if (preserve) onPreservedRead(request.requestId)
         perform(request, callback)
     }
     fun mutate(method: SessionAgentProtocol.Method, target: SessionAgentProtocol.Target, params: JSONObject,
@@ -160,9 +163,13 @@ internal class SessionAgentClient(
     fun reconcile(operationId: String, callback: (SessionAgentProtocol.Reply) -> Unit) {
         val request = original(operationId)
         if (request == null) { callback(SessionAgentProtocol.Reply.Failure("receipt_unknown")); return }
-        read(SessionAgentProtocol.Method.OPERATION, params = JSONObject().put("operationId", operationId)) { reply ->
+        read(SessionAgentProtocol.Method.OPERATION, params = JSONObject().put("operationId", operationId), preserve = true) { reply ->
             val operation = (reply as? SessionAgentProtocol.Reply.Read)?.result?.optJSONObject("operation")
             if (operation == null) { callback(if (reply is SessionAgentProtocol.Reply.Failure) reply else SessionAgentProtocol.Reply.Failure("receipt_unknown")); return@read }
+            // The Mac journal has no record: the request never arrived. The phone keeps its pending intent for an explicit resend.
+            if (operation.opt("status") == "notFound" && operation.opt("operationId") == operationId) {
+                callback(SessionAgentProtocol.Reply.Failure(NOT_FOUND)); return@read
+            }
             val body = JSONObject(operation.toString()).put("agentProtocol", SessionAgentProtocol.VERSION).put("requestId", request.requestId)
             val status = body.opt("status")
             val wrapper = JSONObject().put("id", request.requestId).put("ok", status == "confirmed").put("body", body)
@@ -171,12 +178,23 @@ internal class SessionAgentClient(
             callback(settle(result))
         }
     }
+    /**
+     * Only for an operation the Mac reported as never received. The original body and operation ID are reused, so the
+     * Mac journal deduplicates if the first copy arrives after all; only the transport request ID is new.
+     */
+    fun resend(operationId: String, callback: (SessionAgentProtocol.Reply) -> Unit) {
+        val request = original(operationId)
+        if (request == null || !negotiated) { callback(SessionAgentProtocol.Reply.Failure("receipt_unknown")); return }
+        perform(request.copy(requestId = SessionAgentProtocol.id()), callback)
+    }
+    fun pendingOperations(): List<String> = runCatching { storage.pending().keys.filter { original(it) != null } }.getOrDefault(emptyList())
     fun late(value: JSONObject): Boolean {
         val operation = value.optJSONObject("body")?.opt("operationId") as? String ?: return false
         val request = original(operation) ?: return false
         val reply = SessionAgentProtocol.reply(value, request) ?: return false
         settle(reply); return true
     }
+    companion object { const val NOT_FOUND = "receipt_not_found" }
     fun observe(subscriptionId: String, target: SessionAgentProtocol.Target.Session, streamEpoch: String, through: Long, authoritative: Boolean): Boolean {
         val observation = SessionAgentObservation(subscriptionId, target.sessionRef)
         if (!observation.snapshot(streamEpoch, through, authoritative)) return false

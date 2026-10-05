@@ -1,6 +1,6 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
-    <string name="session_unlock_policy">The Mac temporarily unlocks for supported desktop actions and relocks afterward. Choosing Unlock keeps it unlocked. Your password travels over the encrypted channel, is verified on the Mac and is saved only in Mac Keychain. The phone does not retain it.</string>
+    <string name="session_unlock_policy">The Mac temporarily unlocks for supported desktop actions and relocks afterward. Choosing Unlock keeps it unlocked. Your password travels over the encrypted channel, is verified on the Mac and is saved only in local Mac preferences. The phone does not retain it; app updates preserve it.</string>
     <string name="session_claude_new_explanation">The first turn runs through Claude Code CLI in the background on the Mac. It can then continue in the Claude desktop app.</string>
     <string name="session_bluetooth_approval_required">Connect over Bluetooth first, then approve the phone on the Mac.</string>
     <string name="session_connect_provider">Connect to %1$s on the Mac</string>
@@ -81,7 +81,7 @@
     <string name="session_unlock_configured">Unlock configured</string>
     <string name="session_mac_is_currently_locked">Mac is currently locked</string>
     <string name="session_mac_is_currently_unlocked">Mac is currently unlocked</string>
-    <string name="session_the_previous_unlock_failed_attempts_are_paused_save_the_password">The previous unlock failed. Attempts are paused; save the password again.</string>
+    <string name="session_the_previous_unlock_failed_attempts_are_paused_save_the_password">The previous unlock failed. Unlock the Mac manually to recover, or save a changed password.</string>
     <string name="session_clearing">Clearing…</string>
     <string name="session_verifying_the_password_on_the_mac">Verifying the password on the Mac…</string>
     <string name="session_clear">Clear</string>
@@ -89,7 +89,7 @@
     <string name="session_back_to_all_projects">Back to all projects</string>
     <string name="session_first_message">First message…</string>
     <string name="session_create_a_session_in_zcode_on_the_mac_and_send_the_first_message">Create a session in ZCode on the Mac and send the first message.</string>
-    <string name="session_codex_on_the_mac_will_come_to_the_foreground_create_a_session_an">Codex on the Mac will come to the foreground, create a session and send this message.</string>
+    <string name="session_codex_new_background_explanation">Codex will create the session and send this message in the background on the Mac. Keep VibePier connected; Codex does not need to be in the foreground.</string>
     <string name="session_start">Start</string>
     <string name="session_enter_the_first_message">Enter the first message</string>
     <string name="session_starting_claude_code_in_the_background_on_the_mac">Starting Claude Code in the background on the Mac…</string>
@@ -299,4 +299,6 @@
     <string name="session_speed_standard">Off · Standard</string>
     <string name="session_speed_fast">On · Fast</string>
     <string name="session_speed_description">Applies to subsequent requests. Fast mode may increase usage; availability follows the selected model on the Mac.</string>
+    <string name="session_effort_for_model">Reasoning effort · %1$s</string>
+    <string name="session_created_with_unverified_options">Session created. Some selected options could not be confirmed on the Mac; check them in the session settings.</string>
 </resources>

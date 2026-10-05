@@ -11,6 +11,24 @@ final class AgentSessionProfileTests: XCTestCase {
             JSONSerialization.jsonObject(
                 with: Data(contentsOf: root.appendingPathComponent("protocol/fixtures/" + name))) as? [String: Any])
     }
+    func testCatalogRefreshParameterIsStrictAndReadOnly() throws {
+        for method in ["session.creationOptions", "session.items"] {
+            let id = UUID().uuidString
+            var params: [String: Any] = ["refreshOptions": true]
+            if method == "session.items" { params["kind"] = "composerOptions" }
+            var body: [String: Any] = [
+                "agentProtocol": 2, "requestId": id, "method": method, "target": ["adapterId": "zcode.currentV1"],
+                "params": params,
+            ]
+            XCTAssertEqual(
+                try AgentSessionProfile.decode(["id": id, "body": body]).params["refreshOptions"] as? Bool, true)
+            for invalid: Any in ["true", 1] {
+                params["refreshOptions"] = invalid
+                body["params"] = params
+                XCTAssertThrowsError(try AgentSessionProfile.decode(["id": id, "body": body]))
+            }
+        }
+    }
     func testGeneratedCurrentContractMatchesSharedFixture() throws {
         let data = try fixture("session-v1.json")
         XCTAssertEqual(

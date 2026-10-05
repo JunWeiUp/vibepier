@@ -30,8 +30,25 @@ enum RuntimeCommands {
                 return ["ok": false, "error": L10n.text("core.missing_unviewed_tasks")]
             }
             return ["ok": true, "cleared": ConversationActivity.shared.markAllViewed(keys: Set(keys))]
+        case "screen-unlock-diagnostics":
+            return ScreenLock.diagnostics()
         case "zcode-ax-state":
-            do { return try ZCodeDesktop.diagnostics().merging(["ok": true]) { _, fresh in fresh } } catch {
+            let recent: [String: Any] = [
+                "recentCreationReads": ZCodeBridge.recentCreationReads(),
+                "recentMutations": ZCodeBridge.recentMutations(),
+            ]
+            do {
+                return try ZCodeDesktop.diagnostics().merging(recent.merging(["ok": true]) { _, fresh in fresh }) {
+                    _, fresh in fresh
+                }
+            } catch {
+                return recent.merging(["ok": false, "error": String(describing: error)]) { _, fresh in fresh }
+            }
+        case "zcode-creation-prepare":
+            guard let cwd = req["cwd"] as? String, let execution = req["executionMode"] as? String else {
+                return ["ok": false, "error": L10n.text("core.invalid_request")]
+            }
+            do { return try ZCodeDesktop.prepareCreationDiagnostics(cwd: cwd, execution: execution) } catch {
                 return ["ok": false, "error": String(describing: error)]
             }
         case "zcode-request":
@@ -41,7 +58,7 @@ enum RuntimeCommands {
                 let op = request["op"] as? String,
                 [
                     "list", "projects", "open", "sync", "history", "parts", "message", "image", "composerOptions",
-                    "new", "send", "settings", "interrupt", "receiptCheck",
+                    "newOptions", "new", "send", "settings", "interrupt", "receiptCheck",
                 ].contains(op)
             else { return ["ok": false, "error": L10n.text("core.invalid_local_zcode_request")] }
             request["id"] = request["id"] ?? UUID().uuidString
@@ -60,7 +77,7 @@ enum RuntimeCommands {
                     "ok": false, "error": L10n.text("core.invalid_receipt"),
                 ]
             }
-            if !["list", "projects", "new", "open"].contains(op) {
+            if !["list", "projects", "newOptions", "new", "open"].contains(op) {
                 guard let session = request["threadId"] as? String else {
                     return ["ok": false, "error": L10n.text("core.missing_session_id")]
                 }

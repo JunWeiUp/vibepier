@@ -4,6 +4,26 @@ import Foundation
 /// The phone talks to the same ZCode session the desktop owns. Reads use native
 /// SQLite pages; writes may only use a separately verified desktop adapter.
 final class ZCodeBridge: @unchecked Sendable {
+    /// Owner-only diagnostics retain readiness failures, never prompt or attachment fields.
+    private final class CreationReadDiagnostics: @unchecked Sendable {
+        private let lock = NSLock()
+        private var rows: [[String: Any]] = []
+        func record(client: String, result: [String: Any]) {
+            lock.withLock {
+                rows.removeAll { $0["client"] as? String == client }
+                var row: [String: Any] = ["client": client, "ok": result["ok"] as? Bool ?? false]
+                if let reason = result["error"] as? String { row["reason"] = String(reason.prefix(2048)) }
+                rows.append(row)
+                if rows.count > 16 { rows.removeFirst(rows.count - 16) }
+            }
+        }
+        func snapshot() -> [[String: Any]] { lock.withLock { rows } }
+    }
+    private static let creationReadDiagnostics = CreationReadDiagnostics()
+    private static let mutationDiagnostics = CreationReadDiagnostics()
+    static func recentMutations() -> [[String: Any]] { mutationDiagnostics.snapshot() }
+    static func recentCreationReads() -> [[String: Any]] { creationReadDiagnostics.snapshot() }
+
     struct DesktopAccess: @unchecked Sendable {
         let snapshot: @Sendable (String) throws -> [String: Any]
         let execute: @Sendable ([String: Any], String, String, String) throws -> [String: Any]
@@ -25,7 +45,8 @@ final class ZCodeBridge: @unchecked Sendable {
         let hasOlder: Bool
     }
     private static let capabilityNames = [
-        "send", "new", "interrupt", "settings", "modelSelection", "permissionMode", "attachments", "approvals", "queue",
+        "send", "new", "interrupt", "settings", "modelSelection", "permissionMode", "executionMode", "attachments",
+        "approvals", "queue",
     ]
     static let readOnlyCapabilities = Dictionary(uniqueKeysWithValues: capabilityNames.map { ($0, false) }).merging([
         "markdownFiles": true, "projectFiles": true,
@@ -67,7 +88,13 @@ final class ZCodeBridge: @unchecked Sendable {
 
     func perform(_ data: Data, client: String, completion: @escaping @Sendable (Data) -> Void) {
         if let cached = operationReceipts.cachedReply(data, client: client, provider: "zcode") {
-            completion(cached)
+            if let value = try? JSONSerialization.jsonObject(with: cached) as? [String: Any],
+                let normalized = try? JSONSerialization.data(withJSONObject: Self.withMessageAnchor(value))
+            {
+                completion(normalized)
+            } else {
+                completion(cached)
+            }
             return
         }
         requestAdmission.submit(on: queue) {
@@ -75,14 +102,19 @@ final class ZCodeBridge: @unchecked Sendable {
         } work: { [self] in
             var result: [String: Any]
             var ticket: ProviderOperationReceipts.Ticket?
+            var creationRead = false
+            var mutationID: String?
             do {
                 guard let request = try JSONSerialization.jsonObject(with: data) as? [String: Any] else {
                     throw CLIError(L10n.text("core.invalid_request"))
                 }
+                creationRead = request["op"] as? String == "newOptions"
                 if ProviderOperationReceipts.mutable(request["op"] as? String ?? "") {
+                    mutationID = request["id"] as? String
                     switch try self.operationReceipts.begin(request, client: client) {
                     case .fresh(let fresh): ticket = fresh
                     case .cached(var cached):
+                        cached = Self.withMessageAnchor(cached)
                         cached["provider"] = "zcode"
                         completion((try? JSONSerialization.data(withJSONObject: cached)) ?? Data())
                         return
@@ -99,11 +131,35 @@ final class ZCodeBridge: @unchecked Sendable {
             } catch {
                 result = ProviderFailure.reply(error, provider: "zcode")
             }
+            result = Self.withMessageAnchor(result)
+            if creationRead { Self.creationReadDiagnostics.record(client: client, result: result) }
             if let ticket { result = self.operationReceipts.finish(ticket, result: result) }
+            if let mutationID { Self.mutationDiagnostics.record(client: client + ":" + mutationID, result: result) }
             result["provider"] = "zcode"
             completion((try? JSONSerialization.data(withJSONObject: result)) ?? Data())
         }
     }
+    /// ZCode's verified human message is the same anchor exposed as activeTurnId.
+    /// Preserve unknown results; an accepted message alone must not be mistaken for a native turn ID.
+    static func withMessageAnchor(_ value: [String: Any]) -> [String: Any] {
+        guard value["accepted"] as? Bool == true, value["unknown"] as? Bool != true,
+            value["ok"] as? Bool != false,
+            let session = value["threadId"] as? String ?? value["sessionId"] as? String,
+            !session.isEmpty, session.utf8.count <= 200,
+            let message = value["nativeMessageId"] as? String ?? value["messageId"] as? String,
+            !message.isEmpty, message.utf8.count <= 256
+        else { return value }
+        guard (value["threadId"] as? String ?? session) == session,
+            (value["sessionId"] as? String ?? session) == session,
+            (value["messageId"] as? String ?? message) == message,
+            (value["turnId"] as? String ?? message) == message,
+            (value["nativeTurnId"] as? String ?? message) == message
+        else { return value.merging(["unknown": true]) { $1 } }
+        return value.merging([
+            "threadId": session, "turnId": message, "turnIdentityKind": "nativeMessageAnchor",
+        ]) { $1 }
+    }
+
     private func capabilities(_ value: [String: Any]) -> [String: Bool] {
         let source = value["capabilities"] as? [String: Any] ?? [:]
         return Dictionary(
@@ -147,6 +203,9 @@ final class ZCodeBridge: @unchecked Sendable {
             "capabilities": flags, "canSend": flags["send"] == true && live["canSend"] as? Bool == true,
             "revision": revisions[session] ?? 0,
         ]
+        for key in ["models", "permissionModes", "efforts", "executionModes", "executionModePermissionCoupled"] {
+            if let current = live[key] { value[key] = current }
+        }
         if let epoch = live["nativeOwnerEpoch"] as? String,
             AgentSessionProfile.bounded(epoch, maximum: 1024)
         {
@@ -215,7 +274,7 @@ final class ZCodeBridge: @unchecked Sendable {
             return [:]
         }
         if op == "new" || op == "newOptions" {
-            guard let desktop, capabilities(live(""))["new"] == true else {
+            guard let desktop, op == "newOptions" || capabilities(live(""))["new"] == true else {
                 throw CLIError(L10n.text("provider.create_the_session_in_zcode_on_the_mac"))
             }
             if op == "newOptions" || request["draftId"] != nil {
@@ -306,6 +365,8 @@ final class ZCodeBridge: @unchecked Sendable {
             return [
                 "threadId": session, "models": value["models"] ?? [], "permissionModes": value["permissionModes"] ?? [],
                 "efforts": value["efforts"] ?? [],
+                "executionModes": value["executionModes"] ?? [],
+                "executionModePermissionCoupled": value["executionModePermissionCoupled"] ?? false,
                 "composer": value["composer"]
                     ?? ZCodeConversation.composer(state.summary, latest: state.turns.last?.latest ?? [:]),
                 "capabilities": capabilities(value),

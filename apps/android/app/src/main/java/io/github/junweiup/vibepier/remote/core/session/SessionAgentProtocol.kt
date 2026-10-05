@@ -63,11 +63,15 @@ internal object SessionAgentProtocol {
             require(method != Method.CREATE || target is Target.Creation)
             require(method == Method.CREATE || target !is Target.Creation)
             require(params.keys().asSequence().all { it in parameters.getValue(method) })
+            if (params.has("refreshOptions")) {
+                require(params.opt("refreshOptions") is Boolean)
+                require(method == Method.CREATION_OPTIONS || method == Method.ITEMS && params.opt("kind") == "composerOptions")
+            }
             if (params.has("options")) {
                 val options = params.getJSONObject("options")
                 require(options.keys().asSequence().all { it in setOf("model", "mode", "effort", "executionMode", "serviceTier", "confirmation") })
                 for (key in listOf("model", "mode", "effort", "executionMode", "serviceTier")) if (options.has(key)) require(options.opt(key) is String)
-                if (options.has("serviceTier")) require(method == Method.CONFIGURE && options.opt("serviceTier") in setOf("standard", "priority"))
+                if (options.has("serviceTier")) require(method in setOf(Method.CONFIGURE, Method.CREATE) && options.opt("serviceTier") in setOf("standard", "priority"))
                 if (options.has("executionMode")) require(options.opt("executionMode") in SessionExecutionModes.ids)
                 if (options.has("confirmation")) require(options.opt("confirmation") is Boolean)
             }
@@ -86,9 +90,9 @@ internal object SessionAgentProtocol {
     private val parameters = mapOf(
         Method.DESCRIBE to emptySet(), Method.WORKSPACES to setOf("search", "offset", "limit"),
         Method.LIST to setOf("search", "offset", "limit", "workspaceRef"), Method.OPEN to emptySet(), Method.SNAPSHOT to emptySet(),
-        Method.ITEMS to setOf("kind", "messageId", "before", "offset", "limit", "headersOnly", "sequence"),
+        Method.ITEMS to setOf("kind", "messageId", "before", "offset", "limit", "headersOnly", "sequence", "refreshOptions"),
         Method.OBSERVE to setOf("subscriptionId", "streamEpoch", "afterSequence"), Method.UNOBSERVE to setOf("subscriptionId"),
-        Method.CREATION_OPTIONS to setOf("workspaceRef", "draftId"), Method.CREATE to setOf("initialMessage", "options"),
+        Method.CREATION_OPTIONS to setOf("workspaceRef", "draftId", "refreshOptions"), Method.CREATE to setOf("initialMessage", "options"),
         Method.CONFIGURE to setOf("options"), Method.SUBMIT to setOf("mode", "content", "expectedTurnId"),
         Method.CANCEL_QUEUE to setOf("queueId"), Method.INTERRUPT to setOf("expectedTurnId"),
         Method.RESOLVE_APPROVAL to setOf("approvalId", "fingerprint", "revision", "decision"),
@@ -98,7 +102,7 @@ internal object SessionAgentProtocol {
     enum class Status(val wire: String) { REJECTED("rejected"), ACCEPTED("accepted"), CONFIRMED("confirmed"), UNKNOWN("unknown") }
     sealed interface Reply {
         data class Read(val result: JSONObject) : Reply
-        data class Failure(val code: String) : Reply
+        data class Failure(val code: String, val diagnostic: String? = null) : Reply
         data class Mutation(val status: Status, val operationId: String, val target: JSONObject?, val result: JSONObject, val body: JSONObject) : Reply
     }
 
@@ -108,7 +112,7 @@ internal object SessionAgentProtocol {
         require(body.opt("agentProtocol") == VERSION && body.opt("requestId") == request.requestId)
         if (!request.method.mutation) {
             require(!body.has("operationId") && !body.has("status"))
-            if (value.opt("ok") != true) return@runCatching Reply.Failure(value.optString("code", "agent_protocol_invalid"))
+            if (value.opt("ok") != true) return@runCatching Reply.Failure(value.optString("code", "agent_protocol_invalid"), body.opt("error") as? String)
             return@runCatching Reply.Read(JSONObject(body.getJSONObject("result").toString()))
         }
         require(body.opt("operationId") == request.operationId)
@@ -139,8 +143,9 @@ internal object SessionAgentProtocol {
                     result.opt("turnIdentityKind") in setOf("nativeTurn", "nativeMessageAnchor", "managedRun")
             Method.CREATE -> effect == "session.created" && result.opt("sessionCreated") == true &&
                 result.opt("initialInput") == (if (request.params.has("initialMessage")) "confirmed" else "none") &&
+                // Native thread and turn identities prove creation; option readback mismatches arrive as warnings.
                 (request.params.optJSONObject("options")?.takeIf { it.has("executionMode") }?.let {
-                    result.opt("executionModeState") == "confirmed" && result.opt("executionMode") == it.opt("executionMode")
+                    result.opt("executionMode") == it.opt("executionMode")
                 } ?: true) &&
                 result.optJSONObject("session")?.let { session ->
                     SessionAgentCapabilities.opaque(session.opt("sessionRef")) != null &&

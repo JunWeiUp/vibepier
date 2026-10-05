@@ -93,6 +93,12 @@ struct SessionProviderReply {
             "accountId": accountId, "creditId": creditId, "executionMode": executionMode,
         ])
         if boolean(body["ok"]) == true && confirms(body, request: context) { return body }
+        // Adapters mark a failure definitive only with native proof that the requested input was never submitted.
+        if boolean(body["ok"]) == false, boolean(body["definitive"]) == true,
+            !(body["error"] as? String ?? "").isEmpty
+        {
+            return body
+        }
         // The queue can explicitly report that a delete lost a race with sending; that is a resolved failure.
         if operation == "queueDelete", boolean(body["ok"]) == false, boolean(body["resolved"]) == true,
             boolean(body["accepted"]) == false, !(body["error"] as? String ?? "").isEmpty, sameThread(body, context)
@@ -112,9 +118,9 @@ struct SessionProviderReply {
                 && ["reset", "alreadyRedeemed", "nothingToReset", "noCredit"].contains(outcome)
                 && boolean(reply["accepted"]) == ["reset", "alreadyRedeemed"].contains(outcome)
         case "new":
+            // Option readback mismatches are carried as warnings; the native thread identity is the proof.
             return !(reply["threadId"] as? String ?? "").isEmpty
                 && !request.cwd.isEmpty && reply["cwd"] as? String == request.cwd
-                && verifiesExecutionMode(reply, request: request)
         case "settings":
             return boolean(reply["accepted"]) == true && sameThread(reply, request)
                 && verifiesExecutionMode(reply, request: request)

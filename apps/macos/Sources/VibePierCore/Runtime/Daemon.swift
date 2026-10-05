@@ -116,6 +116,7 @@ final class Daemon: @unchecked Sendable {
             SessionRemote.shared.taskCompleted(event)
         }
         ConversationActivity.shared.start()
+        DispatchQueue.global(qos: .utility).async { SessionRemote.shared.warmOptions() }
 
         if !Replay.checkAccessibility(prompt: true) {
             log(

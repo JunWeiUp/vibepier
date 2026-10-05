@@ -1,6 +1,6 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
-    <string name="session_unlock_policy">Mac 会为支持的桌面操作临时解锁，操作结束后重新锁屏；手动点“解锁”会保持解锁。密码经加密通道发送到 Mac，校验后仅保存在 Mac 钥匙串，手机不保存。</string>
+    <string name="session_unlock_policy">Mac 会为支持的桌面操作临时解锁，操作结束后重新锁屏；手动点“解锁”会保持解锁。密码经加密通道发送到 Mac，校验后仅保存在 Mac 本地偏好，手机不保存；覆盖安装保留密码，无需重复设置。</string>
     <string name="session_claude_new_explanation">首轮由 Mac 上的 Claude Code CLI 在后台执行，结束后可转入 Claude 桌面端继续。</string>
     <string name="session_bluetooth_approval_required">请先通过蓝牙连接，并在 Mac 上确认授权</string>
     <string name="session_connect_provider">连接 Mac 上的 %1$s</string>
@@ -81,7 +81,7 @@
     <string name="session_unlock_configured">已设置自动解锁</string>
     <string name="session_mac_is_currently_locked">Mac 当前已锁屏</string>
     <string name="session_mac_is_currently_unlocked">Mac 当前未锁屏</string>
-    <string name="session_the_previous_unlock_failed_attempts_are_paused_save_the_password">上次自动解锁失败，已暂停，请重新保存密码</string>
+    <string name="session_the_previous_unlock_failed_attempts_are_paused_save_the_password">上次自动解锁失败，已暂停；手动解锁 Mac 后恢复，密码变化时重新保存</string>
     <string name="session_clearing">正在清除…</string>
     <string name="session_verifying_the_password_on_the_mac">正在由 Mac 校验密码…</string>
     <string name="session_clear">清除</string>
@@ -89,7 +89,7 @@
     <string name="session_back_to_all_projects">返回全部项目</string>
     <string name="session_first_message">第一条消息…</string>
     <string name="session_create_a_session_in_zcode_on_the_mac_and_send_the_first_message">在 Mac 上的 ZCode 中创建会话并发送第一条消息。</string>
-    <string name="session_codex_on_the_mac_will_come_to_the_foreground_create_a_session_an">Mac 上的 Codex 会切到前台，新建会话并发送这条消息。</string>
+    <string name="session_codex_new_background_explanation">Codex 将在 Mac 后台创建会话并发送这条消息。保持 VibePier 连接即可，无需将 Codex 切到前台。</string>
     <string name="session_start">开始</string>
     <string name="session_enter_the_first_message">请输入第一条消息</string>
     <string name="session_starting_claude_code_in_the_background_on_the_mac">正在 Mac 后台启动 Claude Code…</string>
@@ -297,4 +297,6 @@
     <string name="session_speed_standard">关闭 · 标准速度</string>
     <string name="session_speed_fast">开启 · 加速</string>
     <string name="session_speed_description">用于后续请求。加速可能增加用量，是否可用取决于 Mac 端所选模型。</string>
+    <string name="session_effort_for_model">推理强度 · %1$s</string>
+    <string name="session_created_with_unverified_options">会话已创建。部分所选设置未能在 Mac 上确认，请在会话设置中核对。</string>
 </resources>

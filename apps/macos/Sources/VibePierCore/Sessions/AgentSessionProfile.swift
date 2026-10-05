@@ -16,10 +16,12 @@ enum AgentSessionProfile {
         "session.list": ["search", "offset", "limit", "workspaceRef"],
         "session.open": [],
         "session.snapshot": [],
-        "session.items": ["kind", "messageId", "before", "offset", "limit", "headersOnly", "sequence"],
+        "session.items": [
+            "kind", "messageId", "before", "offset", "limit", "headersOnly", "sequence", "refreshOptions",
+        ],
         "session.observe": ["subscriptionId", "streamEpoch", "afterSequence"],
         "session.unobserve": ["subscriptionId"],
-        "session.creationOptions": ["workspaceRef", "draftId"],
+        "session.creationOptions": ["workspaceRef", "draftId", "refreshOptions"],
         "session.create": ["initialMessage", "options"],
         "session.configure": ["options"],
         "message.submit": ["mode", "content", "expectedTurnId"],
@@ -42,7 +44,10 @@ enum AgentSessionProfile {
         let fingerprint: String
         var mutable: Bool { mutations.contains(method) }
     }
-    struct Failure: Error { let code: String }
+    struct Failure: Error {
+        let code: String
+        var diagnostic: String? = nil
+    }
 
     static func decode(_ outer: [String: Any]) throws -> Request {
         guard let id = outer["id"] as? String, UUID(uuidString: id) != nil,
@@ -69,6 +74,14 @@ enum AgentSessionProfile {
         } else if body["operationId"] != nil || body["controlLease"] != nil {
             throw Failure(code: "agent_request_invalid")
         }
+        if let refresh = params["refreshOptions"] {
+            guard Self.boolean(refresh) != nil,
+                method == "session.creationOptions"
+                    || method == "session.items" && params["kind"] as? String == "composerOptions"
+            else {
+                throw Failure(code: "agent_request_invalid")
+            }
+        }
         if let options = params["options"] {
             guard let options = options as? [String: Any],
                 Set(options.keys).isSubset(of: [
@@ -80,7 +93,8 @@ enum AgentSessionProfile {
             else { throw Failure(code: "agent_request_invalid") }
         }
         if let options = params["options"] as? [String: Any], let tier = options["serviceTier"] {
-            guard method == "session.configure", let tier = tier as? String, ["standard", "priority"].contains(tier)
+            guard ["session.configure", "session.create"].contains(method), let tier = tier as? String,
+                ["standard", "priority"].contains(tier)
             else {
                 throw Failure(code: "agent_options_invalid")
             }

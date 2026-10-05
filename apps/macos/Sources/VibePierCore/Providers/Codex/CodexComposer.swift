@@ -7,7 +7,21 @@ struct CodexComposer {
         catalogURL: URL = FileManager.default.homeDirectoryForCurrentUser.appendingPathComponent(
             ".codex/models_cache.json")
     ) { self.catalogURL = catalogURL }
-    func models() throws -> [[String: Any]] {
+    private final class CatalogCache: @unchecked Sendable {
+        let lock = NSLock()
+        var rows: [String: [[String: Any]]] = [:]
+    }
+    private static let catalogCache = CatalogCache()
+    func models(refresh: Bool = false) throws -> [[String: Any]] {
+        try Self.catalogCache.lock.withLock {
+            if !refresh, let rows = Self.catalogCache.rows[catalogURL.path] { return rows }
+            let rows = try readModels()
+            if Self.catalogCache.rows.count >= 32 { Self.catalogCache.rows.removeAll() }
+            Self.catalogCache.rows[catalogURL.path] = rows
+            return rows
+        }
+    }
+    private func readModels() throws -> [[String: Any]] {
         guard let value = try JSONSerialization.jsonObject(with: Data(contentsOf: catalogURL)) as? [String: Any],
             let rows = value["models"] as? [[String: Any]]
         else {

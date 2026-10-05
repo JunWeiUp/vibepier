@@ -21,7 +21,7 @@ This is an early preview. Real first-message acceptance was explicitly skipped f
 | Desktop controls | Configure six remote controls and per-application bindings; choose installed Mac apps on the phone, then open or hide them. |
 | Project files | Browse the session workspace, search names, read source/Markdown/images, inspect Git diffs and quote files into a draft. See [Project files](docs/PROJECT-FILES.md). |
 | Codex usage | View remaining quota, reset times and gifted reset cards from the session-list menu. Redeeming a card requires a separate confirmation; credentials stay on the Mac. |
-| Screen controls | Use **Lock** and **Unlock** from the phone's session-list menu. Unlocking requires a password explicitly configured and verified on the Mac; it stays in the Mac Keychain. |
+| Screen controls | Use **Lock** and **Unlock** from the phone's session-list menu. Unlocking requires a password explicitly configured and verified on the Mac; it stays in private local Mac preferences and survives app updates. |
 | Connections | Enroll over Bluetooth, then use Bluetooth, local Wi-Fi, or your own WSS relay. The relay can negotiate a direct UDP path. |
 | Voice | Use the Mac microphone, or route phone audio over Bluetooth/Wi-Fi/direct UDP with a compatible virtual audio device. Phone audio is not sent through the relay. |
 | Optional hardware | Use an Ulanzi Vibe Key AU05 for physical controls. A dongle is not required for the phone remote. |
@@ -49,13 +49,15 @@ This is an early preview. Real first-message acceptance was explicitly skipped f
 
 | Capability | Codex | Claude Code | ZCode |
 | --- | --- | --- | --- |
-| Sessions, history and scoped Markdown | Supported desktop subscription | Local transcripts and supported desktop state | Read-only native history |
-| Replies, new sessions, settings and interrupt | Compatible build and original session owner required | Depends on desktop/terminal ownership and available CLI | Verified native session and supported menus required |
+| Sessions, history and scoped Markdown | Verified desktop or VibePier-owned App Server session | Local transcripts and supported desktop state | Read-only native history |
+| Replies, new sessions, settings and interrupt | Existing desktop owner, or healthy owned App Server session; background replies require idle | Depends on desktop/terminal ownership and available CLI | Verified native session and supported menus required |
 | Attachments | Supported | Inline images on new sessions; file references in the prompt | Unavailable |
 | Approvals and questions | Recognized native/async requests | Recognized, unambiguous desktop requests | Unavailable |
-| Follow-up queue and steering | Supported | No equivalent queue controls | Unavailable |
+| Follow-up queue and steering | Compatible desktop threads only | No equivalent queue controls | Unavailable |
 
-Codex currently allows desktop builds **11645, 12404, 12553 and 12947**; its configured new-session adapter targets **12553 and 12947**, with a saved single-root project and native UI acceptance still pending. A live Claude terminal session is not resumed through a competing process. ZCode new-session support has additional native-provider restrictions. See the [compatibility guide](docs/COMPATIBILITY.md) before relying on a particular workflow; these are adapter capabilities, not a claim of universal desktop-version support.
+Codex desktop compatibility is checked through native interfaces and receipts; desktop build numbers alone do not disable sessions or settings. Phone-created Codex sessions now use the bundled App Server in the background with the Mac's existing account, so creation does not require unlocking the Mac. A persistent registry keeps those sessions on that backend; existing desktop sessions retain their original IPC owner. Background sessions accept messages while idle and do not offer queue, steer or queue deletion. A live Claude terminal session is not resumed through a competing process. ZCode new-session support has additional native-provider restrictions. See the [compatibility guide](docs/COMPATIBILITY.md) for native-contract and acceptance limits.
+
+Codex new-session options include a Fast mode checkbox for supported models, effective from the first message. Fast mode may increase usage.
 
 ## Quick start
 
@@ -250,6 +252,8 @@ The development source uses a typed Agent Session profile over the existing auth
 
 The phone composer now offers **Task mode → Plan / Execute**, including in new-session options. Codex uses native collaboration modes; Claude Code uses its native plan permission mode. The phone displays a confirmed change only after native readback. Availability depends on the selected backend, compatible native interface and idle session. [Plan mode support and limits](docs/COMPATIBILITY.md#phone-plan-mode--手机计划模式).
 
-Phone actions reconnect and obtain current native control state automatically. Standard Send submits to the selected conversation using its current settings, entering the native queue when supported and needed; stale display caches never block the action. Stops, approvals and queue changes retain the selected target, and explicit permission changes retain their confirmation. Uncertain submissions keep their original receipt without automatic resend.
+Phone actions reconnect and obtain current native control state automatically. Standard Send submits to the selected conversation using its current settings, entering the native queue when supported and needed; App Server sessions created by VibePier require idle and have no queue controls. Stops, approvals and queue changes retain the selected target, and explicit permission changes retain their confirmation. Uncertain submissions keep their original receipt without automatic resend.
 
-Optional backends are configured locally with `vibepier agents status` and explicit enable commands. The Codex App Server driver uses a private socket and separate `CODEX_HOME`; the desktop must explicitly connect to this runtime. The Claude Code Mods prototype remains observation-only until its exact runtime contract and native delivery evidence are accepted. Local installation and actual native delivery are verified separately; optional backends remain disabled until explicitly configured. See [setup and acceptance boundaries](docs/AGENT-CONTROL-ARCHITECTURE.md#本地可选运行时--optional-local-runtime-setup).
+The default `codex.currentV1` adapter creates owned background sessions through the bundled App Server using the Mac's native Codex home and account. Its model, effort, permissions, Plan / Execute, Fast mode and attachment choices still require native confirmation. Separately, optional backends are configured locally with `vibepier agents status` and explicit enable commands. The optional Codex driver uses a private socket and separate `CODEX_HOME`; the desktop must explicitly connect to that runtime. The Claude Code Mods prototype remains observation-only until its exact runtime contract and native delivery evidence are accepted. Local installation and actual native delivery are verified separately. See [setup and acceptance boundaries](docs/AGENT-CONTROL-ARCHITECTURE.md#本地可选运行时--optional-local-runtime-setup).
+
+Claude model selection reads the configured API’s actual model directory and displays full versions (for example, Opus 5.5); reasoning effort is selected separately. Desktop-owned sessions retain native model menus. See [compatibility](docs/COMPATIBILITY.md) for discovery requirements.

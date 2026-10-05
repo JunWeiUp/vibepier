@@ -22,7 +22,7 @@ internal object SessionControlPreparation {
         val frozen = JSONObject(fields.toString())
         require(choices.all { !frozen.has(it) || nonempty(frozen, it) })
         require(!frozen.has("confirmFullAccess") || frozen.opt("confirmFullAccess") is Boolean)
-        require(!frozen.has("serviceTier") || op == "settings" && frozen.opt("serviceTier") in setOf("standard", "priority"))
+        require(!frozen.has("serviceTier") || op in setOf("settings", "new") && frozen.opt("serviceTier") in setOf("standard", "priority"))
         if (op == "new") {
             require(nonempty(frozen, "draftId") && nonempty(frozen, "cwd"))
         } else require(nonempty(frozen, "threadId"))
@@ -107,7 +107,11 @@ internal object SessionControlPreparation {
             if (!fields.has(key)) continue
             if (!nonempty(fields, key)) return false
             if (key == "serviceTier") {
-                if (requireCatalog || fields.opt(key) !in setOf("standard", "priority") || composer?.opt(key) !is String || composer.opt("locked") == true) return false
+                if (fields.opt(key) !in setOf("standard", "priority") || composer?.opt(key) !is String || composer.opt("locked") == true) return false
+                if (requireCatalog) {
+                    val selected = rows(page, "models").singleOrNull { it.opt("id") == (fields.opt("model") ?: composer.opt("model")) }
+                    if (!contains(selected?.optJSONArray("serviceTiers"), fields.opt(key))) return false
+                }
                 continue
             }
             val locked = when (key) { "model", "effort" -> "locked"; "mode" -> "modeLocked"; else -> "executionModeLocked" }

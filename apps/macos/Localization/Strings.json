@@ -1,4 +1,8 @@
 {
+  "provider.claude_model_catalog_unavailable": {
+    "en": "Could not retrieve Claude models. Check the Mac Claude API configuration and connection, then refresh. Project-specific model or credential overrides and OAuth-only discovery are not supported.",
+    "zh-Hans": "无法获取 Claude 模型，请检查 Mac 上的 Claude API 配置与连接后刷新。暂不支持项目级模型或凭据覆盖配置，以及仅 OAuth 登录的模型发现。"
+  },
   "mac.app_version": {
     "en": "Version {0} · Build {1}",
     "zh-Hans": "版本 {0} · 构建 {1}"
@@ -3874,5 +3878,29 @@
   "agent.execution_mode.default_permission": {
     "en": "Execute · ask before changes",
     "zh-Hans": "执行模式 · 改动前询问"
+  },
+  "core.unlock_preferences_read_failed": {
+    "en": "Could not read Mac unlock preferences. Check the local preferences file on the Mac.",
+    "zh-Hans": "无法读取 Mac 解锁偏好，请在 Mac 检查本地偏好文件。"
+  },
+  "core.unlock_preferences_save_failed": {
+    "en": "Could not save Mac unlock preferences. The previous password was preserved.",
+    "zh-Hans": "无法保存 Mac 解锁偏好，原密码已保留。"
+  },
+  "core.unlock_preferences_invalid_failed": {
+    "en": "Mac unlock preferences are invalid for the current user.",
+    "zh-Hans": "Mac 解锁偏好无效或不属于当前用户。"
+  },
+  "core.unlock_preferences_migration_failed_0": {
+    "en": "Could not migrate the previous unlock password ({0}). Save it once in Mac unlock setup.",
+    "zh-Hans": "无法迁移原解锁密码（{0}），请在 Mac 解锁设置中保存一次。"
+  },
+  "provider.zcode_insufficient_balance": {
+    "en": "ZCode received the message, but the model provider reported insufficient balance or no available resource package (1113). Check your ZCode account quota or select a model with available quota. No message was resent.",
+    "zh-Hans": "ZCode 已收到消息，但模型服务商返回余额不足或无可用资源包（1113）。请检查 ZCode 账户额度，或选择有额度的模型；没有自动重发消息。"
+  },
+  "provider.zcode_reply_failed": {
+    "en": "ZCode received the message, but the model reply failed. Check the error in the original ZCode session on the Mac. No message was resent.",
+    "zh-Hans": "ZCode 已收到消息，但模型回复失败。请在 Mac 的原 ZCode 会话查看具体错误；没有自动重发消息。"
   }
 }

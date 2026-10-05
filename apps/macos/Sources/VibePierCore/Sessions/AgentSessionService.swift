@@ -65,6 +65,22 @@ final class AgentSessionService: @unchecked Sendable {
         let capabilities: [String: Any]
         let bytes: Int
     }
+    private final class CreationRead: @unchecked Sendable {
+        let workspace: String
+        let draft: String
+        let refresh: Bool
+        let token = UUID()
+        var waiters: [SnapshotRead.Waiter]
+        init(
+            workspace: String, draft: String, request: AgentSessionProfile.Request,
+            completion: @escaping @Sendable (Data) -> Void
+        ) {
+            self.workspace = workspace
+            self.draft = draft
+            refresh = AgentSessionProfile.boolean(request.params["refreshOptions"]) == true
+            waiters = [.init(request: request, completion: completion)]
+        }
+    }
     private struct Lease: Sendable {
         let client: String
         let adapter: String
@@ -111,6 +127,7 @@ final class AgentSessionService: @unchecked Sendable {
     private var pendingReads: [Key: UUID] = [:]
     private var pendingViews: [Key: (ref: String, view: Int64)] = [:]
     private var snapshotReads: [Key: SnapshotRead] = [:]
+    private var creationReads: [Key: CreationRead] = [:]
     private var nativeViews: [Key: (session: AgentSessionDirectory.Session, view: Int64)] = [:]
 
     init(
@@ -230,6 +247,7 @@ final class AgentSessionService: @unchecked Sendable {
             }
             self.pendingViews = self.pendingViews.filter { key, _ in self.pendingReads[key] != nil }
             self.snapshotReads = self.snapshotReads.filter { key, _ in self.pendingReads[key] != nil }
+            self.creationReads = self.creationReads.filter { key, _ in self.pendingReads[key] != nil }
             self.nativeViews = self.nativeViews.filter { !disabled.contains($0.value.session.provider) }
             self.pruneStreams()
         }
@@ -244,6 +262,7 @@ final class AgentSessionService: @unchecked Sendable {
             self.pendingReads = self.pendingReads.filter { $0.key.client != client }
             self.pendingViews = self.pendingViews.filter { $0.key.client != client }
             self.snapshotReads = self.snapshotReads.filter { $0.key.client != client }
+            self.creationReads = self.creationReads.filter { $0.key.client != client }
             self.nativeViews = self.nativeViews.filter { $0.key.client != client }
             self.pruneStreams()
         }
@@ -329,7 +348,11 @@ final class AgentSessionService: @unchecked Sendable {
                 releaseObservation(request, session: session, client: client, completion: completion)
             default: throw AgentSessionProfile.Failure(code: "agent_method_unsupported")
             }
-        } catch { fail(request, code: code(error), completion: completion) }
+        } catch {
+            fail(
+                request, code: code(error), diagnostic: (error as? AgentSessionProfile.Failure)?.diagnostic,
+                completion: completion)
+        }
     }
 
     private func discover(
@@ -383,9 +406,17 @@ final class AgentSessionService: @unchecked Sendable {
                             request.method == "workspace.list" ? "workspaces" : "sessions": projected,
                             "nextOffset": value["nextOffset"] ?? -1,
                         ], completion: completion)
-                } catch { self.fail(request, code: self.code(error), completion: completion) }
+                } catch {
+                    self.fail(
+                        request, code: self.code(error),
+                        diagnostic: (error as? AgentSessionProfile.Failure)?.diagnostic, completion: completion)
+                }
             }
-        } catch { fail(request, code: code(error), completion: completion) }
+        } catch {
+            fail(
+                request, code: code(error), diagnostic: (error as? AgentSessionProfile.Failure)?.diagnostic,
+                completion: completion)
+        }
     }
 
     private func snapshot(
@@ -497,7 +528,9 @@ final class AgentSessionService: @unchecked Sendable {
                     self.pendingViews.removeValue(forKey: key)
                 }
                 for waiter in read.waiters {
-                    self.fail(waiter.request, code: self.code(error), completion: waiter.completion)
+                    self.fail(
+                        waiter.request, code: self.code(error),
+                        diagnostic: (error as? AgentSessionProfile.Failure)?.diagnostic, completion: waiter.completion)
                 }
             }
         }
@@ -513,8 +546,21 @@ final class AgentSessionService: @unchecked Sendable {
                 let draft = request.params["draftId"] as? String, let uuid = UUID(uuidString: draft)
             else { throw AgentSessionProfile.Failure(code: "agent_target_mismatch") }
             let normalized = uuid.uuidString.lowercased()
-            let token = UUID()
             let key = Key(client: client, adapter: adapter + ":creation")
+            if let pending = creationReads[key], pending.workspace == ref, pending.draft == normalized,
+                pending.refresh == (AgentSessionProfile.boolean(request.params["refreshOptions"]) == true),
+                pendingReads[key] == pending.token
+            {
+                guard pending.waiters.count < 16 else { throw AgentSessionProfile.Failure(code: "capacity_exceeded") }
+                pending.waiters.append(.init(request: request, completion: completion))
+                return
+            }
+            guard creationReads[key] != nil || creationReads.count < 512 else {
+                throw AgentSessionProfile.Failure(code: "capacity_exceeded")
+            }
+            let read = CreationRead(workspace: ref, draft: normalized, request: request, completion: completion)
+            let token = read.token
+            creationReads[key] = read
             if let prior = creations[Key(client: client, adapter: adapter)],
                 prior.workspace.ref != ref || prior.draft != normalized
             {
@@ -524,20 +570,29 @@ final class AgentSessionService: @unchecked Sendable {
             }
             pendingReads[key] = token
             call(
-                ["id": request.id, "op": "newOptions", "cwd": workspace.cwd, "draftId": normalized], provider: provider,
+                [
+                    "id": request.id, "op": "newOptions", "cwd": workspace.cwd, "draftId": normalized,
+                    "refreshOptions": AgentSessionProfile.boolean(request.params["refreshOptions"]) == true,
+                ], provider: provider,
                 client: client, adapter: adapter
             ) { [weak self] result in
                 guard let self else { return }
                 do {
-                    guard self.pendingReads[key] == token, self.policy.isEnabled(provider) else {
+                    guard self.creationReads[key] === read, self.pendingReads[key] == token,
+                        self.policy.isEnabled(provider)
+                    else {
                         throw AgentSessionProfile.Failure(code: "agent_session_view_closed")
                     }
+                    self.creationReads.removeValue(forKey: key)
+                    self.pendingReads.removeValue(forKey: key)
                     let options = try self.nativeRead(result)
                     guard AgentSessionProfile.integer(options["creationVersion"]) == 1,
                         options["draftId"] as? String == normalized
                     else { throw AgentSessionProfile.Failure(code: "agent_result_invalid") }
                     let caps = options["agentCapabilities"] as? [String: Any] ?? [:]
-                    let revision = AgentSessionProfile.digest(try AgentSessionProfile.canonical(options))
+                    // Correlation fields describe the read, not the native choices it authorizes.
+                    let catalog = options.filter { !["id", "viewVersion", "op", "sentAt"].contains($0.key) }
+                    let revision = AgentSessionProfile.digest(try AgentSessionProfile.canonical(catalog))
                     let state = Creation(
                         workspace: workspace, draft: normalized, revision: revision, options: options,
                         capabilities: caps, bytes: AgentSessionProfile.data(options).count)
@@ -562,10 +617,27 @@ final class AgentSessionService: @unchecked Sendable {
                             ], "controlLease": token,
                         ]
                     }
-                    self.success(request, result: output, completion: completion)
-                } catch { self.fail(request, code: self.code(error), completion: completion) }
+                    for waiter in read.waiters {
+                        self.success(waiter.request, result: output, completion: waiter.completion)
+                    }
+                } catch {
+                    if self.creationReads[key] === read {
+                        self.creationReads.removeValue(forKey: key)
+                        self.pendingReads.removeValue(forKey: key)
+                    }
+                    for waiter in read.waiters {
+                        self.fail(
+                            waiter.request, code: self.code(error),
+                            diagnostic: (error as? AgentSessionProfile.Failure)?.diagnostic,
+                            completion: waiter.completion)
+                    }
+                }
             }
-        } catch { fail(request, code: code(error), completion: completion) }
+        } catch {
+            fail(
+                request, code: code(error), diagnostic: (error as? AgentSessionProfile.Failure)?.diagnostic,
+                completion: completion)
+        }
     }
 
     private func items(
@@ -607,7 +679,7 @@ final class AgentSessionService: @unchecked Sendable {
         var native: [String: Any] = [
             "id": request.id, "op": op, "threadId": session.nativeID, "viewVersion": request.viewVersion,
         ]
-        for key in ["messageId", "before", "offset", "limit", "headersOnly", "sequence"] {
+        for key in ["messageId", "before", "offset", "limit", "headersOnly", "sequence", "refreshOptions"] {
             native[key] = request.params[key]
         }
         if kind == "approvalDetails" {
@@ -632,7 +704,11 @@ final class AgentSessionService: @unchecked Sendable {
                         $1
                     },
                     completion: completion)
-            } catch { self.fail(request, code: self.code(error), completion: completion) }
+            } catch {
+                self.fail(
+                    request, code: self.code(error), diagnostic: (error as? AgentSessionProfile.Failure)?.diagnostic,
+                    completion: completion)
+            }
         }
     }
 
@@ -739,7 +815,11 @@ final class AgentSessionService: @unchecked Sendable {
                 output["resyncRequired"] = true
             }
             success(request, result: output, completion: completion)
-        } catch { fail(request, code: code(error), completion: completion) }
+        } catch {
+            fail(
+                request, code: code(error), diagnostic: (error as? AgentSessionProfile.Failure)?.diagnostic,
+                completion: completion)
+        }
     }
 
     private func mutate(
@@ -770,7 +850,11 @@ final class AgentSessionService: @unchecked Sendable {
                         return
                     }
                     try self.prepareMutation(request, client: client, completion: completion)
-                } catch { self.fail(request, code: self.code(error), completion: completion) }
+                } catch {
+                    self.fail(
+                        request, code: self.code(error),
+                        diagnostic: (error as? AgentSessionProfile.Failure)?.diagnostic, completion: completion)
+                }
             }
         }
     }
@@ -825,7 +909,11 @@ final class AgentSessionService: @unchecked Sendable {
                                         completion: completion)
                                 }
                             }
-                        } catch { self.fail(request, code: self.code(error), completion: completion) }
+                        } catch {
+                            self.fail(
+                                request, code: self.code(error),
+                                diagnostic: (error as? AgentSessionProfile.Failure)?.diagnostic, completion: completion)
+                        }
                     }
                 }
             }
@@ -960,7 +1048,9 @@ final class AgentSessionService: @unchecked Sendable {
     ) {
         let value = object(reply) ?? [:]
         var outcome = proof(request, native: native, value: value)
-        if reconciling && outcome.status == "rejected" && AgentSessionProfile.boolean(value["resolved"]) != true {
+        if reconciling && outcome.status == "rejected" && AgentSessionProfile.boolean(value["resolved"]) != true
+            && AgentSessionProfile.boolean(value["definitive"]) != true
+        {
             outcome = ("unknown", [:])
         }
         if outcome.status == "unknown", outcome.result.isEmpty, let previous = priorEvidence.flatMap(object) {
@@ -1000,14 +1090,32 @@ final class AgentSessionService: @unchecked Sendable {
         status: String, result: [String: Any]
     ) {
         guard value["unknown"] == nil || AgentSessionProfile.boolean(value["unknown"]) == false else {
-            return (
-                "unknown",
+            var partial =
                 AgentSessionProfile.boolean(value["unknown"]) == true
-                    ? partialIdentity(request, native: native, value: value) : [:]
-            )
+                ? partialIdentity(request, native: native, value: value) : [:]
+            if let error = value["error"] as? String, AgentSessionProfile.bounded(error, maximum: 4096),
+                error.count <= 2048,
+                !error.unicodeScalars.contains(where: {
+                    ($0.value < 32 && $0.value != 10 && $0.value != 9) || $0.value == 127
+                })
+            {
+                partial["error"] = error
+            }
+            if let code = value["code"] as? String, AgentSessionProfile.bounded(code, maximum: 256) {
+                partial["code"] = code
+            }
+            return ("unknown", partial)
         }
         if AgentSessionProfile.boolean(value["ok"]) == false {
-            return ("rejected", ["code": value["code"] ?? "agent_native_rejected", "error": value["error"] ?? ""])
+            var rejected: [String: Any] = [
+                "code": value["code"] ?? "agent_native_rejected", "error": value["error"] ?? "",
+            ]
+            // A definitive creation failure may leave an empty native session; report it without claiming input.
+            if request.method == "session.create", AgentSessionProfile.boolean(value["definitive"]) == true {
+                let partial = partialIdentity(request, native: native, value: value)
+                if let session = partial["session"] { rejected["partialSession"] = session }
+            }
+            return ("rejected", rejected)
         }
         guard AgentSessionProfile.boolean(value["ok"]) == true else { return ("unknown", [:]) }
         if request.method == "session.create" {
@@ -1030,11 +1138,15 @@ final class AgentSessionService: @unchecked Sendable {
                 result["turnIdentityKind"] = value["turnIdentityKind"] as? String ?? "nativeTurn"
             }
             let modeVerified = verifiedExecutionMode(native: native, value: value)
+            var warnings = Self.warnings(value)
             if let requested = native["executionMode"] as? String {
                 result["executionMode"] = requested
-                result["executionModeState"] = modeVerified ? "confirmed" : "unknown"
+                result["executionModeState"] = modeVerified ? "confirmed" : "unverified"
+                if !modeVerified { warnings.append(["field": "executionMode", "requested": requested]) }
             }
-            return ((initial && !hasInput) || !modeVerified ? "unknown" : "confirmed", result)
+            // The native thread and turn identities are the proof; option readback only adds warnings.
+            if !warnings.isEmpty { result["warnings"] = warnings }
+            return (initial && !hasInput ? "unknown" : "confirmed", result)
         }
         guard value["threadId"] as? String == native["threadId"] as? String else { return ("unknown", [:]) }
         switch request.method {
@@ -1093,6 +1205,23 @@ final class AgentSessionService: @unchecked Sendable {
                 "confirmed", [field: request.params[field]!, "fingerprint": native["fingerprint"]!, "submitted": true]
             )
         default: return ("unknown", [:])
+        }
+    }
+
+    /// Bounded, string-only readback mismatches reported by an adapter alongside a confirmed native effect.
+    static func warnings(_ value: [String: Any]) -> [[String: Any]] {
+        guard let rows = value["warnings"] as? [[String: Any]] else { return [] }
+        return rows.prefix(8).compactMap { row in
+            guard let field = row["field"] as? String, AgentSessionProfile.bounded(field, maximum: 64) else {
+                return nil
+            }
+            var warning: [String: Any] = ["field": field]
+            for key in ["requested", "observed"] {
+                if let text = row[key] as? String, AgentSessionProfile.bounded(text, maximum: 256) {
+                    warning[key] = text
+                }
+            }
+            return warning
         }
     }
 
@@ -1213,7 +1342,11 @@ final class AgentSessionService: @unchecked Sendable {
                             }
                         }
                     }
-                } catch { self.fail(request, code: self.code(error), completion: completion) }
+                } catch {
+                    self.fail(
+                        request, code: self.code(error),
+                        diagnostic: (error as? AgentSessionProfile.Failure)?.diagnostic, completion: completion)
+                }
             }
         }
     }
@@ -1458,7 +1591,13 @@ final class AgentSessionService: @unchecked Sendable {
             if requireCatalog && !known.contains(choice) {
                 throw AgentSessionProfile.Failure(code: "agent_options_changed")
             }
-            if field == "mode" && ["full-access", "bypassPermissions"].contains(choice) {
+            let permissionChoice = (advertised["permissionModes"] as? [[String: Any]] ?? []).first {
+                $0["id"] as? String == choice
+            }
+            if field == "mode"
+                && (["full-access", "bypassPermissions", "yolo"].contains(choice)
+                    || AgentSessionProfile.boolean(permissionChoice?["requiresConfirmation"]) == true)
+            {
                 guard AgentSessionProfile.boolean(values["confirmation"]) == true else {
                     throw AgentSessionProfile.Failure(code: "agent_confirmation_required")
                 }
@@ -1468,9 +1607,16 @@ final class AgentSessionService: @unchecked Sendable {
         }
         if let raw = values["serviceTier"] {
             let choice = try required(raw, limit: 256)
-            guard !requireCatalog, ["standard", "priority"].contains(choice),
+            guard ["standard", "priority"].contains(choice),
                 composer["serviceTier"] is String
             else { throw AgentSessionProfile.Failure(code: "agent_options_changed") }
+            if requireCatalog {
+                let model = values["model"] as? String ?? composer["model"] as? String ?? ""
+                let entry = (advertised["models"] as? [[String: Any]] ?? []).first { $0["id"] as? String == model }
+                guard (entry?["serviceTiers"] as? [String] ?? []).contains(choice) else {
+                    throw AgentSessionProfile.Failure(code: "agent_options_changed")
+                }
+            }
             native["serviceTier"] = choice
         }
         if let raw = values["executionMode"] {
@@ -1516,9 +1662,20 @@ final class AgentSessionService: @unchecked Sendable {
         native["text"] = joined
         if !attachments.isEmpty { native["attachments"] = attachments }
     }
+    private func nativeDiagnostic(_ value: Any?) -> String? {
+        guard let value = value as? String, AgentSessionProfile.bounded(value, maximum: 4096), value.count <= 2048,
+            !value.unicodeScalars.contains(where: {
+                ($0.value < 32 && $0.value != 10 && $0.value != 9) || $0.value == 127
+            })
+        else { return nil }
+        return value
+    }
     private func nativeRead(_ data: Data) throws -> [String: Any] {
-        guard let value = object(data), AgentSessionProfile.boolean(value["ok"]) == true else {
-            throw AgentSessionProfile.Failure(code: "agent_native_unavailable")
+        guard let value = object(data) else { throw AgentSessionProfile.Failure(code: "agent_native_unavailable") }
+        guard AgentSessionProfile.boolean(value["ok"]) == true else {
+            let code = (value["code"] as? String).flatMap { AgentSessionProfile.bounded($0, maximum: 256) ? $0 : nil }
+            throw AgentSessionProfile.Failure(
+                code: code ?? "agent_native_unavailable", diagnostic: nativeDiagnostic(value["error"]))
         }
         return value
     }
@@ -1608,13 +1765,15 @@ final class AgentSessionService: @unchecked Sendable {
         }
     }
     private func fail(
-        _ request: AgentSessionProfile.Request, code: String, completion: @escaping @Sendable (Data) -> Void
+        _ request: AgentSessionProfile.Request, code: String, diagnostic: String? = nil,
+        completion: @escaping @Sendable (Data) -> Void
     ) {
         if request.mutable && ["agent_receipt_storage_unavailable", "agent_index_invalid"].contains(code) {
             completion(mutationReply(request, status: "unknown", result: ["code": code]))
             return
         }
         var body: [String: Any] = ["agentProtocol": 2, "requestId": request.id, "code": code]
+        if let diagnostic = nativeDiagnostic(diagnostic) { body["error"] = diagnostic }
         if request.mutable {
             body["operationId"] = request.operationID
             body["status"] = "rejected"

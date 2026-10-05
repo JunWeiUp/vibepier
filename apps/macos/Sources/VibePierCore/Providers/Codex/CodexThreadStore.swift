@@ -9,7 +9,8 @@ struct CodexThreadStore: Sendable {
     ) { self.path = path }
     static let visible = """
         archived=0 AND agent_path IS NULL
-        AND source IN ('vscode','cli') AND (originator IS NULL OR originator IN ('Codex Desktop','codex_desktop','codex_work_desktop','codex_cli_rs','vibepier'))
+        AND (source IN ('vscode','cli') OR (source='appServer' AND originator='vibepier'))
+        AND (originator IS NULL OR originator IN ('Codex Desktop','codex_desktop','codex_work_desktop','codex_cli_rs','vibepier'))
         """
     /// `cwd` limits the list to one project; nil lists every project.
     func list(search: String, offset: Int, cwd: String? = nil, limit: Int = 20) throws -> [String: Any] {
@@ -99,6 +100,28 @@ struct CodexThreadStore: Sendable {
     func isProject(_ cwd: String) throws -> Bool {
         try !select("SELECT 1 FROM threads WHERE \(Self.visible) AND cwd = ? LIMIT 1", bind: [cwd]) { _, _ in [:] }
             .isEmpty
+    }
+    /// Only registered, live-verified background identities call this lookup.
+    /// Never search by title/text or read a rollout outside the native home.
+    func backgroundRollout(thread: String, cwd: String, projectID: String) throws -> URL? {
+        let rows = try select(
+            "SELECT rollout_path FROM threads WHERE id=? AND cwd=? AND project_id=? AND originator='vibepier' AND archived=0 AND agent_path IS NULL AND cli_version=? LIMIT 2",
+            bind: [thread, cwd, projectID, CodexHeadlessRuntimeContract.version]
+        ) { text, _ in ["path": text(0)] }
+        guard rows.count == 1, let path = rows.first?["path"] as? String, !path.contains("\0") else { return nil }
+        let nativeHome = URL(fileURLWithPath: self.path).deletingLastPathComponent().standardizedFileURL
+        let file = URL(fileURLWithPath: path).standardizedFileURL
+        guard file.path.hasPrefix(nativeHome.appendingPathComponent("sessions").path + "/") else { return nil }
+        var cursor = file.deletingLastPathComponent()
+        while cursor.path.count >= nativeHome.path.count {
+            let attributes = try FileManager.default.attributesOfItem(atPath: cursor.path)
+            guard attributes[.type] as? FileAttributeType == .typeDirectory,
+                cursor.resolvingSymlinksInPath().path == cursor.path
+            else { return nil }
+            if cursor == nativeHome { break }
+            cursor.deleteLastPathComponent()
+        }
+        return file
     }
     /// Native project identity must resolve to exactly this one root and an unambiguous displayed name.
     func creationProject(cwd: String) throws -> CodexCreationProject {

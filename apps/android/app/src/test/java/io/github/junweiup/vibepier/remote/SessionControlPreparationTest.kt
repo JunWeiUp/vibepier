@@ -35,7 +35,14 @@ class SessionControlPreparationTest {
         assertFalse(SessionControlPreparation.validate(intent, fresh))
         assertNull(SessionControlPreparation.capture("settings", fields().put("serviceTier", true)))
         assertNull(SessionControlPreparation.capture("settings", fields().put("serviceTier", "unknown")))
-        assertNull(SessionControlPreparation.capture("new", creationFields().put("serviceTier", "priority")))
+        val creationIntent = SessionControlPreparation.capture("new", creationFields().put("serviceTier", "priority"))!!
+        val catalog = creation()
+        assertFalse(SessionControlPreparation.validate(creationIntent, catalog))
+        catalog.getJSONObject("composer").put("serviceTier", "standard")
+        catalog.getJSONArray("models").getJSONObject(0).put("serviceTiers", JSONArray().put("standard").put("priority"))
+        assertEquals("priority", SessionControlPreparation.resolvedFields(creationIntent, catalog)!!.getString("serviceTier"))
+        catalog.getJSONArray("models").getJSONObject(0).put("serviceTiers", JSONArray().put("standard"))
+        assertFalse(SessionControlPreparation.validate(creationIntent, catalog))
     }
 
     @Test fun stalePartialOrMissingCacheCannotRejectBeforeTheNativeRead() {

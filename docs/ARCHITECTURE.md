@@ -17,7 +17,7 @@ flowchart LR
     Relay <-->|WSS| Mac
     Mac --> Router[Session routing and capabilities]
     Mac --> Runtime[Desktop controls / audio / AU05]
-    Router --> Codex[Codex adapter]
+    Router --> Codex[Codex desktop / owned App Server adapter]
     Router --> Claude[Claude adapter]
     Router --> ZCode[ZCode adapter]
 ```
@@ -77,7 +77,11 @@ Claude headless processes share an admission budget across bridge instances: fou
 
 `ClaudeProcessOutput` bounds each CLI JSONL line to 8 MiB, stderr to 4 KiB, and retained terminal diagnostics to 600 characters / 2,400 UTF-8 bytes. Oversized lines are drained without retaining the body. Only the terminal error flag and a bounded diagnostic survive parsing; a zero exit status without a complete, valid terminal result does not confirm successful completion. The parent closes unused pipe ends and allows up to two seconds for both output streams to reach EOF before detaching readers, preserving final output from a fast-exiting child. These checks report incomplete output without resubmitting the original operation.
 
-Codex creation uses its own serial worker under the shared desktop-interaction lock, leaving ordinary bridge reads available. `CodexCreationFlow` separates opening, composer preparation, one submission and receipt observation. `CodexNewComposer` binds a native Send action to the focused window, editor and project evidence; `CodexThreadStore` and `CodexCreationReceipt` require a new index identity plus the first native human-message record. The device-scoped durable SessionRemote journal owns retry behavior. A process-local, device-scoped creation receipt retains a bounded native observer for late confirmation; it cannot submit another action. Native accessibility acceptance remains separate from the pure policy tests.
+`CodexBackgroundSessions` gives the default `codex.currentV1` adapter a background App Server path for phone-created threads. It uses the bundled CLI and existing native Codex home/account, creates only its own threads with originator `vibepier`, and persists their backend ownership in a private registry. Opening, sending, settings, approvals and interruption of registered threads stay on that backend after restart; ordinary desktop history is never adopted into it. Existing desktop threads retain versioned owner-bound IPC. Background availability follows the connection and verified native state rather than screen unlock, sending requires idle, and queue/steer/delete actions remain disabled. Model, effort, permission, execution-mode, speed and attachment inputs retain their original validation and receipt requirements; incomplete native evidence remains unknown.
+
+默认 Codex 新建由 `CodexBackgroundSessions` 在后台 App Server 执行，沿用 Mac 已登录账号，无需解锁或桌面接管。自有 `vibepier` 会话的后端归属持久保存，重启后仍按登记路由；普通桌面已有会话继续走原 owner 的 IPC，不迁移到后台。后台发送必须空闲且连接可用，队列、引导与队列删除关闭。配置、首条消息及附件须分别取得原生证据，不能仅凭启动成功或 setter 回答宣称完成。
+
+The retained legacy accessibility creation path uses its own serial worker and the shared desktop-interaction lock. `CodexCreationFlow` separates opening, composer preparation, one submission and receipt observation; `CodexNewComposer` binds Send to the focused window, editor and project. It is not an automatic fallback after an uncertain App Server action. The device-scoped durable SessionRemote journal prevents resubmission for both paths; read-only receipt observers cannot submit another action.
 
 The Mac `L10n` layer lives in the dependency-only `VibeLocalization` target, with a checked-in JSON catalog and generated Swift dictionary. `VibeKit` and `VibePierCore` depend on it; the core keeps a public `L10n` type alias for app and CLI callers. It does not read a mutable translation file at runtime or require a sidecar bundle. Labels resolve the app/CLI locale; provider selectors and protocol identifiers stay unchanged. See [localization](LOCALIZATION.md) for generation and verification.
 
@@ -108,7 +112,7 @@ Android conversation history keeps the first visible message and its pixel offse
 
 ## Storage and configuration
 
-Mac support data is in the current user's `Library/Application Support/vibepier`; credentials live in Keychain. Android secrets use Keystore and sensitive preferences use authenticated encryption. The relay stores only its deployment secret and transient in-memory routing state. See [privacy](PRIVACY.md) for exceptions, metadata and backup behavior.
+Mac support data is in the current user's `Library/Application Support/vibepier`; device/relay credentials live in Keychain. The optional unlock password is user-selected local preferences in `preferences/unlock.json` (plain text, `0600`, account-bound), excluded from portable settings. Legacy unlock credentials migrate only after an atomic preferences commit; an empty record prevents cleared credentials from returning. A confirmed unlocked screen clears the prior unlock failure gate; a still-locked failed attempt never retries automatically. Android secrets use Keystore and sensitive preferences use authenticated encryption. The relay stores only its deployment secret and transient in-memory routing state. See [privacy](PRIVACY.md) for exceptions, metadata and backup behavior.
 
 [Portable settings](SETTINGS-TRANSFER.md) use an explicit versioned allowlist, rather than copying raw configuration directories. Device identity, credentials, arbitrary scripts, project paths and session content never become part of that export.
 
@@ -158,7 +162,7 @@ Mac 按固定服务商/操作类型分配请求额度，并为各服务商的回
 
 `SessionCreationDraft` binds the first text, model, reasoning effort and approval mode to a provider/project and a draft UUID. Android stores it in encrypted preferences, debounces edits, flushes on dismissal, and freezes the original request while its outcome is unknown. Uploads use `newAttachmentStart/Chunk/Complete/Remove` with a trusted-device/provider/project/draft scope, never a fabricated native thread ID. A confirmed late creation receipt clears only matching text/configuration and the attachments actually submitted; newer edits or added attachments survive. Closing the composer cancels outstanding option reads so they cannot retry desktop preparation later.
 
-Codex configured creation bootstraps an empty native thread with validated settings, then verifies the desktop owner and empty history before one configured first-turn submission; it retains read-only native-message evidence for delayed receipts. Claude validates and persists configuration before starting the CLI, uses a bounded streaming user message for images, and requires exact native first-message text/image proof. ZCode reads native model/mode/effort menus for a trusted phone/project/draft, validates that the choices still match before applying them, and rechecks the empty native draft before one first-message submission. ZCode creation attachments remain unsupported. These flows have isolated tests; Codex empty-thread durability/desktop takeover and all actual native creation flows still require acceptance.
+Codex configured creation starts and records an owned native thread in the background App Server, validates settings and empty history, then submits the configured first turn once without desktop takeover. Its ownership registry survives restart; unresolved submissions continue through the original receipt path. The bundled **0.160.0** CLI's stable and experimental schemas are checked for this path independently from desktop IPC and the optional isolated runtime. Claude validates and persists configuration before starting the CLI, uses a bounded streaming user message for images, and requires exact native first-message text/image proof. ZCode reads native model/mode/effort menus for a trusted phone/project/draft, validates choices before applying them, and rechecks the empty native draft before one first-message submission. ZCode creation attachments remain unsupported. Isolated contract tests and actual native creation acceptance remain separate.
 
 新会话草稿按服务商、项目和草稿 UUID 隔离，附件上传不借用虚构的原生会话 ID。未知结果始终保留原始请求；迟到成功回执只清理已提交内容，不清掉后续编辑或新加附件。首次模型、推理和审批配置必须在提交前绑定。三个服务商的创建配置均已有实现及隔离测试，ZCode 新建附件仍不支持；真实原生创建验收仍待完成，不能以模拟证据代替。
 
@@ -197,3 +201,8 @@ Conversation/project images and MP4 previews use the raw HTTPS binary file chann
 Mac-owned `SessionProviderPolicy` persists provider flags and a monotonic revision in Config. SessionRemote synchronizes it on the authenticated channel, rejects fresh disabled-provider operations and suppresses late read/push content while retaining durable receipt queries. Android filters provider tabs, notifications and cached navigation by that policy; all-off has an explicit empty state. Running desktop tasks and drafts are retained. See [provider visibility](PROVIDER-VISIBILITY.md).
 
 Mac 菜单开关只决定授权手机的服务商可见范围；保存成功后加密同步、关闭后拒绝新操作，未知回执和桌面任务保留。
+
+
+Codex background reconnection preserves a registered live server across desktop app replacement. If macOS reports the old executable path as ENOENT, reuse additionally requires the original UID/PID/birth, unchanged private socket identity and kernel-reported peer UID/PID, with identity rechecked after connecting. Other path errors, a changed executable path, replaced sockets and reused PIDs remain rejected. Creation errors remain visible through option refreshes; the phone explains background creation without a foreground requirement.
+
+Codex 桌面升级替换可执行文件后，后台重连仅在路径报告 ENOENT 且原 UID/PID/启动身份、私有套接字身份与内核对端 UID/PID 全部一致时复用旧进程，连接后再次核对；其他路径错误、路径改变、套接字替换或 PID 复用仍拒绝。新建失败原因不会被选项刷新覆盖，手机明确提示后台创建无需切到前台。

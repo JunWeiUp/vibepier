@@ -5,5 +5,12 @@
     <string name="creation_choose_options">Choose an available model and approval mode first.</string>
     <string name="creation_invalid_prompt">Use at most 32 KB of text and 6 distinct attachments.</string>
     <string name="creation_loading_options">Loading models and approval modes…</string>
-    <string name="creation_options_unavailable">Cannot load creation options. Check VibePier on the Mac.</string>
+    <string name="creation_options_unavailable">Cannot load creation options. Tap Start to try loading again, or check VibePier on the Mac.</string>
+    <string name="creation_refresh_options">Refresh options</string>
+    <string name="creation_speed_unsupported">Speed: unavailable for this model or Mac version</string>
+    <string name="creation_pending_history">Earlier creation receipts</string>
+    <string name="creation_old_receipts_kept">The earlier request is still unconfirmed. Its draft and receipt are kept; a different new message can be submitted.</string>
+    <string name="creation_duplicate_pending">This first message or attachment matches an unconfirmed creation. Check its receipt before submitting again.</string>
+    <string name="creation_stop_waiting_detail">Stop waiting returns to an editable draft here. The Mac may continue the earlier creation; its receipt stays available for checking.</string>
+    <string name="creation_speed_description">Applies from the first message. Fast mode may increase usage.</string>
 </resources>

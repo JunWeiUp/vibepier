@@ -112,10 +112,11 @@ enum ClaudeCreationReceipt {
                 guard ClaudeSessionConfiguration.executionMode(permissionMode: actual) == executionMode,
                     actual == permissionMode
                 else {
-                    result["ok"] = false
-                    result["accepted"] = false
-                    result["unknown"] = true
+                    // The native first message proves creation; an unreported mode is a warning, not uncertainty.
                     result["executionModeVerified"] = false
+                    var warning: [String: Any] = ["field": "executionMode", "requested": executionMode]
+                    if let actual { warning["observed"] = actual }
+                    result["warnings"] = [warning]
                     return result
                 }
                 result["executionModeVerified"] = true

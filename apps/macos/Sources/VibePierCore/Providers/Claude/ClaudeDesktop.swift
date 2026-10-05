@@ -105,7 +105,7 @@ enum ClaudeDesktop {
             prepare: {
                 try willSubmit()
                 return { try key(36) }
-            }, confirmed: { confirmed(5) },
+            }, confirmed: { confirmed(15) },
             unavailable: L10n.text("provider.claude_desktop_lost_focus_the_content_remains_in_the_composer_unsent"),
             unconfirmed: L10n.text(
                 "provider.content_was_entered_on_the_desktop_but_sending_is_unconfirmed_check_on_the_m"))
@@ -550,6 +550,20 @@ enum ClaudeDesktop {
         return (element, previous?.bundleIdentifier == bundleID ? nil : previous)
     }
     static var running: Bool { !NSRunningApplication.runningApplications(withBundleIdentifier: bundleID).isEmpty }
+    static var installed: Bool { NSWorkspace.shared.urlForApplication(withBundleIdentifier: bundleID) != nil }
+    /// Phone sessions belong in the desktop app; start it when it is installed but not running.
+    static func launchIfNeeded() throws {
+        if running { return }
+        guard let app = NSWorkspace.shared.urlForApplication(withBundleIdentifier: bundleID) else {
+            throw CLIError(L10n.text("provider.claude_desktop_is_not_running"))
+        }
+        let configuration = NSWorkspace.OpenConfiguration()
+        configuration.activates = false
+        NSWorkspace.shared.openApplication(at: app, configuration: configuration)
+        guard wait(15, { running }) else { throw CLIError(L10n.text("provider.claude_desktop_is_not_running")) }
+        // The window and its session index need a moment after the process appears.
+        Thread.sleep(forTimeInterval: 2)
+    }
     /// Passive identity only: no activation, navigation, title guessing or permission prompt.
     static func visibleSessionHost() -> String? {
         guard AXIsProcessTrusted(), !ScreenLock.locked(),
@@ -618,7 +632,7 @@ enum ClaudeDesktop {
         guard UUID(uuidString: session) != nil, let url = URL(string: "claude://resume?session=" + session) else {
             throw CLIError(L10n.text("provider.invalid_session"))
         }
-        guard running else { throw CLIError(L10n.text("provider.claude_desktop_is_not_running")) }
+        try launchIfNeeded()
         let previous = NSWorkspace.shared.frontmostApplication
         _ = NSWorkspace.shared.open(url)
         var found: String?

@@ -46,21 +46,40 @@ class TaskCompletionNotifications(context: Context) {
             .putExtra(EXTRA_SOURCE, authorization)
             .addFlags(Intent.FLAG_ACTIVITY_SINGLE_TOP or Intent.FLAG_ACTIVITY_CLEAR_TOP),
             PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE)
+        // Quick reply from the shade or lock screen: the text goes through the same authorized, journaled send path.
+        val reply = PendingIntent.getBroadcast(context, identity.provider.hashCode(), Intent(context, TaskReplyReceiver::class.java)
+            .setAction(TaskReplyReceiver.ACTION).putExtra(EXTRA_PROVIDER, identity.provider)
+            .putExtra(EXTRA_THREAD, identity.threadId).putExtra(EXTRA_SOURCE, authorization),
+            PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_MUTABLE)
+        val input = android.app.RemoteInput.Builder(TaskReplyReceiver.TEXT).setLabel(context.getString(R.string.task_notification_reply_hint)).build()
         val notification = Notification.Builder(context, CHANNEL)
             .setSmallIcon(R.drawable.ic_monitor)
             .setContentTitle(context.getString(R.string.task_notification_title, SessionProvider.name(identity.provider)))
             .setContentText(context.getString(R.string.task_notification_body))
             .setContentIntent(open).setAutoCancel(true)
+            .addAction(Notification.Action.Builder(null, context.getString(R.string.task_notification_reply), reply)
+                .addRemoteInput(input).setAllowGeneratedReplies(false).build())
             .setVisibility(Notification.VISIBILITY_PRIVATE).setCategory(Notification.CATEGORY_STATUS)
             .build()
         // Keep at most one visible result per provider; each new completion may alert.
         try { manager.notify(identity.provider, 47802, notification) } catch (_: SecurityException) { /* Permission changed concurrently. */ }
     }
+    /** Replaces the posted notification with the reply's actual state; never claims success without a receipt. */
+    fun replyStatus(provider: String, text: String, open: Boolean) {
+        if (context.checkSelfPermission(Manifest.permission.POST_NOTIFICATIONS) != PackageManager.PERMISSION_GRANTED) return
+        val manager = context.getSystemService(NotificationManager::class.java)
+        val builder = Notification.Builder(context, CHANNEL).setSmallIcon(R.drawable.ic_monitor)
+            .setContentTitle(SessionProvider.name(provider)).setContentText(text).setAutoCancel(true)
+            .setVisibility(Notification.VISIBILITY_PRIVATE).setCategory(Notification.CATEGORY_STATUS).setOnlyAlertOnce(true)
+        if (open) builder.setContentIntent(PendingIntent.getActivity(context, 47803, Intent(context, MainActivity::class.java)
+            .addFlags(Intent.FLAG_ACTIVITY_SINGLE_TOP or Intent.FLAG_ACTIVITY_CLEAR_TOP), PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE))
+        try { manager.notify(provider, 47802, builder.build()) } catch (_: SecurityException) { /* Permission changed concurrently. */ }
+    }
     companion object {
         const val CHANNEL = "task_completion"
-        private const val EXTRA_PROVIDER = "io.github.junweiup.vibepier.completedProvider"
-        private const val EXTRA_THREAD = "io.github.junweiup.vibepier.completedThread"
-        private const val EXTRA_SOURCE = "io.github.junweiup.vibepier.completedSource"
+        internal const val EXTRA_PROVIDER = "io.github.junweiup.vibepier.completedProvider"
+        internal const val EXTRA_THREAD = "io.github.junweiup.vibepier.completedThread"
+        internal const val EXTRA_SOURCE = "io.github.junweiup.vibepier.completedSource"
         fun takeRoute(intent: Intent, authorization: String): JSONObject? {
             val provider = intent.getStringExtra(EXTRA_PROVIDER)
             val thread = intent.getStringExtra(EXTRA_THREAD)

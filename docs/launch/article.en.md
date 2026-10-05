@@ -22,7 +22,7 @@ The remote screen offers six configurable controls, general or per-application s
 
 Voice controls use the Mac microphone by default. Optional phone microphone input requires BlackHole 2ch on the Mac and Android recording permission. Routing is temporary for the voice action and restores the previous input afterward. Phone audio uses Bluetooth, local Wi-Fi or an established UDP direct path; a relay-only connection does not carry that audio.
 
-The session menu also offers Lock and Unlock. Unlocking is separately configured: the Mac validates the login password and keeps it in Keychain. Explicit Unlock leaves the desktop unlocked, while temporary unlock for a desktop operation restores the lock after the relevant operations finish.
+The session menu also offers Lock and Unlock. Unlocking is separately configured: the Mac validates the login password and keeps it in private local Mac preferences, preserved across app updates. Explicit Unlock leaves the desktop unlocked, while temporary unlock for a desktop operation restores the lock after the relevant operations finish.
 
 ## Choose how the devices connect
 

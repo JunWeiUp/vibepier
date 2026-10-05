@@ -4,6 +4,22 @@ import XCTest
 @testable import VibePierCore
 
 final class ZCodeDesktopCacheTests: XCTestCase {
+    func testPendingCreationKeepsVerifiedNativeModeBoundToOriginalDeviceAndOperation() throws {
+        let cache = ZCodeDesktop.Cache()
+        let key = ZCodeDesktop.receiptKey(client: "phone-a", session: "", operation: "creation")
+        var receipt: [String: Any] = [
+            "unknown": true, "accepted": false,
+            "executionModeVerified": true, "effectiveExecutionMode": "plan",
+        ]
+        try cache.record(key, receipt, text: "first message", creationCwd: "/fixture")
+        receipt["sessionId"] = "new-native-session"
+        try cache.record(key, receipt, text: "first message", creationCwd: "/fixture")
+        XCTAssertEqual(cache.receipt(key)?["executionModeVerified"] as? Bool, true)
+        XCTAssertEqual(cache.receipt(key)?["effectiveExecutionMode"] as? String, "plan")
+        XCTAssertEqual(cache.pendingSubmission(key)?.creationCwd, "/fixture")
+        XCTAssertNil(cache.receipt(ZCodeDesktop.receiptKey(client: "phone-b", session: "", operation: "creation")))
+        XCTAssertNil(cache.receipt(ZCodeDesktop.receiptKey(client: "phone-a", session: "", operation: "another")))
+    }
     private func owner(
         session: String = "sess_00000000-0000-4000-8000-000000000001", pid: Int32 = 77,
         launched: TimeInterval = 100, window: Int = 1
