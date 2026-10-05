@@ -13,7 +13,7 @@ internal object SessionAgentProtocol {
         OPEN("session.open"), SNAPSHOT("session.snapshot"), ITEMS("session.items"),
         OBSERVE("session.observe"), UNOBSERVE("session.unobserve"), CREATION_OPTIONS("session.creationOptions"),
         CREATE("session.create", true), CONFIGURE("session.configure", true), SUBMIT("message.submit", true),
-        CANCEL_QUEUE("queue.cancel", true), INTERRUPT("turn.interrupt", true),
+        CANCEL_QUEUE("queue.cancel", true), STEER_QUEUE("queue.steer", true), INTERRUPT("turn.interrupt", true),
         RESOLVE_APPROVAL("approval.resolve", true), ANSWER_QUESTION("question.answer", true),
         OPERATION("operation.get");
         companion object { fun parse(value: Any?) = entries.singleOrNull { it.wire == value } }
@@ -94,7 +94,8 @@ internal object SessionAgentProtocol {
         Method.OBSERVE to setOf("subscriptionId", "streamEpoch", "afterSequence"), Method.UNOBSERVE to setOf("subscriptionId"),
         Method.CREATION_OPTIONS to setOf("workspaceRef", "draftId", "refreshOptions"), Method.CREATE to setOf("initialMessage", "options"),
         Method.CONFIGURE to setOf("options"), Method.SUBMIT to setOf("mode", "content", "expectedTurnId"),
-        Method.CANCEL_QUEUE to setOf("queueId"), Method.INTERRUPT to setOf("expectedTurnId"),
+        Method.CANCEL_QUEUE to setOf("queueId"), Method.STEER_QUEUE to setOf("queueId", "expectedTurnId"),
+        Method.INTERRUPT to setOf("expectedTurnId"),
         Method.RESOLVE_APPROVAL to setOf("approvalId", "fingerprint", "revision", "decision"),
         Method.ANSWER_QUESTION to setOf("questionId", "fingerprint", "revision", "answers"), Method.OPERATION to setOf("operationId"),
     )
@@ -159,6 +160,7 @@ internal object SessionAgentProtocol {
                 fields.isNotEmpty() && fields.all { requested.opt(it) is String && effective.opt(it) == requested.opt(it) }
             } == true
             Method.CANCEL_QUEUE -> effect == "queue.cancelled" && result.opt("queueId") == request.params.opt("queueId")
+            Method.STEER_QUEUE -> effect == "queue.steered" && result.opt("queueId") == request.params.opt("queueId") && result.opt("steered") == true
             Method.INTERRUPT -> effect == "turn.interruptRequested" && evidence("turnId") && result.opt("turnId") == request.params.opt("expectedTurnId")
             Method.RESOLVE_APPROVAL -> effect == "approval.resolved" && result.opt("approvalId") == request.params.opt("approvalId") &&
                 evidence("fingerprint") && result.opt("fingerprint") == request.params.opt("fingerprint") && result.opt("submitted") == true

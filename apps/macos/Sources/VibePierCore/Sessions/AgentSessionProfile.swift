@@ -7,7 +7,7 @@ enum AgentSessionProfile {
     static let version = 2
     static let maximumBytes = 256 * 1024
     static let mutations: Set<String> = [
-        "session.create", "session.configure", "message.submit", "queue.cancel", "turn.interrupt",
+        "session.create", "session.configure", "message.submit", "queue.cancel", "queue.steer", "turn.interrupt",
         "approval.resolve", "question.answer",
     ]
     static let parameters: [String: Set<String>] = [
@@ -26,6 +26,7 @@ enum AgentSessionProfile {
         "session.configure": ["options"],
         "message.submit": ["mode", "content", "expectedTurnId"],
         "queue.cancel": ["queueId"],
+        "queue.steer": ["queueId", "expectedTurnId"],
         "turn.interrupt": ["expectedTurnId"],
         "approval.resolve": ["approvalId", "fingerprint", "revision", "decision"],
         "question.answer": ["questionId", "fingerprint", "revision", "answers"],

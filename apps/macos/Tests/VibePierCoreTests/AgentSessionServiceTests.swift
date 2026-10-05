@@ -156,6 +156,11 @@ final class AgentSessionServiceTests: XCTestCase {
                                 "ok": true, "submitted": true, "threadId": nativeID,
                                 "fingerprint": native["fingerprint"] ?? "",
                             ]
+                        case "queueSteer":
+                            value = [
+                                "ok": true, "accepted": true, "threadId": nativeID,
+                                "queueId": native["messageId"] ?? "", "queuedMessages": [],
+                            ]
                         case "receiptCheck", "newReceiptCheck", "settingsReceiptCheck", "interruptReceiptCheck":
                             value = ["ok": false, "error": "fixture lookup is observational"]
                         default: value = ["ok": false, "error": "unsupported fixture method"]
@@ -767,6 +772,30 @@ final class AgentSessionServiceTests: XCTestCase {
             XCTAssertEqual(data["dirty"] as? Bool, true)
             XCTAssertEqual(data["controlDirty"] as? Bool, false)
         }
+    }
+    func testQueuedFollowUpCanBeSteeredThroughTheUnifiedProfileOnce() throws {
+        let harness = try Harness()
+        harness.page["status"] = "active"
+        harness.page["activeTurnId"] = "native-turn"
+        harness.page["queuedMessages"] = [["id": "queued-1", "text": "next"]]
+        let opened = try open(harness)
+        let operation = UUID().uuidString.lowercased()
+        let steer = try request(
+            "queue.steer", target: opened.target, params: ["queueId": "queued-1", "expectedTurnId": "native-turn"],
+            operation: operation, lease: opened.lease)
+        let reply = try perform(harness, steer)
+        let body = try XCTUnwrap(reply["body"] as? [String: Any])
+        XCTAssertEqual(body["status"] as? String, "confirmed")
+        XCTAssertEqual(body["effect"] as? String, "queue.steered")
+        XCTAssertEqual((body["result"] as? [String: Any])?["steered"] as? Bool, true)
+        _ = try perform(harness, steer)
+        XCTAssertEqual(
+            harness.count("queueSteer"), 1, "A replayed operation returns its receipt without steering again")
+        let stale = try request(
+            "queue.steer", target: opened.target, params: ["queueId": "missing"],
+            operation: UUID().uuidString.lowercased(), lease: opened.lease)
+        XCTAssertEqual((try perform(harness, stale)["body"] as? [String: Any])?["status"] as? String, "rejected")
+        XCTAssertEqual(harness.count("queueSteer"), 1)
     }
     private func withoutQueue(_ harness: Harness) {
         harness.page.removeValue(forKey: "queuedMessages")

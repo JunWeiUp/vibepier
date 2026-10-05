@@ -99,6 +99,7 @@ Profile 2 requires a typed receipt validator for each method's native proof and 
 | `session.configure` | Mutation | Adapter-issued option IDs/revision; exact scope and effective readback |
 | `message.submit` | Mutation | Explicit `start`, `queue` or `steer`; supports only advertised native semantics |
 | `queue.cancel` | Mutation | Native queued-input ID/revision; cannot retract an already submitted input |
+| `queue.steer` | Mutation | Native queued-input ID, optional expected running turn; asks the native owner to send that queued input into the running turn now (Codex desktop). Confirmed by the owner's acceptance; a missing queued input is rejected before any effect |
 | `turn.interrupt` | Mutation | Exact expected native turn and owner; native confirmation distinguishes requested from interrupted |
 | `approval.resolve` | Mutation | Pending approval ID, fingerprint, revision and one advertised decision |
 | `question.answer` | Mutation | Pending question ID/revision; schema-valid answers; distinct from tool approval |
@@ -139,6 +140,8 @@ Options include opaque option ID, native-backed display name, explanation, revis
 | `unknown` | Effects may have happened or durable evidence is insufficient | Only observational reconciliation; never automatically resubmit |
 
 Creation is confirmed by native identity: the session reference plus, when an initial message was sent, its native message and turn identity. Option readback (execution mode, service tier, permission mode) that cannot be matched is returned as bounded `warnings` with `executionModeState: "unverified"`; it no longer turns a proved creation into `unknown`. `session.configure` remains strict because the setting is its whole effect. A provider failure counts as `rejected` only when the adapter marks it `definitive` with native proof that the input was never submitted; such a creation may report the empty native session as `partialSession`. `operation.get` returns `notFound` when the device's journal has no record, so the phone may explicitly resend the identical body under the same operation ID; the journal deduplicates if the first copy arrived after all.
+
+The phone sends every write through this profile. Until the profile is negotiated on the current connection, a write is refused before any effect rather than falling back to a v1 mutation; existing v1 pending receipts remain read-only and are resolved through their original receipt lookup.
 
 The device journal keeps a fixed 16 KiB reservation per unresolved record (at most 64 per device) instead of a worst-case result reservation, compacts oversized final results to their identity fields rather than failing after a native effect, and retires unresolved records older than 72 hours into tombstones that keep the fingerprint and still return `unknown`, never fresh admission.
 

@@ -151,6 +151,8 @@ class ConversationPanel(private val activity: Activity, private val client: Sess
     private var uploadProgressLabel: CanvasLabel? = null
     private var creationAttachment: ((android.net.Uri) -> Unit)? = null
     private var creationPickerToken = ""
+    private val approvalNotifications by lazy { io.github.junweiup.vibepier.remote.core.session.ApprovalNotifications(context) }
+    private var approvalCheck: Runnable? = null
     /** The open new-session dialog; it survives backgrounding so a pending creation can finish or be checked. */
     private var creationDialog: AlertDialog? = null
     private val autoChecks = listOf(3_000L, 8_000L, 20_000L, 45_000L, 90_000L)
@@ -278,6 +280,7 @@ class ConversationPanel(private val activity: Activity, private val client: Sess
                     updateComposer()
                 }
                 else if (value.optString("event") == "queue") applyQueue(value)
+                else if (!foreground && !drawer && thread.isNotEmpty() && value.optString("event") in setOf("snapshot", "delta", "stale")) backgroundApprovals(value)
                 else if (value.optString("event") == "snapshot") applyPage(value)
                 else if (value.optString("event") == "delta") applyDelta(value)
                 else if (value.optString("event") == "stale") resync()
@@ -436,6 +439,8 @@ class ConversationPanel(private val activity: Activity, private val client: Sess
     fun resume() {
         if (foreground) return
         foreground = true
+        approvalCheck?.let(ui::removeCallbacks); approvalCheck = null
+        if (!reviews && thread.isNotEmpty()) approvalNotifications.withdraw(client.provider, thread)
         if (!reviews) client.refreshProviderAccess()
         ui.removeCallbacks(waitCheck); if (!drawer) ui.postDelayed(waitCheck, 5_000)
         if (drawer) {
@@ -1387,6 +1392,26 @@ class ConversationPanel(private val activity: Activity, private val client: Sess
         refreshTurnChanges()
     }
     /** A dirty event during a read schedules another read instead of being dropped. */
+    /**
+     * While the phone is locked with this conversation open, surface new decidable approvals as notifications. A pushed
+     * page is used as-is; a change notice triggers one debounced read-only sync for the same thread.
+     */
+    private fun backgroundApprovals(event: JSONObject) {
+        if (reviews || !connected || !authorized) return
+        val target = thread; val source = client.provider
+        if (event.optString("event") == "snapshot" && event.has("approvals")) {
+            approvalNotifications.offer(source, event, client.authorizationIdentity); return
+        }
+        if (approvalCheck != null) return
+        approvalCheck = Runnable {
+            approvalCheck = null
+            if (foreground || drawer || thread != target || source != client.provider) return@Runnable
+            call("sync", JSONObject().put("threadId", target)) { page ->
+                if (!foreground && thread == target && page.optBoolean("ok") && page.optString("threadId", target) == target)
+                    approvalNotifications.offer(source, JSONObject(page.toString()).put("threadId", target), client.authorizationIdentity)
+            }
+        }.also { ui.postDelayed(it, 800) }
+    }
     private fun resync(withCache: Boolean = true) {
         if (!foreground || drawer || thread.isEmpty() || !connected || !authorized) return
         syncState.request(withCache)

@@ -991,6 +991,19 @@ final class AgentSessionService: @unchecked Sendable {
             else { throw AgentSessionProfile.Failure(code: "agent_queue_changed") }
             native["op"] = "queueDelete"
             native["messageId"] = id
+        case "queue.steer":
+            // Sends a queued follow-up into the running turn now; the same native queue the desktop shows.
+            guard session.provider == "codex", let id = request.params["queueId"] as? String,
+                (state.page["queuedMessages"] as? [[String: Any]] ?? []).contains(where: { $0["id"] as? String == id })
+            else { throw AgentSessionProfile.Failure(code: "agent_queue_changed") }
+            if let turn = request.params["expectedTurnId"] as? String {
+                guard state.page["activeTurnId"] as? String == turn else {
+                    throw AgentSessionProfile.Failure(code: "agent_turn_changed")
+                }
+                native["expectedTurnId"] = turn
+            }
+            native["op"] = "queueSteer"
+            native["messageId"] = id
         case "turn.interrupt":
             let turn = try required(request.params["expectedTurnId"])
             guard state.page["status"] as? String == "active", state.page["activeTurnId"] as? String == turn else {
@@ -1187,6 +1200,9 @@ final class AgentSessionService: @unchecked Sendable {
                 !rows.contains(where: { $0["id"] as? String == native["messageId"] as? String })
             else { return ("unknown", [:]) }
             return ("confirmed", ["queueId": native["messageId"]!, "cancelled": true])
+        case "queue.steer":
+            guard AgentSessionProfile.boolean(value["accepted"]) == true else { return ("unknown", [:]) }
+            return ("confirmed", ["queueId": native["messageId"]!, "steered": true])
         case "session.configure":
             guard AgentSessionProfile.boolean(value["accepted"]) == true,
                 verifiedExecutionMode(native: native, value: value),
@@ -1322,6 +1338,9 @@ final class AgentSessionService: @unchecked Sendable {
                     case "queueDelete":
                         lookup["op"] = "queueReceiptCheck"
                         lookup["action"] = "delete"
+                    case "queueSteer":
+                        lookup["op"] = "queueReceiptCheck"
+                        lookup["action"] = "steer"
                     default: lookup["op"] = "receiptCheck"
                     }
                     let nativeData = AgentSessionProfile.data(native)
@@ -1726,6 +1745,7 @@ final class AgentSessionService: @unchecked Sendable {
         case "approval.resolve": return "approval.resolved"
         case "question.answer": return "question.answered"
         case "queue.cancel": return "queue.cancelled"
+        case "queue.steer": return "queue.steered"
         default: return "unknown"
         }
     }

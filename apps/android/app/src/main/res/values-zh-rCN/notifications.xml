@@ -11,4 +11,13 @@
     <string name="task_reply_unknown">回复结果未知，请打开 VibePier 核对；不会自动重发。</string>
     <string name="task_reply_failed">回复未发送。</string>
     <string name="task_reply_open_app">Mac 连接未就绪，请打开 VibePier 回复。</string>
+    <string name="approval_notifications">审批请求</string>
+    <string name="approval_notification_title">%1$s 需要你决定</string>
+    <string name="approval_notification_body">请在 VibePier 中查看该请求。</string>
+    <string name="approval_allow">允许</string>
+    <string name="approval_deny">拒绝</string>
+    <string name="approval_submitting">正在把你的决定发送到 Mac…</string>
+    <string name="approval_submitted">决定已发送到 Mac。</string>
+    <string name="approval_unknown">决定结果未知，请打开 VibePier 核对；不会自动重发。</string>
+    <string name="approval_failed">决定未发送。</string>
 </resources>

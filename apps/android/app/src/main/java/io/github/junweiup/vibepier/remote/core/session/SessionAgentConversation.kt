@@ -335,6 +335,7 @@ internal class SessionAgentConversation(
             "settings" -> SessionAgentProtocol.Method.CONFIGURE
             "interrupt" -> SessionAgentProtocol.Method.INTERRUPT
             "queueDelete" -> SessionAgentProtocol.Method.CANCEL_QUEUE
+            "queueSteer" -> SessionAgentProtocol.Method.STEER_QUEUE
             "approve" -> if (answeringQuestion) SessionAgentProtocol.Method.ANSWER_QUESTION else SessionAgentProtocol.Method.RESOLVE_APPROVAL
             else -> SessionAgentProtocol.Method.UNOBSERVE
         }
@@ -382,6 +383,9 @@ internal class SessionAgentConversation(
                 "settings" -> params.put("options", options(fields))
                 "interrupt" -> params.put("expectedTurnId", fields.optString("expectedTurnId"))
                 "queueDelete" -> params.put("queueId", fields.optString("messageId"))
+                "queueSteer" -> params.put("queueId", fields.optString("messageId")).apply {
+                    fields.optString("expectedTurnId").takeIf { it.isNotBlank() }?.let { put("expectedTurnId", it) }
+                }
                 "approve" -> {
                     val pending = approval ?: run { fail("approval_expired"); return id }
                     val revision = SessionAgentCapabilities.opaque(pending.opt("revision")) ?: run { fail("stale_state"); return id }
@@ -553,13 +557,13 @@ internal class SessionAgentConversation(
                 it.none { char -> (char.code < 32 && char != '\n' && char != '\t') || char.code == 127 }
         }
 
-        private val mutationOperations = setOf("send", "new", "settings", "interrupt", "approve", "queueDelete")
+        private val mutationOperations = setOf("send", "new", "settings", "interrupt", "approve", "queueDelete", "queueSteer")
         private val retryablePreparation = setOf("agent_session_not_open", "agent_session_view_closed", "agent_native_unavailable", "content_incomplete", "agent_state_not_ready")
         private val preparedReads = setOf("composerOptions", "approvalDetails")
         private val preparationDelays = listOf(250L, 500L, 1_000L, 1_500L, 2_000L, 2_500L)
         // A cold Mac (provider launch, catalog refresh) needs more than one transport timeout before the single submission.
         private const val preparationDeadline = 25_000L
-        private val routed = setOf("list", "projects", "open", "close", "sync", "history", "parts", "message", "newOptions", "new", "send", "settings", "interrupt", "approve", "queueDelete")
+        private val routed = setOf("list", "projects", "open", "close", "sync", "history", "parts", "message", "newOptions", "new", "send", "settings", "interrupt", "approve", "queueDelete", "queueSteer")
         fun mergePartial(previous: JSONObject?, next: JSONObject): JSONObject {
             val result = JSONObject(next.toString())
             if (next.opt("contentState") == "complete") return result

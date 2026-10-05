@@ -11,4 +11,13 @@
     <string name="task_reply_unknown">Reply result unknown. Open VibePier to check; it will not be resent automatically.</string>
     <string name="task_reply_failed">Reply was not sent.</string>
     <string name="task_reply_open_app">Open VibePier to reply; the Mac connection is not ready.</string>
+    <string name="approval_notifications">Approval requests</string>
+    <string name="approval_notification_title">%1$s needs your decision</string>
+    <string name="approval_notification_body">Review the request in VibePier.</string>
+    <string name="approval_allow">Allow</string>
+    <string name="approval_deny">Deny</string>
+    <string name="approval_submitting">Sending your decision to the Mac…</string>
+    <string name="approval_submitted">Decision sent to the Mac.</string>
+    <string name="approval_unknown">Decision result unknown. Open VibePier to check; it will not be resent automatically.</string>
+    <string name="approval_failed">The decision was not sent.</string>
 </resources>

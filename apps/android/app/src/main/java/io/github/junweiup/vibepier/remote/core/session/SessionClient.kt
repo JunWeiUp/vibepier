@@ -72,8 +72,6 @@ class SessionClient(context: Context, private val sender: SessionTransport, priv
     val providerAccessKnown get() = providerAccess != null
     private var refreshingProviderAccess = false
     private val agentNegotiation = SessionAgentNegotiation()
-    private val creationOptions = linkedMapOf<String, JSONObject>()
-    private fun creationOptionsKey(fields: JSONObject) = listOf(fields.optString("provider"), selectedAgentAdapter(fields.optString("provider"))?.id, fields.optString("cwd"), fields.optString("draftId")).joinToString("\u0000")
     internal fun selectedAgentAdapter(source: String = provider): SessionAgentAdapter? {
         val selected = prefs.getString("agentAdapter.$authorizationIdentity.$source", null)
         return agentNegotiation.host?.adapter(source, selected)
@@ -82,7 +80,7 @@ class SessionClient(context: Context, private val sender: SessionTransport, priv
     internal fun selectAgentAdapter(id: String): Boolean {
         if (!providerEnabled(provider) || agentAdapters.none { it.id == id }) return false
         if (!prefs.edit().putString("agentAdapter.$authorizationIdentity.$provider", id).commit()) return false
-        agentNegotiation.clearTargets(); agentConversation.clearConnection(); creationOptions.clear()
+        agentNegotiation.clearTargets(); agentConversation.clearConnection()
         invalidateLists(); pages.clear()
         return true
     }
@@ -193,7 +191,7 @@ class SessionClient(context: Context, private val sender: SessionTransport, priv
         providerEnabled(sourceProvider) && selectedAgentAdapter(sourceProvider)?.actions?.get(key)?.supported == true
     internal fun sessionControlKnown(thread: String) = if (agent.negotiated) agent.session(provider, thread) != null else agentCapabilitiesKnown
     // Draft declarations can disappear after discovery or reconnect. The UI only
-    // checks adapter support; prepareLegacyMutation obtains fresh authorization.
+    // checks adapter support; the agent conversation obtains fresh authorization before each write.
     internal fun creationCapability(key: String, draft: SessionCreationDraft) =
         agentActionSupported(key, draft.provider)
     fun providerEnabled(value: String) = value in enabledProviders
@@ -359,7 +357,7 @@ class SessionClient(context: Context, private val sender: SessionTransport, priv
     @Volatile private var versionConnectionEpoch = 0L
     fun connectionChanged(connected: Boolean) {
         if (closed) return
-        if (connected != online) { versionConnectionEpoch++; agentNegotiation.clear(); agent.clearConnection(); agentConversation.clearConnection(); creationOptions.clear() }
+        if (connected != online) { versionConnectionEpoch++; agentNegotiation.clear(); agent.clearConnection(); agentConversation.clearConnection() }
         val restored = connected && !online
         online = connected
         if (restored && paired) refreshProviderAccess()
@@ -390,7 +388,7 @@ class SessionClient(context: Context, private val sender: SessionTransport, priv
                 check(reply.getString("device") == device)
                 val key = Base64.decode(reply.getString("key"), Base64.NO_WRAP); check(key.size == 32)
                 try { keys.install(key); versionConnectionEpoch++ } finally { key.fill(0) }
-                providerAccess = null; refreshingProviderAccess = false; agentNegotiation.clear(); agent.clearConnection(); agentConversation.clearConnection(); creationOptions.clear()
+                providerAccess = null; refreshingProviderAccess = false; agentNegotiation.clear(); agent.clearConnection(); agentConversation.clearConnection()
                 sender.authorizationChanged()
                 if (online) refreshProviderAccess()
                 lists.clear(); pages.clear(); content.clear()
@@ -443,57 +441,18 @@ class SessionClient(context: Context, private val sender: SessionTransport, priv
                 callback(JSONObject().put("id", id).put("ok", false).put("unknown", true).put("error", context.getString(R.string.client_receipt_save_failed)))
                 return id
             }
-            if (saved == null) return prepareLegacyMutation(op, JSONObject(fields.toString()).put("id", id), callback)
+            // Every phone write goes through the unified agent profile. Until it is negotiated on this connection, a
+            // write is refused before any effect (no legacy fallback); negotiation is requested again.
+            if (saved == null) {
+                if (!refreshingProviderAccess) refreshProviderAccess()
+                callback(JSONObject().put("id", id).put("ok", false).put("code", "agent_state_not_ready")
+                    .put("error", context.getString(R.string.agent_state_not_ready)))
+                return id
+            }
         }
         return wireRequest(op, fields, callback)
     }
     private val sessionMutations = setOf("send", "new", "settings", "approve", "interrupt", "queueSteer", "queueDelete")
-    private fun prepareLegacyMutation(op: String, fields: JSONObject, callback: (JSONObject) -> Unit): String {
-        val source = fields.optString("provider").ifBlank { provider }
-        val requestedView = fields.opt("viewVersion")
-        val frozen = JSONObject(fields.toString()).put("provider", source).put("viewVersion", viewVersion)
-        val id = frozen.getString("id"); val thread = frozen.optString("threadId")
-        val selected = selectedAgentAdapter(source)?.id
-        val authorization = authorizationIdentity; val connection = versionConnectionID; val view = viewVersion
-        fun current() = online && paired && source == provider && selected == selectedAgentAdapter(source)?.id &&
-            authorization == authorizationIdentity && connection == versionConnectionID && view == viewVersion
-        fun failed(code: String) = callback(JSONObject().put("id", id).put("ok", false).put("code", code)
-            .put("error", context.getString(if (code == "agent_state_changed") R.string.agent_state_changed else R.string.agent_state_not_ready)))
-        val cached = if (op == "new") creationOptions[creationOptionsKey(frozen)] else cachedPage(thread)
-        val intent = SessionControlPreparation.capture(op, frozen, cached)
-        if (!current() || requestedView != null && SessionAgentProtocol.integer(requestedView) != viewVersion || selected == null || intent == null || !SessionResponseInbox.uuid(id)) { failed("stale_state"); return id }
-        var attempts = 0
-        val finished: (JSONObject) -> Unit = { fresh ->
-            if (!current()) failed("stale_state")
-            else if (!fresh.optBoolean("ok")) callback(JSONObject(fresh.toString()).put("id", id))
-            else if (!SessionControlPreparation.validate(intent, fresh)) failed("agent_state_changed")
-            else {
-                if (op != "new") onEvent(JSONObject(fresh.toString()).put("event", "snapshot"))
-                // This is the only write call. A failure/unknown after it is handled by the existing journal.
-                val resolved = SessionControlPreparation.resolvedFields(intent, fresh)
-                if (resolved == null) failed("agent_state_changed")
-                else if (current()) wireRequest(op, resolved.put("id", id).put("provider", source).put("viewVersion", view), callback)
-                else failed("stale_state")
-            }
-        }
-        if (agent.negotiated && op != "new") agentConversation.prepareSessionControl(frozen, finished)
-        else {
-            fun fetch() {
-                if (!current()) { failed("stale_state"); return }
-                attempts++
-                val readFields = JSONObject().put("provider", source).put("viewVersion", view).put("agentAdapterId", selected)
-                if (op == "new") readFields.put("cwd", frozen.opt("cwd")).put("draftId", frozen.opt("draftId"))
-                else readFields.put("threadId", thread)
-                wireRequest(if (op == "new") "newOptions" else "sync", readFields) { fresh ->
-                    if (!current()) { failed("stale_state"); return@wireRequest }
-                    if (!fresh.optBoolean("ok") && attempts < 2 && fresh.optString("code") in setOf("stale_state", "content_incomplete", "agent_capability_unavailable")) fetch()
-                    else finished(fresh)
-                }
-            }
-            fetch()
-        }
-        return id
-    }
     private fun wireRequest(op: String, fields: JSONObject, callback: (JSONObject) -> Unit): String {
         val id = fields.optString("id").ifBlank { UUID.randomUUID().toString() }
         val request = JSONObject().apply {
@@ -867,10 +826,6 @@ class SessionClient(context: Context, private val sender: SessionTransport, priv
                     waiting.json.optString("provider") == provider && waiting.json.optLong("viewVersion", -1) == viewVersion &&
                     waiting.json.optString("agentAdapterId") == selectedAgentAdapter()?.id) {
                     agentNegotiation.remember(waiting.json, value.optJSONObject("agentCapabilities"))
-                    if (waiting.json.optString("op") == "newOptions") {
-                        creationOptions[creationOptionsKey(waiting.json)] = JSONObject(value.toString())
-                        while (creationOptions.size > 16) creationOptions.remove(creationOptions.keys.first())
-                    }
                 }
                 if (providerAccess != null && waiting != null && !mutable(waiting.json.optString("op")) &&
                     providerAccess?.permits(sourceProvider.orEmpty(), waiting.json.optString("op")) != true &&

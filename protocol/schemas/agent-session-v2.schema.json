@@ -39,6 +39,7 @@
         "session.configure",
         "message.submit",
         "queue.cancel",
+        "queue.steer",
         "turn.interrupt",
         "approval.resolve",
         "question.answer",
@@ -727,6 +728,39 @@
             "additionalProperties": false,
             "properties": {
               "queueId": {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 1024
+              }
+            }
+          }
+        },
+        "required": [
+          "operationId",
+          "controlLease"
+        ]
+      }
+    },
+    {
+      "if": {
+        "properties": {
+          "method": {
+            "const": "queue.steer"
+          }
+        }
+      },
+      "then": {
+        "properties": {
+          "params": {
+            "type": "object",
+            "additionalProperties": false,
+            "properties": {
+              "queueId": {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 1024
+              },
+              "expectedTurnId": {
                 "type": "string",
                 "minLength": 1,
                 "maxLength": 1024
