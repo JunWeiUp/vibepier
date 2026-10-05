@@ -44,6 +44,13 @@ internal class ConversationNavigation(
         show()
     }
 
+    fun showCompletion(route: JSONObject) {
+        if (io.github.junweiup.vibepier.remote.features.sessions.ConversationViewState.read(route, client.authorizationIdentity) == null) return
+        close()
+        show()
+        panel?.restoreNavigationState(route)
+    }
+
     /** Save routes and pending picker ownership only; conversation bodies stay in the private cache. */
     fun saveState(out: Bundle) {
         panel?.navigationState()?.let { out.putString("conversationNavigation", it.toString()) }

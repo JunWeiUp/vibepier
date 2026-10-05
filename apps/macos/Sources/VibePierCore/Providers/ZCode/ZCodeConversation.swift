@@ -13,7 +13,10 @@ enum ZCodeConversation {
         }
         let source = value["source"] as? [String: Any] ?? [:]
         let metadata = value["metadata"] as? [String: Any] ?? [:]
-        for candidate in [source["path"], metadata["originalUrl"], value["url"]].compactMap({ $0 as? String }) {
+        for candidate in [metadata["artifactUri"], source["path"], metadata["originalUrl"], value["url"]].compactMap({
+            $0 as? String
+        }) {
+            if candidate.hasPrefix("zcode-artifact://") { return candidate }
             if candidate.hasPrefix("data:image/") { return candidate }
             if let url = URL(string: candidate), url.isFileURL { return url.path }
             if candidate.hasPrefix("/") { return candidate }

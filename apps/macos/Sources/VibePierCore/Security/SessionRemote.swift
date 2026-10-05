@@ -78,11 +78,12 @@ public final class SessionRemote: @unchecked Sendable {
     private let apkWorkers = APKPreparationWorkers()
     private var apkReservations = APKStageReservations()
     private var publishingAPK: APKPreparationJob?
-    private let bridge = CodexBridge()
     private let codexUsage = CodexUsage()
-    private let claude = ClaudeBridge()
-    private let zcode = ZCodeBridge(desktop: ZCodeDesktop.access)
+    private let coordinator = AgentSessionCoordinator(
+        registry: try! AgentAdapterRegistry(CurrentV1AgentAdapter.production()))
     private let trust = DeviceTrustStore.shared
+    private let runtimeHost = AgentRuntimeHost()
+    private lazy var agentService: AgentSessionService? = makeAgentService()
     private var journal: SessionReceiptJournal?
     private var inbox = SessionPacketInbox()
     private var routes: [String: Route] = [:]
@@ -90,8 +91,10 @@ public final class SessionRemote: @unchecked Sendable {
     private var lease: DispatchWorkItem?
     private var pairResults: [String: Data] = [:]
     private var pairing = Set<String>()
-    private var outgoing: [String: (device: String, frames: [Data], created: Double, fastPeer: String?)] = [:]
+    private var outgoing:
+        [String: (device: String, frames: [Data], created: Double, fastPeer: String?, provider: String?)] = [:]
     private var readReplies = SessionReadReplies()
+    private var providerPolicy = SessionProviderPolicy()
     private let executions = SessionWorkBudget(lanes: SessionRequestLane.limits)
     private let events = SessionWorkBudget()
     private let ingress = SessionWorkBudget(
@@ -100,15 +103,23 @@ public final class SessionRemote: @unchecked Sendable {
     private let receiptFile = Paths.supportDirectory.appendingPathComponent("codex-receipts.json")
     private init() {
         journal = try? SessionReceiptJournal(file: receiptFile)
-        bridge.event = { [weak self] client, data in
-            self?.enqueueEvent(data, device: client, provider: "codex")
+        coordinator.event = { [weak self] client, provider, data in
+            guard let self else { return }
+            self.queue.async { self.agentService?.receiveCurrentV1Event(data, provider: provider, client: client) }
+            self.enqueueEvent(data, device: client, provider: provider)
         }
-        claude.event = { [weak self] client, data in
-            self?.enqueueEvent(data, device: client, provider: "claude")
+        runtimeHost.event = { [weak self] client, adapter, data in
+            guard let self else { return }
+            self.queue.async {
+                self.agentService?.receiveAdapterEvent(
+                    data, adapterID: adapter,
+                    provider: adapter.hasPrefix("codex.") ? "codex" : "claude", client: client)
+            }
         }
-        zcode.event = { [weak self] client, data in
-            self?.enqueueEvent(data, device: client, provider: "zcode")
-        }
+    }
+    func restoreAgentRuntimes() { runtimeHost.restoreExplicitConfiguration() }
+    func agentRuntimeCommand(_ request: [String: Any], completion: @escaping @Sendable (Data) -> Void) {
+        runtimeHost.localCommand(request, completion: completion)
     }
     /// Uses only existing authenticated routes and the regular encrypted event budget.
     func taskCompleted(_ event: [String: String]) {
@@ -118,6 +129,30 @@ public final class SessionRemote: @unchecked Sendable {
                 self.enqueueEvent(data, device: device, provider: event["provider"] ?? "")
             }
         }
+    }
+    func configureProviders(_ policy: SessionProviderPolicy) {
+        queue.sync {
+            guard policy.revision >= providerPolicy.revision, policy != providerPolicy else { return }
+            providerPolicy = policy
+            agentService?.configurePolicy(policy)
+            readReplies.removeAll()
+            outgoing = outgoing.filter { $0.value.provider.map(policy.isEnabled) ?? true }
+            for device in routes.keys {
+                coordinator.stopObservation(
+                    client: device, providers: Set(SessionV1Contract.providers.filter { !policy.isEnabled($0) }))
+                runtimeHost.stop(client: device)
+                taskViews.removeValue(forKey: device)
+                sendObject(["event": "providersChanged", "providerAccess": policy.object], device: device)
+            }
+        }
+    }
+    var providerAccessSnapshot: [String: Any] { queue.sync { providerPolicy.object } }
+    private func providerDisabled(_ id: String, device: String) {
+        sendObject(
+            [
+                "id": id, "ok": false, "code": "provider_disabled",
+                "error": L10n.text("providers.disabled_on_mac"), "providerAccess": providerPolicy.object,
+            ], device: device)
     }
     public func phoneAppVersion(_ device: String) -> [String: Any]? { queue.sync { appVersions.installed(device) } }
     public func latestAndroidVersion() -> [String: Any]? { queue.sync { appVersions.latest } }
@@ -277,9 +312,9 @@ public final class SessionRemote: @unchecked Sendable {
             self.apk.cancel(id)
             self.appVersions.revoke(id)
             self.routes.removeValue(forKey: id)
-            self.bridge.stop(id)
-            self.claude.stop(id)
-            self.zcode.stop(id)
+            self.coordinator.stopObservation(client: id, forgetNegotiation: true)
+            self.agentService?.close(client: id)
+            self.runtimeHost.stop(client: id)
             self.taskViews.removeValue(forKey: id)
             self.outgoing = self.outgoing.filter { $0.value.device != id }
             self.inbox.revoke(id)
@@ -301,6 +336,10 @@ public final class SessionRemote: @unchecked Sendable {
             self.apkReservations.cancelAll()
             self.publishingAPK?.cancel()
             self.publishingAPK = nil
+            for client in self.routes.keys {
+                self.agentService?.close(client: client)
+                self.runtimeHost.stop(client: client)
+            }
             self.routes.removeAll()
             self.taskViews.removeAll()
             self.inbox.discardPartial()
@@ -310,18 +349,16 @@ public final class SessionRemote: @unchecked Sendable {
             self.pairResults.removeAll()
             self.lease?.cancel()
             self.lease = nil
-            self.bridge.stopAll()
-            self.claude.stopAll()
-            self.zcode.stopAll()
+            self.coordinator.stopAllObservations()
         }
     }
     private func removePeer(_ peer: String) {
         for id in routes.filter({ $0.value.peer == peer }).keys {
             routes.removeValue(forKey: id)
             taskViews.removeValue(forKey: id)
-            bridge.stop(id)
-            claude.stop(id)
-            zcode.stop(id)
+            coordinator.stopObservation(client: id, forgetNegotiation: true)
+            agentService?.close(client: id)
+            runtimeHost.stop(client: id)
         }
         lastPeer.removeValue(forKey: peer)
         pairResults.removeValue(forKey: peer)
@@ -426,9 +463,24 @@ public final class SessionRemote: @unchecked Sendable {
             send(saved.frames)
             return
         }
-        if request["op"] as? String == "notificationSubscribe" {
+        if ["notificationSubscribe", "providers"].contains(request["op"] as? String ?? "") {
             // Authenticated no-op establishes the route even without opening a conversation.
-            sendObject(["id": id, "ok": true], device: device)
+            var response: [String: Any] = ["id": id, "ok": true, "providerAccess": providerPolicy.object]
+            if let capabilities = coordinator.describe(
+                client: device, requestedVersion: request["agentCapabilityVersion"], policy: providerPolicy)
+            {
+                response["agentCapabilities"] = extendedCapabilities(capabilities)
+            }
+            if agentService != nil {
+                response["agentProfiles"] = [
+                    "versions": [2], "minimumClientVersion": 2, "methods": AgentSessionProfile.methods,
+                ]
+            }
+            sendObject(response, device: device)
+            return
+        }
+        if request["op"] as? String == "agentRequest" {
+            acceptAgentRequest(request, clear: clear, device: device)
             return
         }
         if request["op"] as? String == "relaySetup" {
@@ -545,6 +597,7 @@ public final class SessionRemote: @unchecked Sendable {
                 if original?["op"] as? String == "new" {
                     lookup["op"] = "newReceiptCheck"
                     lookup["cwd"] = original?["cwd"]
+                    lookup["executionMode"] = original?["executionMode"]
                 }
                 if original?["op"] as? String == "codexUsageReset" {
                     lookup["op"] = "codexUsageResetReceipt"
@@ -559,6 +612,7 @@ public final class SessionRemote: @unchecked Sendable {
                 let originalCwd = original?["cwd"] as? String ?? ""
                 let originalAccountId = original?["accountId"] as? String ?? ""
                 let originalCreditId = original?["creditId"] as? String ?? ""
+                let originalExecutionMode = original?["executionMode"] as? String ?? ""
                 if let bytes = try? JSONSerialization.data(withJSONObject: lookup) {
                     guard
                         case .accepted(let ticket) = executions.begin(
@@ -577,7 +631,8 @@ public final class SessionRemote: @unchecked Sendable {
                             if let body = SessionProviderReply.resolvedLookup(
                                 reply, thread: saved.thread, operation: originalOperation,
                                 cwd: originalCwd, fingerprint: approvalFingerprint ?? "",
-                                accountId: originalAccountId, creditId: originalCreditId)
+                                accountId: originalAccountId, creditId: originalCreditId,
+                                executionMode: originalExecutionMode)
                             {
                                 var receipt = body
                                 receipt["id"] = operation
@@ -623,16 +678,16 @@ public final class SessionRemote: @unchecked Sendable {
             sendObject(result, device: device)
             return
         }
-        let mutable =
-            [
-                "send", "new", "approve", "settings", "interrupt", "queueSteer", "queueDelete", "lockScreen",
-                "unlockScreen", "codexUsageReset",
-            ]
-            .contains(
-                request["op"] as? String ?? "")
+        if request["op"] as? String == "close" { BinaryFileTransfers.shared.cancelMedia(device: device) }
+        let descriptor = SessionV1Contract.descriptor(request["op"] as? String ?? "")
+        let mutable = descriptor?.durableMutation == true
 
-        let receiptKey = device + ":" + id
+        let receiptKey = journal?.existingKey(device: device, operation: id) ?? device + ":" + id
         let hash = CodexConversation.fingerprint(request.filter { $0.key != "sentAt" })
+        guard providerPolicy.permits(request, recordedMutation: mutable && journal?.receipt(receiptKey) != nil) else {
+            providerDisabled(id, device: device)
+            return
+        }
         if !mutable {
             switch readReplies.lookup(receiptKey, hash: hash, now: now) {
             case .conflict:
@@ -640,7 +695,7 @@ public final class SessionRemote: @unchecked Sendable {
                     ["id": id, "ok": false, "error": L10n.text("control.operation_id_conflict")], device: device)
                 return
             case .complete(let bytes):
-                self.send(bytes, device: device)
+                self.send(bytes, device: device, provider: SessionProviderPolicy.contentProvider(request))
                 return
             case .pending: return
             case .missing: break
@@ -648,6 +703,16 @@ public final class SessionRemote: @unchecked Sendable {
         }
         // Existing mutation receipts can be read/replayed even when fresh execution capacity is full.
         let known = mutable && journal?.receipt(receiptKey) != nil
+        if !known, let failure = coordinator.freshMutationFailure(request, client: device) {
+            sendObject(
+                [
+                    "id": id, "ok": false, "code": failure,
+                    "error": L10n.text(
+                        failure == "agent_upgrade_required" ? "agent.upgrade_required" : "agent.capability_unavailable"),
+                ],
+                device: device)
+            return
+        }
         let ticket = known ? nil : beginWork(request, device: device, bytes: clear.count)
         guard known || ticket != nil else { return }
         var dispatched = false
@@ -710,6 +775,8 @@ public final class SessionRemote: @unchecked Sendable {
             taskViews.removeValue(forKey: device)
         }
         let replyContext = SessionProviderReply.Context(request)
+        let accessProvider = SessionProviderPolicy.provider(request)
+        let independent = descriptor?.contentProviderScope == false
         dispatched = true
         perform(clear, provider: request["provider"] as? String, client: device) { [weak self] result in
             guard let self, self.executions.claimCompletion(ticket) else { return }
@@ -717,6 +784,10 @@ public final class SessionRemote: @unchecked Sendable {
             self.queue.async { [weak self] in
                 guard let self else { return }
                 defer { self.executions.finish(ticket) }
+                if !mutable && !independent && !self.providerPolicy.isEnabled(accessProvider) {
+                    self.providerDisabled(id, device: device)
+                    return
+                }
                 var reply = SessionProviderReply(result, request: replyContext, mutable: mutable)
                 if mutable {
                     reply = reply.saving { bytes in
@@ -728,7 +799,7 @@ public final class SessionRemote: @unchecked Sendable {
                 let bytes = reply.data
                 if !mutable { self.readReplies.complete(receiptKey, hash: hash, result: bytes) }
                 if let taskView { self.finishTaskView(object, device: device, provider: taskView.provider) }
-                self.send(bytes, device: device)
+                self.send(bytes, device: device, provider: !mutable && !independent ? accessProvider : nil)
             }
         }
     }
@@ -813,10 +884,205 @@ public final class SessionRemote: @unchecked Sendable {
         }
     }
     private func sendConversationEvent(_ data: Data, device: String, provider: String) {
+        guard providerPolicy.isEnabled(provider) else { return }
         if let page = try? JSONSerialization.jsonObject(with: data) as? [String: Any] {
             finishTaskView(page, device: device, provider: provider)
         }
-        send(data, device: device)
+        send(data, device: device, provider: provider)
+    }
+    private func extendedCapabilities(_ value: [String: Any]) -> [String: Any] {
+        var result = value
+        result["adapters"] =
+            (value["adapters"] as? [[String: Any]] ?? []).map { $0.merging(["default": true]) { $1 } }
+            + runtimeHost.descriptors().map { $0.merging(["default": false]) { $1 } }
+        return result
+    }
+    private func makeAgentService() -> AgentSessionService? {
+        guard
+            let directory = try? AgentSessionDirectory(
+                file: Paths.supportDirectory.appendingPathComponent("agent-sessions.json"))
+        else { return nil }
+        let binding = AgentSessionService.Journal(
+            read: { [weak self] key, done in
+                self?.withAgentJournal(key: key, completion: done) { journal, actual in
+                    journal.receipt(actual).map {
+                        .init(
+                            hash: $0.hash, thread: $0.thread, result: $0.result,
+                            intent: $0.intent, retired: $0.retired == true, evidence: $0.evidence)
+                    }
+                }
+            },
+            reserve: { [weak self] key, hash, scope, intent, done in
+                self?.withAgentJournal(key: key, completion: done) { journal, actual in
+                    switch try journal.reserve(actual, hash: hash, thread: scope, intent: intent) {
+                    case .fresh: return .fresh
+                    case .complete(let data): return .complete(data)
+                    case .unknown: return .unknown
+                    case .conflict: return .conflict
+                    }
+                }
+            },
+            complete: { [weak self] key, data, done in
+                self?.withAgentJournal(key: key, completion: done) { journal, actual in
+                    try journal.complete(actual, result: data)
+                }
+            },
+            recordEvidence: { [weak self] key, data, done in
+                self?.withAgentJournal(key: key, completion: done) { journal, actual in
+                    try journal.recordEvidence(actual, evidence: data)
+                }
+            })
+        let service = AgentSessionService(
+            directory: directory,
+            execute: { [weak self] data, provider, client, done in
+                guard let self else { return }
+                self.queue.async {
+                    guard self.trust.key(for: client) != nil else {
+                        done(AgentSessionProfile.data(["ok": false, "code": "unauthorized_device"]))
+                        return
+                    }
+                    let fields = (try? JSONSerialization.jsonObject(with: data) as? [String: Any]) ?? [:]
+                    if SessionV1Contract.descriptor(fields["op"] as? String ?? "")?.durableMutation == true,
+                        !self.providerPolicy.isEnabled(provider)
+                    {
+                        done(AgentSessionProfile.data(["ok": false, "code": "provider_disabled"]))
+                        return
+                    }
+                    let adapter = fields["agentAdapterId"] as? String ?? provider + ".currentV1"
+                    if adapter == provider + ".currentV1" {
+                        self.perform(data, provider: provider, client: client, completion: done)
+                    } else {
+                        self.runtimeHost.perform(data, adapter: adapter, client: client, completion: done)
+                    }
+                }
+            }, journal: binding,
+            describe: { [weak self] client, done in
+                self?.queue.async { [weak self] in
+                    guard let self else { return }
+                    let current =
+                        self.coordinator.describe(client: client, requestedVersion: 1, policy: self.providerPolicy)
+                        ?? [:]
+                    done(AgentSessionProfile.data(self.extendedCapabilities(current)))
+                }
+            },
+            freshMutationFailure: { [weak self] data, client, done in
+                guard let self else { return }
+                let fields = (try? JSONSerialization.jsonObject(with: data) as? [String: Any]) ?? [:]
+                if let adapter = fields["agentAdapterId"] as? String, !adapter.hasSuffix(".currentV1") {
+                    self.runtimeHost.freshMutationFailure(data, client: client, completion: done)
+                } else {
+                    self.queue.async {
+                        let current = (try? JSONSerialization.jsonObject(with: data) as? [String: Any]) ?? [:]
+                        done(self.coordinator.freshMutationFailure(current, client: client))
+                    }
+                }
+            },
+            eventSink: { [weak self] client, data in
+                guard let self, data.count <= 300_000,
+                    case .accepted(let ticket) = self.events.begin(
+                        device: client, id: UUID().uuidString, bytes: data.count)
+                else { return }
+                self.queue.async {
+                    defer { self.events.finish(ticket) }
+                    guard self.trust.key(for: client) != nil, self.routes[client] != nil,
+                        let object = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
+                        let body = object["body"] as? [String: Any], let event = body["data"] as? [String: Any],
+                        let provider = event["provider"] as? String, SessionV1Contract.providers.contains(provider),
+                        self.providerPolicy.isEnabled(provider)
+                    else { return }
+                    self.send(data, device: client, provider: provider)
+                }
+            }, additionalAdapters: { [weak self] in self?.runtimeHost.adapterProviders() ?? [:] })
+        service.configurePolicy(providerPolicy)
+        return service
+    }
+    private func withAgentJournal<T: Sendable>(
+        key: String, completion: @escaping @Sendable (Result<T, Error>) -> Void,
+        _ work: @escaping @Sendable (SessionReceiptJournal, String) throws -> T
+    ) {
+        queue.async {
+            guard let journal = self.journal, journal.isReliable, let split = key.firstIndex(of: ":") else {
+                completion(.failure(AgentSessionProfile.Failure(code: "agent_receipt_storage_unavailable")))
+                return
+            }
+            let device = String(key[..<split])
+            let operation = String(key[key.index(after: split)...])
+            let actual = journal.existingKey(device: device, operation: operation) ?? key
+            completion(Result { try work(journal, actual) })
+        }
+    }
+    private func acceptAgentRequest(_ outer: [String: Any], clear: Data, device: String) {
+        let id = outer["id"] as? String ?? ""
+        do {
+            let request = try AgentSessionProfile.decode(outer)
+            guard let service = agentService else {
+                rejectAgentBeforeDispatch(
+                    request, code: "agent_index_invalid", device: device, uncertain: request.mutable)
+                return
+            }
+            service.admissionProvider(request, client: device) { [weak self] provider in
+                self?.queue.async { [weak self] in
+                    guard let self, self.trust.key(for: device) != nil else { return }
+                    let lane =
+                        provider.map {
+                            SessionRequestLane.resolve(["provider": $0], receipt: request.method == "operation.get")
+                        }
+                        ?? SessionRequestLane.controls.rawValue
+                    let admission = self.executions.begin(device: device, id: id, bytes: clear.count, lane: lane)
+                    guard case .accepted(let ticket) = admission else {
+                        if case .full = admission {
+                            let recorded =
+                                request.operationID.flatMap { self.journal?.existingKey(device: device, operation: $0) }
+                                != nil
+                            let uncertain = request.mutable && (recorded || self.journal?.isReliable != true)
+                            self.rejectAgentBeforeDispatch(
+                                request, code: "capacity_exceeded", device: device, uncertain: uncertain)
+                        }
+                        return
+                    }
+                    service.perform(request, client: device) { [weak self] result in
+                        guard let self, self.executions.claimCompletion(ticket) else { return }
+                        self.queue.async {
+                            defer { self.executions.finish(ticket) }
+                            let scoped =
+                                !request.mutable
+                                && !["operation.get", "session.unobserve", "agent.describe"].contains(request.method)
+                            if scoped, let provider, !self.providerPolicy.isEnabled(provider) {
+                                self.sendObject(
+                                    [
+                                        "id": id, "ok": false, "code": "provider_disabled",
+                                        "body": ["agentProtocol": 2, "requestId": id, "code": "provider_disabled"],
+                                    ], device: device)
+                            } else {
+                                self.send(result, device: device, provider: scoped ? provider : nil)
+                            }
+                        }
+                    }
+                }
+            }
+        } catch {
+            let code = (error as? AgentSessionProfile.Failure)?.code ?? "agent_request_invalid"
+            // A malformed request cannot invalidate an earlier reservation held by the phone.
+            sendObject(
+                [
+                    "id": id, "ok": false, "code": code,
+                    "body": ["agentProtocol": 2, "requestId": id, "code": code],
+                ], device: device)
+        }
+    }
+    private func rejectAgentBeforeDispatch(
+        _ request: AgentSessionProfile.Request, code: String, device: String, uncertain: Bool
+    ) {
+        var body: [String: Any] = ["agentProtocol": 2, "requestId": request.id, "code": code]
+        if request.mutable {
+            body["operationId"] = request.operationID
+            body["target"] = request.target
+            body["status"] = uncertain ? "unknown" : "rejected"
+            body["result"] = ["code": code]
+        }
+        var reply: [String: Any] = ["id": request.id, "ok": false, "code": code, "body": body]
+        if uncertain { reply["unknown"] = true }
+        sendObject(reply, device: device)
     }
     /// All providers share the authorized device channel; older phones default to Codex.
     private func perform(
@@ -865,14 +1131,7 @@ public final class SessionRemote: @unchecked Sendable {
             }
             return
         }
-        switch provider {
-        case nil, "", "codex": bridge.perform(data, client: client, completion: completion)
-        case "claude": claude.perform(data, client: client, completion: completion)
-        case "zcode": zcode.perform(data, client: client, completion: completion)
-        default:
-            let reply: [String: Any] = ["ok": false, "error": L10n.text("control.unsupported_session_provider")]
-            completion((try? JSONSerialization.data(withJSONObject: reply)) ?? Data())
-        }
+        coordinator.performCurrentV1(data, provider: provider, trustedClient: client, completion: completion)
     }
     private func sendObject(_ value: [String: Any], device: String, fragmentChars: Int = 900, requestID: String? = nil)
     {
@@ -880,7 +1139,9 @@ public final class SessionRemote: @unchecked Sendable {
             send(data, device: device, fragmentChars: fragmentChars, requestID: requestID)
         }
     }
-    private func send(_ data: Data, device: String, fragmentChars: Int = 900, requestID: String? = nil) {
+    private func send(
+        _ data: Data, device: String, fragmentChars: Int = 900, requestID: String? = nil, provider: String? = nil
+    ) {
         guard data.count <= 300_000 else {
             // Never drop a reply silently: the phone would wait on "正在打开" forever.
             if let id = (try? JSONSerialization.jsonObject(with: data) as? [String: Any])?["id"] as? String {
@@ -909,7 +1170,7 @@ public final class SessionRemote: @unchecked Sendable {
             outgoing.removeValue(forKey: oldest)
         }
         outgoing[packet] = (
-            device, frames, ProcessInfo.processInfo.systemUptime, fragmentChars == 7200 ? route.peer : nil
+            device, frames, ProcessInfo.processInfo.systemUptime, fragmentChars == 7200 ? route.peer : nil, provider
         )
         route.send(frames)
     }

@@ -37,24 +37,41 @@ struct CodexComposer {
             ? "full-access"
             : ["guardian_subagent", "auto_review"].contains(reviewer)
                 ? "guardian-approvals" : profile == ":workspace" ? "auto" : "custom"
-        return [
+        var result: [String: Any] = [
             "model": settings["model"] as? String ?? state["latestModel"] as? String ?? "",
             "effort": settings["effort"] as? String ?? state["latestReasoningEffort"] as? String ?? "medium",
             "mode": mode,
         ]
+        if let mode = CodexExecutionMode.selected(state) { result["executionMode"] = mode }
+        return result
     }
-    func settings(_ request: [String: Any], state: [String: Any]) throws -> [String: Any] {
+    func settings(_ request: [String: Any], state: [String: Any], executionModes: [[String: Any]] = []) throws
+        -> [String: Any]
+    {
+        guard ["model", "effort", "mode", "executionMode"].allSatisfy({ request[$0] == nil || request[$0] is String })
+        else {
+            throw CLIError(L10n.text("core.invalid_request"))
+        }
         var result: [String: Any] = [:]
-        if let model = request["model"] as? String {
+        let selection = Self.selection(state)
+        if request["model"] != nil || request["effort"] != nil || request["executionMode"] != nil {
+            let model = request["model"] as? String ?? selection["model"] as? String ?? ""
             guard let entry = try models().first(where: { $0["id"] as? String == model }) else {
                 throw CLIError(L10n.text("session.this_model_is_not_in_the_mac_s_available_model_list"))
             }
-            let effort = request["effort"] as? String ?? entry["defaultEffort"] as? String ?? "medium"
+            let effort =
+                request["effort"] as? String
+                ?? (request["model"] == nil ? selection["effort"] as? String : nil)
+                ?? entry["defaultEffort"] as? String ?? "medium"
             guard (entry["efforts"] as? [String] ?? []).contains(effort) else {
                 throw CLIError(L10n.text("session.this_model_does_not_support_the_selected_reasoning_effort"))
             }
             result["model"] = model
             result["effort"] = effort
+            if let mode = request["executionMode"] as? String {
+                result["collaborationMode"] = try CodexExecutionMode.preset(
+                    mode: mode, model: model, effort: effort, catalog: executionModes)
+            }
         }
         if let mode = request["mode"] as? String {
             switch mode {

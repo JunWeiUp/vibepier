@@ -347,7 +347,6 @@ enum CodexConversation {
         let count = ConversationReply.recentTurns
         // Only the newest turns; the phone asks for earlier ones as the user scrolls up.
         let rows = ConversationReply.preview(all.suffix(count).flatMap(messages))
-        let pagination = state["turnsPagination"] as? [String: Any] ?? [:]
         return [
             "threadId": state["id"] as? String ?? "", "title": state["title"] as? String ?? "Codex",
             "messages": rows,
@@ -359,7 +358,7 @@ enum CodexConversation {
                 return summary
             },
             "status": (state["threadRuntimeStatus"] as? [String: Any])?["type"] as? String ?? "idle",
-            "hasOlder": all.count > count || pagination["hasLoadedOldest"] as? Bool != true,
+            "hasOlder": all.count > count || !CodexHistoryReadback.complete(state),
             "loadedTurns": count,
             "activeTurnId": turns(state).last(where: { $0["status"] as? String == "inProgress" })?["turnId"] as? String
                 ?? "", "composer": composer(state),

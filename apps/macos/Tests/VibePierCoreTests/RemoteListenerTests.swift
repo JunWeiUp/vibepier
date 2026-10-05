@@ -92,7 +92,8 @@ final class RemoteListenerTests: XCTestCase {
     }
 
     func testDirectOfferAdmitsOnlyMatchingToken() throws {
-        let listener = RemoteListener { _ in }
+        let listener = RemoteListener(
+            keyForDevice: { _ in nil }, sessionRemote: { TestSessionRouter() }, handler: { _ in })
         try listener.start(port: 47902)
         defer { listener.stop() }
         let fd = socket(AF_INET, SOCK_DGRAM, IPPROTO_UDP)

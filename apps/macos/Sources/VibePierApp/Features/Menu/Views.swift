@@ -23,6 +23,7 @@ struct MenuPanelLayout<Content: View>: View {
 struct PanelView: View {
     @ObservedObject var model: DeviceModel
     @ObservedObject private var commands = AppCommands.feedback
+    @ObservedObject private var permissions = MacPermissionsGuide.shared
     @State private var showCommandError = false
     @Environment(\.openWindow) private var openWindow
     @State private var openedMaximumHeight: CGFloat?
@@ -51,10 +52,18 @@ struct PanelView: View {
             header
             deviceTile
             phoneTile
+            SessionProviderSection(model: model)
             if !model.daemonRunning || !model.accessibilityTrusted { serviceWarning }
             TaskActivitySection(model: model)
             sectionTitle(L10n.text("mac.settings"))
             shortcutGrid
+            Button {
+                MacPermissionsGuide.shared.show()
+            } label: {
+                Label(
+                    L10n.text(permissions.fileAccessDenied ? "mac.file_access_review" : "mac.permissions_title"),
+                    systemImage: permissions.fileAccessDenied ? "exclamationmark.triangle" : "lock.shield")
+            }
             if model.agentLightsEnabled { hooksSection }
             footer
         }
@@ -80,8 +89,11 @@ struct PanelView: View {
     // MARK: Status
 
     private var header: some View {
-        HStack(spacing: 8) {
-            Text("VibePier").font(.headline)
+        HStack(alignment: .top, spacing: 8) {
+            VStack(alignment: .leading, spacing: 2) {
+                Text("VibePier").font(.headline)
+                AppVersionBadge()
+            }
             Spacer()
             if model.refreshing { ProgressView().controlSize(.mini) }
             Text(

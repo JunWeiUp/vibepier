@@ -48,9 +48,15 @@ final class CodexThreadBootstrapTests: XCTestCase {
         XCTAssertThrowsError(try creation.request("turn/start", params: [:], mutable: true))
         XCTAssertThrowsError(try creation.request("account/rateLimitResetCredit/consume", params: [:], mutable: true))
         creation.close()
+        let catalog = try CodexStdioRPC(executable: executable, purpose: .catalog)
+        _ = try catalog.request("collaborationMode/list", params: [:])
+        XCTAssertThrowsError(try catalog.request("turn/start", params: [:], mutable: true))
+        XCTAssertThrowsError(try catalog.request("account/rateLimits/read", params: [:]))
+        catalog.close()
         let calls = try String(contentsOf: root.appendingPathComponent("calls.jsonl"), encoding: .utf8)
             .split(separator: "\n").map { try JSONSerialization.jsonObject(with: Data($0.utf8)) as! [String: String] }
         XCTAssertEqual(calls.filter { $0["method"] == "thread/start" }.count, 1)
+        XCTAssertEqual(calls.filter { $0["method"] == "collaborationMode/list" }.count, 1)
         XCTAssertFalse(
             calls.contains { ["turn/start", "account/rateLimitResetCredit/consume"].contains($0["method"] ?? "") })
     }

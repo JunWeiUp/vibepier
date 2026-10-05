@@ -2,6 +2,8 @@
 
 VibePier is a native Android companion, a macOS menu-bar app with an embedded runtime, and an optional self-hosted Go relay. Providers execute on the Mac; the phone presents their supported capabilities. There is no VibePier cloud account, web frontend or database service.
 
+The [unified agent control implementation](AGENT-CONTROL-ARCHITECTURE.md) separates desktop-attached adapters from managed runtimes and implements a typed phone/Mac boundary in the development source. [统一 Agent 控制](AGENT-CONTROL-ARCHITECTURE.md)与[会话协议](../protocol/specs/agent-session.md)已接入双端；生产安装与各原生后端的真实验收独立进行。
+
 ```mermaid
 flowchart LR
     UI[Android screens] --> Session[SessionClient / receipts]
@@ -46,6 +48,10 @@ The signed handshake negotiates the application protocol and transport capabilit
 ## macOS ownership
 
 `Daemon` owns the AU05 session, transport lifetime, held-key cleanup, heartbeat scheduling and runtime state. Its lock protects shared configuration and transient state; asynchronous callbacks retain their original device/session identity. `RuntimeCommands` routes local task/session/APK requests separately from that hardware state. The private local socket is accessible to the Mac user, not a remote API. `ControlSocketIO` owns bounded newline framing and nonblocking I/O under absolute deadlines. The server checks peer UID, admits at most 16 clients including running handlers, and keeps partial reads off the accept queue. `ControlSocketEndpoint` requires a private parent, holds a stable owner-only lock file, and removes only its own socket identity; a second start cannot unlink a live listener. Stopping interrupts client I/O without closing a descriptor another worker may still use. The listening descriptor closes in its [Dispatch cancellation handler](https://developer.apple.com/documentation/dispatch/dispatchsourceprotocol/setcancelhandler%28handler%3A%29).
+
+`SessionFileAccess` preserves observed file-permission refusals and publishes fixed notifications without file paths or content. The file-access monitor retains only the last real read check in memory and bounds explicit rechecks; the app's permission page reports that operation's status, not a global Full Disk Access grant. The installed app can reopen repair guidance once after a refusal. Local update tooling preserves the app bundle directory and validates signing compatibility, while the LaunchAgent associates the app bundle with the background job. See [Mac updates and permission status](MACOS-UPDATES.md).
+
+文件访问状态依据最近真实读取，拒绝通知不携带路径或正文；检查有界、不读取 TCC 数据库。更新保留应用目录并核验签名兼容，后台任务关联应用身份，详见 [Mac 更新与权限](MACOS-UPDATES.md)。
 
 `Apply` implements compare-before-write firmware settings, `Replay` translates firmware bindings into host key events, and `RemoteControlOwners` prevents one phone from releasing another phone's held control. These services do not own UI windows. `ScreenLockController` owns manual/temporary unlock leases and accepts injected system actions for safe tests.
 
@@ -175,3 +181,19 @@ APK 并发下发独立于普通会话消息：四块窗口包含在途、缓冲�
 Claude 历史只索引元数据并按轮读取，正文共享有界缓存，不保留整段投影；旧正文与原生回执证据留在完整 JSONL。Android 导航、动作和消息重用分别有明确归属，附件恢复绑定持久授权身份和原会话。Mac APK 文件处理独立于会话队列，完成前重新验证原钥与版本，异步快照用类型化阶段驱动界面。中继跨房间共享发送额度，计入正在写出数据。
 
 `BinaryFileTransfers` issues scoped file capabilities through a private pipe to the bundled `VibePierFileServer`. Android `BinaryFileClient` uses pinned direct HTTPS or the authenticated relay file stream; both attachment and APK bodies rely on HTTPS and authenticated expected digests. See [binary file transport](BINARY-FILE-TRANSFER.md).
+
+### Mac permission guidance / Mac 权限引导
+
+`MacPermissionsGuide` lives in the GUI Access feature. Only an app launched directly from `/Applications` automatically presents setup once; a local UserDefaults version records presentation, never permission. Build, packaging, CLI and tests do not open System Settings. The guide uses public NSWorkspace navigation and never reads or edits TCC state. Full Disk Access does not widen session file allowlists or phone authorization.
+
+权限引导属于 GUI 的 Access 功能；仅 `/Applications` 安装版首次启动自动显示，UserDefaults 只记录展示版本，不记录授权。构建、打包、CLI 和测试不打开系统设置，不读写 TCC；完全磁盘访问不改变会话文件白名单和手机授权。
+
+Conversation/project images and MP4 previews use the raw HTTPS binary file channel shared with uploads and APKs; see [binary file transfers](BINARY-FILE-TRANSFER.md). LAN/public IPv6 candidates and relay are probed concurrently; automatic IPv4 NAT traversal is unsupported.
+
+媒体下载与上传/APK共用二进制文件助手；元数据仍经授权控制通道，正文不作应用层加密或Base64分块。公网IPv6候选与局域网/中继并行探测，IPv4 NAT打洞尚未实现。
+
+### Phone assistant visibility / 手机助手可见范围
+
+Mac-owned `SessionProviderPolicy` persists provider flags and a monotonic revision in Config. SessionRemote synchronizes it on the authenticated channel, rejects fresh disabled-provider operations and suppresses late read/push content while retaining durable receipt queries. Android filters provider tabs, notifications and cached navigation by that policy; all-off has an explicit empty state. Running desktop tasks and drafts are retained. See [provider visibility](PROVIDER-VISIBILITY.md).
+
+Mac 菜单开关只决定授权手机的服务商可见范围；保存成功后加密同步、关闭后拒绝新操作，未知回执和桌面任务保留。

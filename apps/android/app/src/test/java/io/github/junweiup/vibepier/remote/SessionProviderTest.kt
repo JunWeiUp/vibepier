@@ -16,12 +16,12 @@ class SessionProviderTest {
         assertEquals("codex", SessionProvider.normalize("unknown"))
     }
 
-    @Test fun zcodeWritesRequireExplicitCapabilitiesWithoutChangingOlderProviders() {
+    @Test fun everyProviderRequiresAnExplicitCapability() {
         assertFalse(SessionProvider.supports("zcode", null))
         assertTrue(SessionProvider.supports("zcode", true))
         assertFalse(SessionProvider.supports("zcode", false))
-        assertTrue(SessionProvider.supports("codex", null))
-        assertTrue(SessionProvider.supports("claude", null))
+        assertFalse(SessionProvider.supports("codex", null))
+        assertFalse(SessionProvider.supports("claude", null))
         assertFalse(SessionProvider.supports("claude", null, legacyDefault = false))
         assertFalse(SessionProvider.supports("codex", false))
     }

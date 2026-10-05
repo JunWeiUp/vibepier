@@ -57,6 +57,15 @@ public final class EmbeddedDriver: @unchecked Sendable {
         }
         let key = driver.key
         switch args.first {
+        case "session-provider-set":
+            guard args.count == 3 else { throw CLIError(L10n.text("providers.invalid_setting")) }
+            let result = await driver.handle([
+                "cmd": "session-provider-set", "provider": args[1], "enabled": try parseBool(args[2]),
+            ])
+            guard result["ok"] as? Bool == true else {
+                throw CLIError(result["error"] as? String ?? L10n.text("providers.invalid_setting"))
+            }
+            return try jsonObject(result)
         case "status", "reload":
             let result = await driver.handle(["cmd": args[0]])
             guard result["ok"] as? Bool == true else {

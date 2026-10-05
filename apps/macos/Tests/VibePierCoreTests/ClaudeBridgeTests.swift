@@ -399,6 +399,7 @@ final class ClaudeBridgeTests: XCTestCase {
             requests: [.init(id: "r5", tool: "ExitPlanMode", host: "local_a")], host: "local_a", cwd: "/repo")
         XCTAssertEqual(plan.first?["canDecide"] as? Bool, true)
         XCTAssertEqual(plan.first?["plan"] as? Bool, true)
+        XCTAssertEqual(plan.first?["planApprovalScope"] as? String, "once")
         XCTAssertEqual(plan.first?["allowLabel"] as? String, L10n.text("provider.approve_plan"))
         XCTAssertTrue((plan.first?["details"] as? String ?? "").contains("1. 改按钮"))
     }
@@ -412,7 +413,54 @@ final class ClaudeBridgeTests: XCTestCase {
         XCTAssertFalse(ClaudeDesktop.permissionButton("Allow once", allow: false))
         XCTAssertTrue(ClaudeDesktop.permissionButton("Accept ⇧ ⌘ ↵", allow: true, plan: true))
         XCTAssertFalse(ClaudeDesktop.permissionButton("Accept and auto mode ⌘ ↵", allow: true, plan: true))
+        XCTAssertFalse(ClaudeDesktop.permissionButton("Accept all", allow: true, plan: true))
+        XCTAssertFalse(ClaudeDesktop.permissionButton("Accepted", allow: true, plan: true))
+        XCTAssertFalse(ClaudeDesktop.permissionButton("Accept & bypass permissions", allow: true, plan: true))
+        XCTAssertFalse(ClaudeDesktop.permissionButton("Reject all", allow: false, plan: true))
         XCTAssertTrue(ClaudeDesktop.permissionButton("Reject", allow: false, plan: true))
         XCTAssertFalse(ClaudeDesktop.permissionButton("Revise… Esc", allow: false, plan: true))
+    }
+
+    func testOnlyCompletePlanWithoutPermissionExpansionIsOnceDecidable() throws {
+        let requests: [ClaudePermissionLog.Request] = [
+            .init(id: "native-request", tool: "ExitPlanMode", host: "local_fixture")
+        ]
+        func approval(_ input: [String: Any], tool: String = "ExitPlanMode") -> [String: Any]? {
+            ClaudePermissions.approvals(
+                [
+                    [
+                        "type": "assistant",
+                        "message": [
+                            "content": [["type": "tool_use", "id": "native-tool-use", "name": tool, "input": input]]
+                        ],
+                    ]
+                ], requests: requests, host: "local_fixture", cwd: "/fixture"
+            ).first
+        }
+        for input: [String: Any] in [
+            ["plan": "A complete native plan"], ["plan": "A complete native plan", "allowedPrompts": []],
+        ] {
+            XCTAssertEqual(approval(input)?["canDecide"] as? Bool, true)
+            XCTAssertEqual(approval(input)?["planApprovalScope"] as? String, "once")
+        }
+        for input: [String: Any] in [
+            [:], ["plan": ""], ["plan": "  \n"], ["plan": 1],
+            ["plan": String(repeating: "字", count: 20_001)],
+            ["plan": "Native plan", "allowedPrompts": [["tool": "Bash", "prompt": "run arbitrary commands"]]],
+            ["plan": "Native plan", "allowedPrompts": NSNull()],
+            ["plan": "Native plan", "permissions": [:]],
+            ["plan": "Native plan", "rules": []], ["plan": "Native plan", "futurePermissionScope": "session"],
+        ] {
+            XCTAssertEqual(approval(input)?["canDecide"] as? Bool, false)
+            XCTAssertNil(approval(input)?["planApprovalScope"])
+        }
+        let first = approval(["plan": "Native plan A"])
+        let changed = approval(["plan": "Native plan B"])
+        XCTAssertEqual(first?["toolUseId"] as? String, "native-tool-use")
+        XCTAssertEqual(first?["requestId"] as? String, "native-request")
+        XCTAssertNotEqual(first?["fingerprint"] as? String, changed?["fingerprint"] as? String)
+        XCTAssertNil(
+            ClaudePermissions.planApprovalScope(
+                .init(id: "native-tool-use", name: "OtherPlanTool", input: ["plan": "Native plan"]), cwd: "/fixture"))
     }
 }

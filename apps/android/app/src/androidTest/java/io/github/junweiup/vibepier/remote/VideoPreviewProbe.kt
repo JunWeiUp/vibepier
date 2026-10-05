@@ -44,7 +44,7 @@ object VideoPreviewProbe {
                             .put("size", bytes.size).put("offset", offset).put("version", "fixture-video")
                             .put("nextOffset", if (next == bytes.size) -1 else next)
                             .put("video", android.util.Base64.encodeToString(bytes.copyOfRange(offset, next), android.util.Base64.NO_WRAP))) }
-                    }, { true }, { false }, { _, _ -> }, { false }, {})
+                    }, { true }, { false }, { _, _ -> }, { false }, {}, allowLegacyMedia = true)
                     viewer = ProjectFileViewer(host, "demo.mp4"); viewer!!.show()
                 }
                 var player: VideoView? = null

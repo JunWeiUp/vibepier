@@ -1,0 +1,16 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="provider_disabled_on_mac">此助手已在 Mac 上关闭，请在 Mac 菜单中启用后继续。</string>
+    <string name="providers_none_enabled">未启用任何助手，请在 Mac 的「AI 编程助手」菜单中打开所需助手。</string>
+    <string name="providers_loading">正在读取 Mac 上启用的助手…</string>
+    <string name="agent_upgrade_required">请同时更新 Mac 和手机上的 VibePier 后再控制此助手。已有操作仍可查询结果。</string>
+    <string name="agent_capability_unavailable">此会话暂不支持该操作，或状态尚未就绪。</string>
+    <string name="agent_protocol_invalid">无法核验助手的控制回执，请保留原请求并查询结果。</string>
+    <string name="agent_choose_backend">选择会话连接方式</string>
+    <string name="agent_backend_current">当前会话</string>
+    <string name="agent_backend_managed">托管运行时</string>
+    <string name="agent_backend_extension">桌面扩展</string>
+    <string name="agent_backend_explanation">选择 Mac 上用于浏览和新操作的连接方式，已有请求保留原连接和回执。</string>
+    <string name="agent_state_changed">任务、审批或已选选项发生变化，请核对最新状态后重试；草稿已保留。</string>
+    <string name="agent_state_not_ready">暂未能核验会话状态，请稍后重试；草稿已保留。</string>
+</resources>

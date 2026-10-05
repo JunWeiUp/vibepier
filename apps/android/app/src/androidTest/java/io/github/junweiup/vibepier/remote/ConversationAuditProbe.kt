@@ -84,8 +84,8 @@ object ConversationAuditProbe {
                 check(waiting.text.toString() == activity.getString(R.string.session_stop_waiting))
                 check(panel.navigationState().optString("provider") == "codex")
                 waiting.performClick()
-                check(field(panel, "drawer") == true)
-                check((field(panel, "page") as JSONObject).optString("status") == "active") { "Stop waiting interrupted the remote task" }
+                check(field(panel, "drawer") == false)
+                check((field(panel, "waitMessage") as CanvasLabel).text.toString().contains(activity.getString(R.string.session_wait_stopping))) { "Stop waiting did not request cancellation of the verified turn" }
 
                 // Reorder/prepend/delete through the production reconciler without detaching kept rows.
                 val holder = LinearLayout(activity).apply { orientation = LinearLayout.VERTICAL }

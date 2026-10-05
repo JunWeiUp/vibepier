@@ -1,0 +1,11 @@
+<resources>
+    <string name="session_execution_mode">任务模式</string>
+    <string name="session_execution_plan">计划</string>
+    <string name="session_execution_run">执行</string>
+    <string name="session_choose_execution_mode">选择模式</string>
+    <string name="session_execution_selection">任务模式：%1$s</string>
+    <string name="session_execution_description">计划使用 Agent 的原生计划模式；执行按所选权限开展工作。Mac 确认后才会显示新的模式。</string>
+    <string name="session_execution_unavailable">Mac 尚未提供此会话已验证的任务模式。</string>
+    <string name="session_execution_coupled_description">计划使用 Agent 的原生计划模式。切回执行将采用 Mac 提供的默认权限：%1$s。确认后会显示实际权限。</string>
+    <string name="session_execution_default_permissions">%1$s · 默认权限：%2$s</string>
+</resources>

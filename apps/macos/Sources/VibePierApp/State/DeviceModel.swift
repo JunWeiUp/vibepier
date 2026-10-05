@@ -29,6 +29,7 @@ struct InfoJSON: Codable {
 
 /// Served from the daemon's memory; reading it does not query the AU05.
 struct DaemonStatusJSON: Decodable {
+    struct ProviderAccess: Decodable { let enabled: [String: Bool] }
     struct Bluetooth: Decodable {
         let state: String
         let connectedCount: Int
@@ -64,6 +65,7 @@ struct DaemonStatusJSON: Decodable {
     let applicationShortcuts: [ApplicationShortcut]?
     let applicationLaunchError: String?
     let taskActivity: TaskActivityJSON?
+    let providerAccess: ProviderAccess?
 }
 
 struct SettingsJSON: Codable {
@@ -118,6 +120,8 @@ final class DeviceModel: ObservableObject {
     @Published var applicationShortcutError = ""
     @Published var taskActivity = TaskActivityJSON.empty
     @Published var taskActivityError = ""
+    @Published var sessionProviders: [String: Bool] = [:]
+    @Published var sessionProviderError = ""
     @Published var openingTask: TaskSessionKey?
     @Published var clearingUnread = false
     @Published var deviceSettingError = ""
@@ -236,6 +240,9 @@ final class DeviceModel: ObservableObject {
             applicationShortcuts = status.applicationShortcuts ?? []
             applicationShortcutError = status.applicationLaunchError ?? ""
             taskActivity = status.taskActivity ?? .empty
+            sessionProviders =
+                status.providerAccess?.enabled
+                ?? Dictionary(uniqueKeysWithValues: SessionProviderPolicy.ids.map { ($0, true) })
             agentLightsEnabled = status.agentLightsEnabled ?? true
             linkState = !status.dongleConnected ? .noDongle : (status.micLinked ? .linked : .dongleOnly)
             batteryPercent = linkState == .linked ? status.battery?.percent : nil
@@ -256,6 +263,7 @@ final class DeviceModel: ObservableObject {
             charging = false
             chargeFull = false
             taskActivity = .empty
+            sessionProviders = [:]
         }
         if linkState != .linked {
             settings = nil
@@ -347,6 +355,15 @@ final class DeviceModel: ObservableObject {
 
     func refreshHooks() async {
         await perform { model in await model.readHooks() }
+    }
+
+    func setSessionProvider(_ provider: String, enabled: Bool) async {
+        guard SessionProviderPolicy.ids.contains(provider) else { return }
+        await perform { model in
+            let result = await model.runCommand(["session-provider-set", provider, enabled ? "on" : "off"])
+            model.sessionProviderError = result.success ? "" : result.stderr
+            await model.readStatus()
+        }
     }
 
     func refreshAudioDevices() {

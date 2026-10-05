@@ -4,6 +4,7 @@ import io.github.junweiup.vibepier.remote.core.security.PrivatePreferences
 
 import io.github.junweiup.vibepier.remote.core.ui.showProtected
 import io.github.junweiup.vibepier.remote.R
+import io.github.junweiup.vibepier.remote.BuildConfig
 import io.github.junweiup.vibepier.remote.core.session.SessionClient
 
 import android.app.Activity
@@ -138,17 +139,18 @@ class ApkReceiver(
                 val offset = result.getOrElse { fail(value, activity.getString(R.string.apk_write_failed)); return@post }
                 if (offset > value.getLong("size")) { fail(value, activity.getString(R.string.apk_invalid_length)); return@post }
                 if (offset == value.getLong("size")) { verify(value, token); return@post }
-                if (!client.bluetooth && value.optInt("binaryVersion") == 1) {
+                if (value.optInt("binaryVersion") == 1) {
                     client.request("apkBinary", JSONObject().put("transfer", value.getString("transfer")).put("offset", offset)) binaryOffer@{ response ->
                         if (!downloadActive(token)) return@binaryOffer
                         val profile = response.optJSONObject("binary")
                         if (response.optBoolean("ok") && profile != null) startBinary(value, token, offset, profile)
-                        else if (response.optBoolean("binaryUnavailable")) startLegacy(value, token, offset)
-                        else fail(value, activity.getString(R.string.apk_invalid_length))
+                        else if (response.optBoolean("binaryUnavailable") && BuildConfig.DESIGN_REVIEW) startLegacy(value, token, offset)
+                        else fail(value, activity.getString(R.string.file_binary_required))
                     }
                     return@post
                 }
-                startLegacy(value, token, offset)
+                if (BuildConfig.DESIGN_REVIEW) startLegacy(value, token, offset)
+                else fail(value, activity.getString(R.string.file_binary_required))
             }
         }
     }

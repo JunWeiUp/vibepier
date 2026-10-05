@@ -20,7 +20,7 @@ import (
 )
 
 func TestCloudBinaryProducerConsumerAndCancel(t *testing.T) {
-	for _, kind := range []string{"apk", "upload", "cancel"} {
+	for _, kind := range []string{"apk", "media", "upload", "cancel"} {
 		t.Run(kind, func(t *testing.T) {
 			hub := &filetransfer.Hub{}
 			secret := "synthetic-secret-for-isolated-file-tests"
@@ -80,7 +80,7 @@ func TestCloudBinaryProducerConsumerAndCancel(t *testing.T) {
 			}
 			if kind == "cancel" {
 				store.Cancel(offer.ID, "")
-			} else if kind == "apk" {
+			} else if kind == "apk" || kind == "media" {
 				req, _ := http.NewRequest("GET", server.URL+"/files/"+offer.ID, nil)
 				req.Header.Set("Authorization", "Bearer "+offer.Read)
 				resp, err := server.Client().Do(req)

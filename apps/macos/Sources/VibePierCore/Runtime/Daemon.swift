@@ -53,6 +53,7 @@ final class Daemon: @unchecked Sendable {
     private var bluetoothRemote: BluetoothRemote?
     private var relayClient: RelayClient?
     private let enableBluetooth: Bool
+    private let readProviderAccess: @Sendable () -> [String: Any]
     private let remoteEventQueue = DispatchQueue(label: "vibepier.remote-events")
     private var remoteOwners = RemoteControlOwners()
     private var remoteApplicationDedup = RemoteDeduplicator()
@@ -66,8 +67,12 @@ final class Daemon: @unchecked Sendable {
     /// releases the key, so a lost "up" datagram cannot leave dictation running.
     static let remoteTalkTimeout: TimeInterval = 3
 
-    init(config: Config, verbose: Bool, enableBluetooth: Bool = false) {
+    init(
+        config: Config, verbose: Bool, enableBluetooth: Bool = false,
+        readProviderAccess: @escaping @Sendable () -> [String: Any] = { SessionRemote.shared.providerAccessSnapshot }
+    ) {
         self.enableBluetooth = enableBluetooth
+        self.readProviderAccess = readProviderAccess
         let s = VibeSession()
         s.logFrames = verbose
         session = s
@@ -88,6 +93,8 @@ final class Daemon: @unchecked Sendable {
             throw CLIError(L10n.text("core.vibepier_or_the_vibepier_service_is_already_running_quit_the_existin"))
         }
         config = try RelayCredentialMigration.migrate(config)
+        SessionRemote.shared.configureProviders(SessionProviderPolicy(config))
+        SessionRemote.shared.restoreAgentRuntimes()
         PhoneMicrophone.shared.recoverInputAfterRestart()
         let applicationIDs = lock.withLock { config.applicationShortcuts }
         Task { @MainActor in
@@ -792,6 +799,24 @@ final class Daemon: @unchecked Sendable {
 
     private func handleRuntimeCommand(_ req: [String: Any]) async -> [String: Any] {
         switch req["cmd"] as? String ?? "" {
+        case "session-provider-set":
+            do {
+                guard let provider = req["provider"] as? String, SessionProviderPolicy.ids.contains(provider),
+                    let enabled = SessionProviderReply.boolean(req["enabled"])
+                else { throw CLIError(L10n.text("providers.invalid_setting")) }
+                let policy = try lock.withLock {
+                    let current = try Config.load()
+                    let saved = try current.settingSessionProvider(
+                        provider, enabled: enabled, minimumRevision: config.sessionProviderRevision ?? 0)
+                    if saved != current { try saved.save() }
+                    config.sessionProviders = saved.sessionProviders
+                    config.sessionProviderRevision = saved.sessionProviderRevision
+                    return SessionProviderPolicy(saved)
+                }
+                SessionRemote.shared.configureProviders(policy)
+                NotificationCenter.default.post(name: DriverNotifications.statusChanged, object: nil)
+                return ["ok": true, "providerAccess": policy.object]
+            } catch { return ["ok": false, "error": String(describing: error)] }
         case "preferences-export":
             do {
                 try PhoneBindings.shared.validateMerge([:])
@@ -983,7 +1008,17 @@ final class Daemon: @unchecked Sendable {
             return ["ok": true, "code": settings.pairingCode]
         case "reload":
             do {
-                let cfg = try RelayCredentialMigration.migrate(Config.load())
+                var cfg = try RelayCredentialMigration.migrate(Config.load())
+                try lock.withLock {
+                    if SessionProviderPolicy(cfg).enabled != SessionProviderPolicy(config).enabled,
+                        (cfg.sessionProviderRevision ?? 0) <= (config.sessionProviderRevision ?? 0)
+                    {
+                        let revision = config.sessionProviderRevision ?? 0
+                        guard revision < Int64.max else { throw CLIError(L10n.text("providers.invalid_setting")) }
+                        cfg.sessionProviderRevision = revision + 1
+                        try cfg.save()
+                    }
+                }
                 let relayChanged = lock.withLock { RelaySettings(config) != RelaySettings(cfg) }
                 defer { if relayChanged { restartRelay() } }
                 let needsApply = lock.withLock {
@@ -1003,6 +1038,7 @@ final class Daemon: @unchecked Sendable {
                         || (old.agentLightsEnabled == false && cfg.agentLightsEnabled != false)
                 }
                 await ApplicationShortcuts.shared.configure(cfg.applicationShortcuts)
+                SessionRemote.shared.configureProviders(SessionProviderPolicy(cfg))
                 if needsApply {
                     scheduleApply(reason: "reload")
                 } else {
@@ -1033,6 +1069,7 @@ final class Daemon: @unchecked Sendable {
                 "micLinked": linked,
                 "agentSessions": sessions,
                 "taskActivity": ConversationActivity.shared.snapshot,
+                "providerAccess": readProviderAccess(),
                 "agentLightsEnabled": lock.withLock { config.agentLightsEnabled != false },
                 "sessionTimerWakeups": session.timerWakeupCount,
                 "processID": ProcessInfo.processInfo.processIdentifier,

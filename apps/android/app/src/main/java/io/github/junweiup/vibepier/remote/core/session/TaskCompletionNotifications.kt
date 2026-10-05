@@ -18,14 +18,18 @@ import org.json.JSONObject
 class TaskCompletionNotifications(context: Context) {
     private val context = context.applicationContext
     private val prefs by lazy { PrivatePreferences.open(this.context, "task-notifications") }
+    fun cancelProvider(provider: String) {
+        context.getSystemService(NotificationManager::class.java).cancel(provider, 47802)
+    }
     fun createChannel() {
         context.getSystemService(NotificationManager::class.java).createNotificationChannel(
             NotificationChannel(CHANNEL, context.getString(R.string.task_notifications), NotificationManager.IMPORTANCE_DEFAULT)
         )
     }
 
-    fun receive(value: JSONObject) {
+    fun receive(value: JSONObject, authorization: String) {
         val identity = TaskCompletionIdentity.parse(value) ?: return
+        if (authorization.isBlank()) return
         // Persist before posting: repeated transport delivery or process recreation cannot alert twice.
         // A denied permission consumes the event too; enabling notifications does not replay history.
         val previous = prefs.getString("seen", "") ?: ""
@@ -36,8 +40,10 @@ class TaskCompletionNotifications(context: Context) {
         val manager = context.getSystemService(NotificationManager::class.java)
         if (!manager.areNotificationsEnabled() || manager.getNotificationChannel(CHANNEL)?.importance == NotificationManager.IMPORTANCE_NONE) return
         val open = PendingIntent.getActivity(context, 47802, Intent(context, MainActivity::class.java)
-            .setData(Uri.parse("vibepier://completed/${identity.provider}"))
+            .setData(Uri.Builder().scheme("vibepier").authority("completed").appendPath(identity.provider).appendPath(identity.id).build())
             .putExtra(EXTRA_PROVIDER, identity.provider)
+            .putExtra(EXTRA_THREAD, identity.threadId)
+            .putExtra(EXTRA_SOURCE, authorization)
             .addFlags(Intent.FLAG_ACTIVITY_SINGLE_TOP or Intent.FLAG_ACTIVITY_CLEAR_TOP),
             PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE)
         val notification = Notification.Builder(context, CHANNEL)
@@ -53,22 +59,33 @@ class TaskCompletionNotifications(context: Context) {
     companion object {
         const val CHANNEL = "task_completion"
         private const val EXTRA_PROVIDER = "io.github.junweiup.vibepier.completedProvider"
-        fun takeProvider(intent: Intent): String? {
-            val value = intent.getStringExtra(EXTRA_PROVIDER)
+        private const val EXTRA_THREAD = "io.github.junweiup.vibepier.completedThread"
+        private const val EXTRA_SOURCE = "io.github.junweiup.vibepier.completedSource"
+        fun takeRoute(intent: Intent, authorization: String): JSONObject? {
+            val provider = intent.getStringExtra(EXTRA_PROVIDER)
+            val thread = intent.getStringExtra(EXTRA_THREAD)
+            val source = intent.getStringExtra(EXTRA_SOURCE)
             intent.removeExtra(EXTRA_PROVIDER)
-            return value?.takeIf { it in SessionProvider.ids }
+            intent.removeExtra(EXTRA_THREAD)
+            intent.removeExtra(EXTRA_SOURCE)
+            if (provider !in SessionProvider.ids || authorization.isBlank() || source != authorization ||
+                thread.isNullOrBlank() || thread.length > 512) return null
+            return JSONObject().put("source", source).put("provider", provider).put("thread", thread)
+                .put("drawer", false).put("title", "").put("scrollY", 0)
         }
     }
 }
 
-internal data class TaskCompletionIdentity(val id: String, val provider: String) {
+internal data class TaskCompletionIdentity(val id: String, val provider: String, val threadId: String) {
     companion object {
         fun parse(value: JSONObject): TaskCompletionIdentity? {
             if (value.optString("event") != "taskCompleted") return null
             val id = value.optString("eventId")
             val provider = value.optString("provider")
             if (!id.matches(Regex("[0-9a-f]{64}")) || provider !in setOf("codex", "claude", "zcode")) return null
-            return TaskCompletionIdentity(id, provider)
+            val thread = value.opt("threadId") as? String ?: return null
+            if (thread.isBlank() || thread.length > 512) return null
+            return TaskCompletionIdentity(id, provider, thread)
         }
         fun remember(previous: String, id: String): String? {
             val seen = previous.split('\n').filter { it.isNotEmpty() }

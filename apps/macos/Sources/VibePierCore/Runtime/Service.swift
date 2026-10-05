@@ -60,6 +60,10 @@ enum Service {
             "StandardErrorPath": Paths.logFile.path,
             "StandardOutPath": Paths.logFile.path,
         ]
+        if binary.hasSuffix("/VibePier.app/Contents/MacOS/VibePier") {
+            // Keep the login job associated with the installed app's permission identity.
+            job["AssociatedBundleIdentifiers"] = [label]
+        }
         // Preserve only the relay's explicit route when reinstalling or enabling login.
         // General HTTP(S)_PROXY must not propagate into desktop tools or child processes.
         if let relayProxy, RelayHTTPProxy.parse(relayProxy) != nil {

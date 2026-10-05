@@ -14,23 +14,31 @@ internal data class SessionCreationDraft(
     val model: String = "",
     val effort: String = "",
     val mode: String = "",
-    val confirmFullAccess: Boolean = false
+    val confirmFullAccess: Boolean = false,
+    val executionMode: String = "",
+    val executionModePermissionCoupled: Boolean = false,
 ) {
     val attachmentScope get() = "creation:$id"
 
     fun value() = JSONObject().put("draftId", id).put("provider", provider).put("cwd", cwd)
         .put("text", text).put("model", model).put("effort", effort).put("mode", mode)
-        .put("confirmFullAccess", confirmFullAccess)
+        .put("confirmFullAccess", confirmFullAccess).apply {
+            if (executionMode.isNotEmpty()) put("executionMode", executionMode)
+            if (executionModePermissionCoupled) put("executionModePermissionCoupled", true)
+        }
 
     fun matches(request: JSONObject) = request.optString("draftId") == id && request.optString("provider") == provider &&
         request.optString("cwd") == cwd && request.optString("text") == text.trim() &&
-        request.optString("model") == model && request.optString("effort") == effort && request.optString("mode") == mode &&
+        request.optString("model") == model && request.optString("effort") == effort &&
+        request.optString("mode") == (if (executionModePermissionCoupled && executionMode == "plan") "" else mode) &&
+        request.optString("executionMode") == executionMode &&
         (request.opt("confirmFullAccess") as? Boolean ?: false) == confirmFullAccess
 
     /** Snapshot all selected values; later editing cannot mutate an unresolved original request. */
     fun request(operation: String, attachments: JSONArray): JSONObject {
         require(validUUID(operation))
         require(text.toByteArray(Charsets.UTF_8).size <= 32_000)
+        require(executionMode.isEmpty() || executionMode in SessionExecutionModes.ids)
         require(text.isNotBlank() || attachments.length() > 0)
         require(attachments.length() <= 6)
         val ids = (0 until attachments.length()).map { attachments.getString(it) }
@@ -41,6 +49,8 @@ internal data class SessionCreationDraft(
             if (model.isEmpty()) remove("model")
             if (effort.isEmpty()) remove("effort")
             if (mode.isEmpty()) remove("mode")
+            if (executionModePermissionCoupled && executionMode == "plan") remove("mode")
+            remove("executionModePermissionCoupled") // Local draft metadata; the Mac owns the native mapping.
         }
     }
 
@@ -66,7 +76,11 @@ internal data class SessionCreationDraft(
             }
             val confirmed = if (value.has("confirmFullAccess")) value.get("confirmFullAccess") as? Boolean
                 ?: error("Invalid creation confirmation") else false
-            return SessionCreationDraft(id, provider, cwd, string("text"), string("model"), string("effort"), string("mode"), confirmed)
+            val executionMode = string("executionMode")
+            require(executionMode.isEmpty() || executionMode in SessionExecutionModes.ids)
+            val coupled = if (value.has("executionModePermissionCoupled")) value.opt("executionModePermissionCoupled") as? Boolean
+                ?: error("Invalid execution mode coupling") else false
+            return SessionCreationDraft(id, provider, cwd, string("text"), string("model"), string("effort"), string("mode"), confirmed, executionMode, coupled)
         }
     }
 }

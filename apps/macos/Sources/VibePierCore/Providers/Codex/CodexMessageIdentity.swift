@@ -37,4 +37,18 @@ struct CodexMessageIdentity {
     func queued(in rows: [[String: Any]]) -> Bool {
         rows.contains { $0["id"] as? String == nativeID }
     }
+
+    func confirmedTurn(in state: [String: Any]) -> String? {
+        let turns = CodexConversation.turns(state).filter { turn in
+            (turn["items"] as? [[String: Any]] ?? []).contains { item in
+                let type = item["type"] as? String
+                return
+                    (type == "userMessage"
+                    || (type == "steeringUserMessage" && item["status"] as? String == "accepted"))
+                    && (item["clientId"] as? String ?? item["clientUserMessageId"] as? String) == nativeID
+            }
+        }
+        guard turns.count == 1 else { return nil }
+        return turns[0]["turnId"] as? String ?? turns[0]["id"] as? String
+    }
 }

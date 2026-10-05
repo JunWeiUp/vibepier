@@ -127,6 +127,10 @@ final class ZCodeSessionStore {
     private let reader: ZCodeSQLiteReader
     private let index: ZCodeSQLiteReader?
     var path: String { reader.path }
+    var artifactRoot: String {
+        URL(fileURLWithPath: path).deletingLastPathComponent().deletingLastPathComponent()
+            .appendingPathComponent("artifacts").path
+    }
     var indexPath: String? { index?.path }
     private static let visible = "time_archived IS NULL AND coalesce(task_type,'') != 'subagent_child'"
     private static let visibleMessage = "coalesce(json_extract(data,'$.semantics.uiVisibility'),'visible') != 'hidden'"

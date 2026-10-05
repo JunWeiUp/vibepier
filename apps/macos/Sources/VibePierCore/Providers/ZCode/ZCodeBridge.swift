@@ -184,6 +184,9 @@ final class ZCodeBridge: @unchecked Sendable {
             return value
         }
         if op == "close" {
+            if let target = request["threadId"] as? String, selected[client] != target {
+                throw CLIError(L10n.text("session.the_session_view_changed"))
+            }
             guard version >= 0, version >= (viewVersions[client] ?? -1) else {
                 throw CLIError(L10n.text("session.the_session_view_changed"))
             }
@@ -273,7 +276,7 @@ final class ZCodeBridge: @unchecked Sendable {
                 "nextOffset": end < turn.partCount ? end : -1,
             ]
         case "message": return try message(request, session: session, client: client)
-        case "image": return try image(request, session: session)
+        case "image": return try image(request, session: session, client: client)
         case "composerOptions":
             let state = try state(session)
             var value = live(session)
@@ -359,7 +362,7 @@ final class ZCodeBridge: @unchecked Sendable {
         if offset == 0, request["withPart"] as? Bool == true, let detail { value["part"] = detail }
         return value
     }
-    private func image(_ request: [String: Any], session: String) throws -> [String: Any] {
+    private func image(_ request: [String: Any], session: String, client: String) throws -> [String: Any] {
         let id = request["imageId"] as? String ?? ""
         let components = id.components(separatedBy: "#")
         guard components.count == 2, let offset = Int(components[1]), offset >= 0 else {
@@ -378,7 +381,10 @@ final class ZCodeBridge: @unchecked Sendable {
         throw ConversationImageRequest(
             thread: session, id: id, source: source,
             cwd: try store.summary(session)["cwd"] as? String ?? "",
-            maxPixel: request["size"] as? String == "large" ? 1280 : 480)
+            maxPixel: request["size"] as? String == "large"
+                ? (request["binaryVersion"] as? Int == 1 ? 2048 : 1280) : 480,
+            device: client, binary: request["binaryVersion"] as? Int == 1,
+            zcodeArtifactRoot: source.hasPrefix("zcode-artifact://") ? store.artifactRoot : nil)
     }
     private func unsubscribe(_ client: String) {
         markdownFiles.remove(device: client)

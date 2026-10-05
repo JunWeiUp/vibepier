@@ -25,6 +25,33 @@ final class SessionProjectFilesTests: XCTestCase {
             op, request, cwd: root.path, rows: { rows }, reader: reader, device: "phone", thread: "thread")
     }
 
+    func testVideoRepairsRepeatedWorkspaceSuffixWithoutEscaping() throws {
+        let (parent, root) = try fixture()
+        defer { try? FileManager.default.removeItem(at: parent) }
+        try Data([1, 2, 3]).write(to: root.appendingPathComponent("movie.mp4"))
+        let result = try reply("readVideoFile", ["path": "vibed/movie.mp4"], root)
+        XCTAssertEqual(result["size"] as? Int, 3)
+        let nested = root.appendingPathComponent(".local/promo-video")
+        try FileManager.default.createDirectory(
+            at: nested.appendingPathComponent("out"), withIntermediateDirectories: true)
+        try Data([1, 2]).write(to: nested.appendingPathComponent("out/vibepier-intro.mp4"))
+        let repeated = try reply("readVideoFile", ["path": ".local/promo-video/out/vibepier-intro.mp4"], nested)
+        XCTAssertEqual(repeated["size"] as? Int, 2)
+        try FileManager.default.createDirectory(
+            at: nested.appendingPathComponent(".local/promo-video/out"),
+            withIntermediateDirectories: true)
+        try Data([9]).write(to: nested.appendingPathComponent(".local/promo-video/out/vibepier-intro.mp4"))
+        let exact = try reply("readVideoFile", ["path": ".local/promo-video/out/vibepier-intro.mp4"], nested)
+        XCTAssertEqual(exact["size"] as? Int, 1)
+        XCTAssertThrowsError(try reply("readVideoFile", ["path": "other/movie.mp4"], root))
+        XCTAssertThrowsError(try reply("readVideoFile", ["path": "vibed/../movie.mp4"], root))
+        try FileManager.default.createSymbolicLink(
+            at: root.appendingPathComponent("escape.mp4"),
+            withDestinationURL: parent.appendingPathComponent("outside.mp4"))
+        try Data([4]).write(to: parent.appendingPathComponent("outside.mp4"))
+        XCTAssertThrowsError(try reply("readVideoFile", ["path": "vibed/escape.mp4"], root))
+    }
+
     func testVideoChunksAreBoundedVersionedAndWorkspaceScoped() throws {
         let (parent, root) = try fixture()
         defer { try? FileManager.default.removeItem(at: parent) }

@@ -6,6 +6,7 @@ import android.view.Gravity
 import android.widget.LinearLayout
 import io.github.junweiup.vibepier.remote.R
 import io.github.junweiup.vibepier.remote.core.session.SessionCreationDraft
+import io.github.junweiup.vibepier.remote.core.session.SessionExecutionModes
 import io.github.junweiup.vibepier.remote.core.ui.CanvasLabel
 import io.github.junweiup.vibepier.remote.core.ui.Ui
 import io.github.junweiup.vibepier.remote.core.ui.showProtected
@@ -20,19 +21,26 @@ internal class NewSessionOptionsView(
     initial: SessionCreationDraft,
     private val changed: (SessionCreationDraft) -> Unit,
     private val addAttachment: () -> Unit,
+    private val permits: (String) -> Boolean = { false },
 ) : LinearLayout(context) {
     var draft = initial; private set
     private var options = JSONObject()
     private var models = JSONArray()
     private var modes = JSONArray()
+    private var executionModes = emptyList<io.github.junweiup.vibepier.remote.core.session.SessionExecutionMode>()
     private var locked = false
     private val menus = mutableListOf<AlertDialog>()
     var loaded = false; private set
-    val supportsAttachments get() = loaded && options.optJSONObject("capabilities")?.optBoolean("attachments") == true
+    val supportsAttachments get() = loaded && permits("newAttachments")
     val ready: Boolean get() {
-        if (!loaded) return false
+        if (!loaded || !permits("new")) return false
         val model = rows(models).firstOrNull { it.optString("id") == draft.model } ?: return false
         val efforts = strings(model.optJSONArray("efforts"))
+        if (draft.executionMode.isNotEmpty() && (!permits("executionMode") || executionModes.none { it.id == draft.executionMode })) return false
+        if (permits("executionMode") && executionModes.isNotEmpty() && draft.executionMode.isEmpty()) return false
+        if (draft.executionModePermissionCoupled && draft.executionMode == "plan") {
+            return (efforts.isEmpty() || draft.effort in efforts) && executionModes.singleOrNull { it.id == "plan" }?.permissionMode == draft.mode
+        }
         val mode = rows(modes).firstOrNull { it.optString("id") == draft.mode } ?: return false
         return (efforts.isEmpty() || draft.effort in efforts) &&
             (!mode.optBoolean("requiresConfirmation") || draft.confirmFullAccess)
@@ -45,18 +53,20 @@ internal class NewSessionOptionsView(
         isFocusable = true; setOnClickListener { if (!locked && loaded) click() }
     }
     private val model = action(context.getString(R.string.choose_model), ::chooseModel)
+    private val execution = action(context.getString(R.string.session_execution_mode), ::chooseExecutionMode)
     private val mode = action(context.getString(R.string.approval_mode), ::chooseMode)
     private val add = action(context.getString(R.string.session_add_attachment)) { if (supportsAttachments) addAttachment() }
     init {
         orientation = VERTICAL
-        for (view in listOf(model, mode, add)) addView(view, LayoutParams(-1, -2).apply { topMargin = dp(8) })
+        for (view in listOf(model, execution, mode, add)) addView(view, LayoutParams(-1, -2).apply { topMargin = dp(8) })
         update()
     }
     fun applyOptions(value: JSONObject) {
         options = JSONObject(value.toString())
         models = options.optJSONArray("models") ?: JSONArray()
         modes = options.optJSONArray("permissionModes") ?: JSONArray()
-        loaded = value.optBoolean("ok") && value.optInt("creationVersion") == 1
+        executionModes = SessionExecutionModes.decode(options)
+        loaded = value.opt("ok") == true && value.opt("creationVersion") == 1
         val current = value.optJSONObject("composer") ?: JSONObject()
         if (draft.model.isEmpty()) {
             val preferred = rows(models).firstOrNull { it.optString("id") == current.optString("model") } ?: rows(models).firstOrNull()
@@ -69,6 +79,16 @@ internal class NewSessionOptionsView(
                 ?: rows(modes).firstOrNull { !it.optBoolean("requiresConfirmation") }
             draft = draft.copy(mode = preferred?.optString("id") ?: "", confirmFullAccess = false)
         }
+        val coupled = SessionExecutionModes.coupled(options)
+        if (permits("executionMode") && draft.executionMode.isEmpty() && executionModes.isNotEmpty()) {
+            val selected = if (coupled) executionModes.firstOrNull { it.id == "plan" && it.permissionMode == draft.mode } else null
+            val preferred = selected ?: SessionExecutionModes.selected(options, executionModes) ?: executionModes.firstOrNull { it.id == "default" }
+            draft = draft.copy(executionMode = preferred?.id ?: "")
+        }
+        draft = draft.copy(executionModePermissionCoupled = coupled)
+        if (coupled && draft.executionMode == "plan") executionModes.singleOrNull { it.id == "plan" }?.permissionMode?.let {
+            draft = draft.copy(mode = it, confirmFullAccess = false)
+        }
         changed(draft); update()
     }
     fun setLocked(value: Boolean) { locked = value; update() }
@@ -80,9 +100,33 @@ internal class NewSessionOptionsView(
             it + if (draft.effort.isEmpty()) "" else " · " + effortName(draft.effort)
         } ?: context.getString(R.string.choose_model)
         mode.text = selectedMode?.let(::modeName) ?: context.getString(R.string.approval_mode)
+        execution.text = context.getString(R.string.session_execution_selection, executionName(draft.executionMode)) + " ▾"
+        execution.contentDescription = execution.text
+        execution.visibility = if ((permits("executionMode") && executionModes.isNotEmpty()) || draft.executionMode.isNotEmpty()) VISIBLE else GONE
+        execution.isEnabled = loaded && !locked && permits("executionMode") && executionModes.isNotEmpty()
+        execution.alpha = if (execution.isEnabled) 1f else .45f
+        mode.visibility = if (draft.executionModePermissionCoupled && draft.executionMode == "plan") GONE else VISIBLE
         for (view in listOf(model, mode)) { view.isEnabled = loaded && !locked; view.alpha = if (view.isEnabled) 1f else .45f }
         add.isEnabled = supportsAttachments && !locked; add.alpha = if (add.isEnabled) 1f else .45f
     }
+    private fun chooseExecutionMode() {
+        if (!permits("executionMode")) return
+        val permission = SessionExecutionModes.defaultPermissionLabel(options, executionModes)
+        menu(context.getString(R.string.session_execution_mode), executionModes.map {
+            if (it.id == "default" && permission != null) context.getString(R.string.session_execution_default_permissions, executionName(it.id), permission)
+            else executionName(it.id)
+        }) { index ->
+            val selected = executionModes[index]
+            draft = draft.copy(executionMode = selected.id, executionModePermissionCoupled = SessionExecutionModes.coupled(options))
+            if (draft.executionModePermissionCoupled) selected.permissionMode?.let { draft = draft.copy(mode = it, confirmFullAccess = false) }
+            changed(draft); update()
+        }
+    }
+    private fun executionName(id: String) = context.getString(when (id) {
+        "plan" -> R.string.session_execution_plan
+        "default" -> R.string.session_execution_run
+        else -> R.string.session_choose_execution_mode
+    })
     private fun chooseModel() {
         menu(context.getString(R.string.choose_model), rows(models).map { it.optString("name").ifBlank { it.optString("id") } }) { index ->
             val selected = rows(models)[index]; val efforts = strings(selected.optJSONArray("efforts"))
@@ -94,7 +138,11 @@ internal class NewSessionOptionsView(
     private fun chooseMode() {
         menu(context.getString(R.string.approval_mode), rows(modes).map(::modeName)) { index ->
             val selected = rows(modes)[index]
-            fun select(confirmed: Boolean) { draft = draft.copy(mode = selected.getString("id"), confirmFullAccess = confirmed); changed(draft); update() }
+            fun select(confirmed: Boolean) {
+                val nativeMode = selected.getString("id")
+                val execution = if (draft.executionModePermissionCoupled) executionModes.singleOrNull { it.permissionMode == nativeMode }?.id ?: draft.executionMode else draft.executionMode
+                draft = draft.copy(mode = nativeMode, confirmFullAccess = confirmed, executionMode = execution); changed(draft); update()
+            }
             if (!selected.optBoolean("requiresConfirmation")) select(false)
             else {
                 val message = selected.optString("confirmationText").ifBlank {

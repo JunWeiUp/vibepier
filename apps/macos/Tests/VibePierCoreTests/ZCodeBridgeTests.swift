@@ -381,6 +381,48 @@ final class ZCodeBridgeTests: XCTestCase {
         }
         return fixture
     }
+    func testUserArtifactImageResolvesThroughSelectedNativeSession() throws {
+        let fixture = try fixture()
+        defer { try? FileManager.default.removeItem(at: fixture.directory) }
+        let cli = fixture.directory.appendingPathComponent("cli")
+        let database = cli.appendingPathComponent("db/db.sqlite")
+        let folder = cli.appendingPathComponent("artifacts/sess_native")
+        try FileManager.default.createDirectory(
+            at: database.deletingLastPathComponent(), withIntermediateDirectories: true)
+        try FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
+        try FileManager.default.copyItem(atPath: fixture.database, toPath: database.path)
+        let artifact = "tool-result-12345678-1234-1234-1234-123456789abc"
+        let uri = "zcode-artifact://sess_native/" + artifact
+        let dataURL = "data:image/png;base64," + (try image())
+        try dataURL.write(
+            to: folder.appendingPathComponent("prompt-attachment-upload-opaque-\(artifact).txt"),
+            atomically: true, encoding: .utf8)
+        try execute(
+            database.path, "INSERT INTO part VALUES(?,?,?,?,?,?)",
+            [
+                "prt_user_image", "msg_u_5", "sess_native", 1, 5001,
+                try json(["type": "file", "mime": "image/png", "url": uri, "metadata": ["artifactUri": uri]]),
+            ])
+        let bridge = ZCodeBridge(store: ZCodeSessionStore(path: database.path, indexPath: nil))
+        let page = try request(bridge, ["op": "open", "threadId": "sess_native", "viewVersion": 1])
+        let rows = try XCTUnwrap(page["messages"] as? [[String: Any]])
+        let images = try XCTUnwrap(rows[0]["images"] as? [[String: Any]])
+        XCTAssertEqual(images.first?["id"] as? String, "msg_u_5#0")
+        XCTAssertFalse(String(decoding: try JSONSerialization.data(withJSONObject: page), as: UTF8.self).contains(uri))
+        for size in ["thumb", "large"] {
+            let photo = try request(
+                bridge,
+                [
+                    "op": "image", "threadId": "sess_native", "viewVersion": 1,
+                    "imageId": "msg_u_5#0", "size": size,
+                ])
+            XCTAssertEqual(photo["ok"] as? Bool, true)
+            XCTAssertEqual(
+                Array(try XCTUnwrap(Data(base64Encoded: try XCTUnwrap(photo["image"] as? String))).prefix(2)),
+                [0xff, 0xd8])
+        }
+    }
+
     private func request(_ bridge: ZCodeBridge, _ source: [String: Any], client: String = "phone-a") throws -> [String:
         Any]
     {

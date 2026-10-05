@@ -8,6 +8,14 @@ import org.junit.Assert.assertTrue
 import org.junit.Test
 
 class MarkdownFileLinksTest {
+    @Test fun extractsLiteralVideoPathsButSkipsCommandsAndFencedExamples() {
+        val text = "成片在 `.local/promo-video/out/vibepier-intro.mp4`，也可看 ``videos/My Movie.MP4``。" +
+            " `ffmpeg -i input.mp4 output.mp4` `https://example.com/movie.mp4`\n```\n`hidden.mp4`\n```"
+        assertEquals(listOf(".local/promo-video/out/vibepier-intro.mp4", "videos/My Movie.MP4"),
+            MarkdownFileLinks.find(text, anyFile = true).map { it.path })
+        assertTrue(MarkdownFileLinks.find(text).isEmpty())
+    }
+
     @Test fun extractsVideoLinksAndEmbedsWithoutGrantingCodeOrNetworkPaths() {
         val text = "[成片](<videos/My Movie.MP4>) ![视频](/demo/movie.mp4) " +
             "![图片](image.png) `[示例](hidden.mp4)` [外链](https://example.com/video.mp4)"

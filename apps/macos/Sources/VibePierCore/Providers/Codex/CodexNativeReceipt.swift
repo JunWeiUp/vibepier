@@ -5,6 +5,8 @@ enum CodexNativeReceipt {
     static func validate(_ result: [String: Any], method: String, params: [String: Any]) throws {
         let valid: Bool
         switch method {
+        case "thread-follower-load-complete-history":
+            valid = AgentSessionProfile.integer(result["revision"]).map { $0 >= 0 } == true
         case "thread-follower-start-turn":
             let turn = (result["result"] as? [String: Any])?["turn"] as? [String: Any]
             valid = !(turn?["id"] as? String ?? "").isEmpty

@@ -12,6 +12,7 @@ final class BinaryFileTransfers: @unchecked Sendable {
     private var input: FileHandle?
     private var ready = false
     private var offers: [String: [String: Any]] = [:]
+    private var mediaSnapshots: [String: URL] = [:]
     private var apkRequests: [String: String] = [:]
     private var observer: NSObjectProtocol?
     private let executableOverride: URL?
@@ -32,6 +33,10 @@ final class BinaryFileTransfers: @unchecked Sendable {
             self?.control.async { [weak self] in
                 guard let self else { return }
                 _ = self.command(["op": "cancel"])
+                for file in self.mediaSnapshots.values {
+                    try? FileManager.default.removeItem(at: file.deletingLastPathComponent())
+                }
+                self.mediaSnapshots.removeAll()
                 self.offers.removeAll()
                 self.apkRequests.removeAll()
             }
@@ -41,6 +46,7 @@ final class BinaryFileTransfers: @unchecked Sendable {
         if let observer { NotificationCenter.default.removeObserver(observer) }
         try? input?.close()
         if process?.isRunning == true { process?.terminate() }
+        for file in mediaSnapshots.values { try? FileManager.default.removeItem(at: file.deletingLastPathComponent()) }
     }
     func configure(_ settings: RelaySettings?) {
         control.async { [weak self] in
@@ -65,6 +71,8 @@ final class BinaryFileTransfers: @unchecked Sendable {
         responses.lock()
         ready = false
         responses.unlock()
+        for file in mediaSnapshots.values { try? FileManager.default.removeItem(at: file.deletingLastPathComponent()) }
+        mediaSnapshots.removeAll()
         offers.removeAll()
         apkRequests.removeAll()
         let executable =
@@ -176,6 +184,9 @@ final class BinaryFileTransfers: @unchecked Sendable {
             for cache in matching {
                 offers.removeValue(forKey: cache)
                 apkRequests.removeValue(forKey: cache)
+                if let file = mediaSnapshots.removeValue(forKey: cache) {
+                    try? FileManager.default.removeItem(at: file.deletingLastPathComponent())
+                }
             }
             if !matching.isEmpty { _ = command(["op": "cancel", "id": ticket]) }
         }
@@ -203,6 +214,33 @@ final class BinaryFileTransfers: @unchecked Sendable {
             return profile
         }
     }
+    func mediaOffer(device: String, scope: String, file: URL, size: Int, mime: String, digest: String) -> [String: Any]?
+    {
+        control.sync {
+            guard authorized(device), size > 0, size <= 128 * 1024 * 1024 else { return nil }
+            let scope = "media:" + scope
+            let cache = key(device, scope)
+            guard
+                let profile = command([
+                    "op": "offer", "kind": "media", "device": device, "scope": scope,
+                    "file": file.path, "size": size, "offset": 0,
+                ])?["profile"] as? [String: Any]
+            else { return nil }
+            offers[cache] = profile
+            mediaSnapshots[cache] = file
+            control.asyncAfter(deadline: .now() + 600) { [weak self] in
+                self?.cancelOnControl(device: device, scope: scope)
+            }
+            return profile.merging(["mime": mime, "sha256": digest]) { $1 }
+        }
+    }
+    func cancelMedia(device: String) {
+        control.sync {
+            let prefix = key(device, "media:")
+            let scopes = offers.keys.filter { $0.hasPrefix(prefix) }.map { String($0.dropFirst(device.count + 1)) }
+            for scope in scopes { cancelOnControl(device: device, scope: scope) }
+        }
+    }
     func ownsAPKTicket(device: String, transfer: String, ticket: String) -> Bool {
         control.sync { offers[key(device, "apk:" + transfer)]?["id"] as? String == ticket && authorized(device) }
     }
@@ -211,6 +249,9 @@ final class BinaryFileTransfers: @unchecked Sendable {
         control.sync { cancelOnControl(device: device, scope: scope) }
     }
     private func cancelOnControl(device: String, scope: String) {
+        if let file = mediaSnapshots.removeValue(forKey: key(device, scope)) {
+            try? FileManager.default.removeItem(at: file.deletingLastPathComponent())
+        }
         apkRequests.removeValue(forKey: key(device, scope))
         if let profile = offers.removeValue(forKey: key(device, scope)), let id = profile["id"] as? String {
             _ = command(["op": "cancel", "id": id])

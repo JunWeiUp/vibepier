@@ -5,6 +5,8 @@ import VibePierCore
 final class AppDelegate: NSObject, NSApplicationDelegate {
     private var signals: [DispatchSourceSignal] = []
     func applicationDidFinishLaunching(_ notification: Notification) {
+        MacPermissionsGuide.shared.startMonitoringFileAccess()
+        MacPermissionsGuide.shared.showOnInstalledLaunch()
         signals = [SIGTERM, SIGINT].map { sig in
             signal(sig, SIG_IGN)
             let source = DispatchSource.makeSignalSource(signal: sig, queue: .main)
@@ -25,6 +27,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     }
 
     func applicationWillTerminate(_ notification: Notification) {
+        MacPermissionsGuide.shared.stopMonitoringFileAccess()
         EmbeddedDriver.shared.stop()
     }
 }

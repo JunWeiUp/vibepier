@@ -2,6 +2,10 @@
 
 Clone the entire repository: macOS, Android and Go tests share files under `protocol/fixtures`. Ordinary tests use synthetic data and must not interact with a user's real desktop, audio routing, phone authorization or provider sessions.
 
+Ordinary Swift tests must inject device keys, session routing and provider-policy snapshots instead of reading the installed app's Keychain. An `xctest` prompt for `io.github.junweiup.vibepier.devices.v1` indicates a missing test dependency; cancel it and fix the injection. Granting permanent Keychain access to the test runner is not part of verification.
+
+普通 Swift 测试须注入模拟设备密钥、会话路由和服务商策略，不读取已安装应用的钥匙串。若 `xctest` 请求访问 `io.github.junweiup.vibepier.devices.v1`，说明测试遗漏了依赖注入，应取消提示并修复测试；无需授予测试程序永久钥匙串访问权限。
+
 ## Toolchain
 
 - macOS 14+ and Xcode with Swift 6 for the Mac app and CLI.
@@ -106,6 +110,10 @@ make package-relay
 
 The Mac staging output is `dist/staging/VibePier.app`; public packaging is described in [DEPLOYMENT.md](DEPLOYMENT.md). Android `assembleRelease` is unsigned unless explicit release credentials are supplied. The release-packaging script requires those credentials and never falls back to debug signing. Build and package commands do not install/launch apps or edit system configuration.
 
+An explicit local Mac update uses `python3 scripts/install/macos.py --dry-run` and then `--apply` when installation is intended; see [Mac updates](MACOS-UPDATES.md). This updater preserves the installed app directory and checks signing compatibility before replacement. Its isolated Python tests run in repository checks without signing, installing or stopping production apps.
+
+本机 Mac 更新使用独立显式脚本，先 `--dry-run` 只读核验，需要安装时才执行 `--apply`；详见 [Mac 更新与权限](MACOS-UPDATES.md)。隔离 Python 测试不签名、安装或停止生产应用。
+
 Lint decisions and the four retained toolchain notices are documented in [ANDROID-LINT.md](ANDROID-LINT.md). CI rejects any new, unreviewed warning.
 
 ## Emulator verification
@@ -130,7 +138,15 @@ adb -s EMULATOR_SERIAL install -r apps/android/app/build/outputs/apk/androidTest
 adb -s EMULATOR_SERIAL shell am instrument -w -e test screen-controls io.github.junweiup.vibepier.remote.review.test/io.github.junweiup.vibepier.remote.BindingSyncInstrumentation
 ```
 
-Useful selectors: `codex` (full session/receipt regression), `composer`, `codex-panel`, `providers`, `conversation-images`, `screen-controls`, `new-session-receipts`, `session-response`, `markdown`, `tool-groups`, `private-storage`, `relay-store`, `enrollment`, `app-usage`, `background-connection`, `protocol-negotiation`, `relay-framing`. Inspect the emitted result: a crashed instrumentation process can still leave ADB with exit code zero. Passing logs explicitly contain `PASS` or a Chinese success message.
+Useful selectors: `codex` (full session/receipt regression), `composer`, `codex-panel`, `providers`, `plan-mode`, `conversation-images`, `screen-controls`, `new-session-receipts`, `session-response`, `markdown`, `tool-groups`, `private-storage`, `relay-store`, `enrollment`, `app-usage`, `background-connection`, `protocol-negotiation`, `relay-framing`. Inspect the emitted result: a crashed instrumentation process can still leave ADB with exit code zero. Passing logs explicitly contain `PASS` or a Chinese success message.
+
+`plan-mode` uses an isolated encrypted synthetic Mac and the production composer/new-session controls. It verifies native capability/catalog gates, Execute → Plan → Execute readback, first-message mode options without rewriting text, independent/coupled permissions and advertised safe-default disclosure. Run once per English/Chinese app locale and restore the original locale. Screenshot assertions wait for selected menus to dismiss/detach and exit animations to finish. Swift `ProviderExecutionModeTests`, `AgentSessionServiceTests` and runtime tests separately verify native mode/first-input evidence and unknown-result preservation; they do not launch real Agents.
+
+`plan-mode` 探针使用隔离加密模拟 Mac，验证已有/新建原生模式、权限联动与安全默认提示；中英各跑一次并恢复应用语言。截图等待菜单关闭及动画结束；普通 Swift 测试注入原生接口，不启动真实 Agent，不把模拟通过当成实际原生验收。
+
+`agent-open` starts a fresh isolated encrypted client without cached references, discovers all three current providers with empty search, opens by the returned opaque identity, handles a partial opening page and refreshes to complete content. It also verifies host-wide `operation.get` uses `target:{}`. Swift's discovery-to-open regression must decode the exact phone request first; injected native replies alone cannot catch a gateway rejection before dispatch.
+
+`agent-open` 从无缓存的隔离加密客户端验证三助手空搜索发现、身份绑定、打开与刷新。Swift 回归必须先解码手机实际请求，避免只测试注入原生回复而漏掉入口校验错误。
 
 `session-response` uses an isolated preference namespace and real Android Keystore with a synthetic host. It verifies malformed booleans/foreign receipts preserving the unknown result and draft, valid reconciliation, late native creation identity, a 270 KB out-of-order reply burst, active request/byte/callback/receipt limits, corrupt receipt preservation, and one-shot password verification without persistence. It never contacts a real Mac or types a password. Run it in both app languages alongside `codex`, `providers`, `new-session-receipts` and `screen-controls`. JVM `SessionResponseInboxTest` separately checks packet bounds, conflicting duplicates, absolute expiry, timer generations, replay capacity, UTF-8, authentication and operation-specific receipt evidence. Synthetic host frames must include the production `type` and recipient-bound `sender` fields; do not relax production validation to fit an incomplete fixture.
 
@@ -206,6 +222,10 @@ Packaging snapshots the public source fingerprint before building, verifies it a
 
 ### MP4 preview validation / MP4 预览验证
 
+Conversation playback links also recognize standalone MP4 paths inside inline code; fenced examples, commands and network URLs remain excluded. Missing relative video paths may remove an exact repeated suffix of the session workspace, with the same realpath/symlink checks. `MarkdownFileLinksTest` and `testVideoRepairsRepeatedWorkspaceSuffixWithoutEscaping` cover these cases.
+
+会话中的行内反引号独立 MP4 路径也显示播放入口；围栏代码、命令和网络 URL 不识别。缺失的相对视频路径可移除与会话项目末尾完全一致的重复目录前缀，仍执行原有真实路径与符号链接校验；上述单测覆盖入口识别和越界拒绝。
+
 `SessionProjectFilesTests.testVideoChunksAreBoundedVersionedAndWorkspaceScoped` checks encrypted RPC chunk bounds, complete reconstruction, file mutation, traversal/symlink escape and the 128 MiB limit using synthetic temporary files. The `video-preview` designReview instrumentation probe checks multi-chunk download, exact SHA-256, manual H.264/AAC playback, pause/seek and cleanup for synthetic Claude/Codex hosts. It does not call either provider or validate a real phone. Its test-only fixture can be regenerated with:
 
 ```sh
@@ -213,3 +233,41 @@ ffmpeg -f lavfi -i testsrc2=size=320x240:rate=24 -f lavfi -i sine=frequency=440:
 ```
 
 Swift 测试仅使用临时合成文件，覆盖分块、完整重组、文件变更、目录穿越/符号链接越界和大小上限。`video-preview` 模拟器探针使用上述测试专属合成视频与虚构 Claude/Codex 主机，验证摘要、播放、暂停/拖动和清理；不调用真实 AI 会话，不等于真机验收。
+
+### Permission setup validation / 权限引导验收
+
+`MacPermissionsGuideTests` validates first-installed-launch, repeat/development launch policy and repair prompts after a real permission denial using injected presentation actions. File-access status tests use injected checks and temporary synthetic files to cover success, denial, missing files, concurrent clicks and bounded timeouts. They do not open settings, read TCC databases or modify real permissions. Manual acceptance requires authorizing the installed app in System Settings, reopening it, reading a protected-folder image and using the status button; an update acceptance also verifies the same signing identity and installed bundle directory. This manual grant is separate from unit tests; closing the guide is not authorization.
+
+单测通过注入界面操作与读取检查覆盖首次/重复/开发启动、已展示后的权限拒绝提示、成功/拒绝/文件缺失/重复点击/超时，不读 TCC 数据库、不修改真实权限。人工验收需手动授权安装版、重启后读取受保护文件并检查状态；更新还需核验签名身份与安装目录保持。关闭引导不算授权。
+
+### Conversation image lifecycle / 会话图片加载生命周期
+
+The `conversation-images` emulator probe now exercises the production `ConversationMedia` dialog with synthetic replies: retained thumbnail across body-version changes, cancellation followed by retry, late cancelled replies, synchronous cached large-image display, and a missing-response deadline. No Mac or production phone is involved. Image reads use a 30-second UI deadline and return a retry state when cancelled; they never remain indefinitely loading.
+
+`conversation-images` 模拟器探针使用合成回包验证真实大图弹窗：正文版本改变仍保留可见缩略图、取消后重试、旧回包隔离、同步缓存命中和无回包超时。图片读取在30秒界面期限或取消后显示重试，不涉及真实Mac或手机。
+
+The `image-zoom` emulator probe uses synthetic bitmaps and injected touch events with the production full-screen image host. Check the viewport fills most of the screen, fitted opening/reset, pinch limits, pan bounds, double-tap zoom/reset, large-image replacement and both Close/Back dismissal. It must not read a provider's real images or change production-phone data. The `agent-open` encrypted loopback also checks two earlier-history pages per adapter, their exact `before` message anchors, and the oldest-page `hasOlder: false` boundary.
+
+`image-zoom` 通过合成位图及模拟器触摸事件验证真实全屏图片入口：图片区域占屏幕主要空间、完整画面、缩放/拖动边界、双击及重开重置、大图替换、关闭和系统返回；不读取真实会话图片或修改真机数据。`agent-open` 加密 loopback 还验证各适配器两页旧消息、精确的 `before` 锚点与最后一页 `hasOlder: false`。
+
+ZCode composer controls show loading feedback while reading native options and display failures in a dialog. When the focused AX window is missing, the adapter may use a unique native window; ambiguous or unavailable windows do not permit settings changes.
+
+ZCode 会话配置按钮读取原生选项时显示加载提示，失败时弹出原因。AX 焦点窗口缺失时仅允许使用唯一原生窗口；窗口不可用或存在歧义时不执行设置变更。
+
+The opt-in `binary-media` API37 probe uses a synthetic helper profile file to verify raw HTTPS JPEG/MP4 bytes, digest mismatch refusal, native conversation-image dialog/cache hits and single-offer video playback/seek. `BinaryMediaFilesTests` verifies private snapshots and device-scoped cancellation; the Go helper tests include local and cloud media capabilities. These are synthetic loopback/emulator results, not a public IPv6/NAT or real-phone throughput measurement.
+
+`binary-media` API37 探针使用合成文件助手验证二进制图片/视频、摘要拒绝、真实大图缓存和单次视频下载播放；Swift/Go验证私有快照、设备隔离和本地/云媒体凭据。不能把模拟器结果称作公网IPv6/NAT打洞或真机速度验收。
+
+### Assistant visibility checks / 助手可见范围验证
+
+Run Swift `SessionProviderPolicyTests`/`SessionProviderModelTests`, Kotlin `SessionProviderAccessTest`, and the emulator-only `provider-access` instrumentation probe for new policy changes. `LocalizationPreviewTests/testSessionProviderMenuLayout` renders a synthetic native menu card with `VIBEPIER_PREVIEW_DIR`. No normal unit/build command installs or changes production applications.
+
+开关验证覆盖全关闭、迟到回复、旧修订、保存失败、草稿和未知回执保留；安装生产端仍是单独明确操作。
+
+## Agent contract and driver validation
+
+`make test` additionally runs the isolated Claude Mods JavaScript tests and requires Node.js 22+. `make lint-repository` checks the generated Swift/Kotlin v1 operation manifest. Update `protocol/contracts/session-v1.json`, regenerate with `python3 scripts/dev/generate-session-contract.py`, and update shared fixtures together. Profile 2 schemas and canonical fingerprint vectors live in `protocol/schemas` and `protocol/fixtures`.
+
+Agent unit tests inject adapters, native JSON-RPC and temporary directories. They cover journal-before-effect, native owner and capability changes, late callbacks, approval races, bounded replay gaps and partial evidence across restart. They do not use production provider homes, load a real Mods plugin or start a model turn. Optional runtime configuration is owner-only and disabled until explicitly enabled; native and real-device acceptance remain separate. See [Agent control](AGENT-CONTROL-ARCHITECTURE.md).
+
+统一 Agent 的普通验证仅使用合成数据、临时目录与注入接口；当前生产端不会由测试或构建自动更新。双端新写操作需要协商成功，未确定操作不迁移后端重发。

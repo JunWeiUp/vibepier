@@ -129,6 +129,20 @@ enum ClaudePermissions {
         let text: String
         let options: [String]
     }
+    /// Only the native plan body may be accepted once. ExitPlanMode can also request
+    /// tool permission grants; those variants and unknown future fields stay Mac-only.
+    static func planApprovalScope(_ use: ToolUse, cwd: String) -> String? {
+        guard use.name == "ExitPlanMode", !use.id.isEmpty, use.id.utf8.count <= 256,
+            Set(use.input.keys).isSubset(of: ["plan", "allowedPrompts"]),
+            let plan = use.input["plan"] as? String,
+            !plan.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty,
+            plan.utf8.count <= 60_000, details(use, cwd: cwd).count <= 60_000
+        else { return nil }
+        if let prompts = use.input["allowedPrompts"] {
+            guard let list = prompts as? [Any], list.isEmpty else { return nil }
+        }
+        return "once"
+    }
     /// A single-select `AskUserQuestion` call the phone can answer by picking one option; anything else (several
     /// questions, multi-select, malformed or duplicate options) stays Mac-only.
     static func question(_ use: ToolUse) -> Question? {
@@ -174,8 +188,10 @@ enum ClaudePermissions {
             let details = Self.details(use, cwd: cwd)
             let question = Self.question(use)
             // A question with options the phone can pick from is decidable; any other question needs the Mac.
-            let decidable = question != nil || (use.name != "AskUserQuestion" && details.count <= 60_000)
             let plan = use.name == "ExitPlanMode"
+            let scope = planApprovalScope(use, cwd: cwd)
+            let decidable =
+                plan ? scope != nil : question != nil || (use.name != "AskUserQuestion" && details.count <= 60_000)
             var row: [String: Any] = [
                 "id": request.id,
                 "fingerprint": CodexConversation.dataHash(Data((request.id + "|" + use.id + "|").utf8) + input),
@@ -184,6 +200,7 @@ enum ClaudePermissions {
                 "allowLabel": plan ? L10n.text("provider.approve_plan") : L10n.text("provider.allow_once"),
                 "denyLabel": plan ? L10n.text("provider.reject_plan") : L10n.text("control.deny"),
             ]
+            if let scope { row["planApprovalScope"] = scope }
             if let question {
                 row["question"] = question.text
                 row["options"] = question.options

@@ -53,7 +53,7 @@ type Store struct {
 }
 
 func (s *Store) Create(kind, device, scope, file string, size, offset int64) (*Offer, error) {
-	if (kind != "upload" && kind != "apk") || device == "" || len(scope) > 512 || size <= 0 || size > MaxSize || offset < 0 || offset >= size || (kind == "upload" && (size > 10<<20 || offset != 0)) {
+	if (kind != "upload" && kind != "apk" && kind != "media") || device == "" || len(scope) > 512 || size <= 0 || size > MaxSize || offset < 0 || offset >= size || (kind == "upload" && (size > 10<<20 || offset != 0)) {
 		return nil, errors.New("invalid offer")
 	}
 	s.mu.Lock()
@@ -227,7 +227,7 @@ func (s *Store) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(204)
 		return
 	}
-	if r.Method == http.MethodGet && t.Kind == "apk" && r.Header.Get("Range") == fmt.Sprintf("bytes=%d-", t.Offset) {
+	if r.Method == http.MethodGet && (t.Kind == "apk" || t.Kind == "media") && r.Header.Get("Range") == fmt.Sprintf("bytes=%d-", t.Offset) {
 		if !s.Begin(t) {
 			http.Error(w, "already active", 409)
 			return

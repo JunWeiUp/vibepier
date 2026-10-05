@@ -111,7 +111,7 @@ object NewSessionComposerProbe {
                 check(client.creationDraft(cwd, "codex").id != draftID)
                 check(client.attachments("creation:$draftID", "codex").length() == 0)
                 val nativeChoices = NewSessionOptionsView(activity,
-                    io.github.junweiup.vibepier.remote.core.session.SessionCreationDraft(UUID.randomUUID().toString(), "zcode", "/fixture/zcode"), {}, {})
+                    io.github.junweiup.vibepier.remote.core.session.SessionCreationDraft(UUID.randomUUID().toString(), "zcode", "/fixture/zcode"), {}, {}, { true })
                 nativeChoices.applyOptions(JSONObject().put("ok", true).put("creationVersion", 1)
                     .put("models", JSONArray().put(JSONObject().put("id", "native-model").put("name", "Native model").put("efforts", JSONArray().put("opaque-effort-id"))))
                     .put("efforts", JSONArray().put(JSONObject().put("id", "opaque-effort-id").put("name", "Native deep reasoning")))

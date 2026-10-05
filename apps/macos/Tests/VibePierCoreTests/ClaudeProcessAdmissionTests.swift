@@ -179,7 +179,7 @@ final class ClaudeProcessAdmissionTests: XCTestCase {
         XCTAssertEqual(argument("--effort"), "high")
         XCTAssertEqual(argument("--permission-mode"), "plan")
         let saved = try JSONDecoder().decode([String: [String: String]].self, from: Data(contentsOf: settings))
-        XCTAssertEqual(saved[session], ["model": "sonnet", "effort": "high", "mode": "plan"])
+        XCTAssertEqual(saved[session], ["model": "sonnet", "effort": "high", "mode": "plan", "executionMode": "plan"])
     }
 
     func testInvalidCreationConfigurationCannotLaunchOrWriteSettings() throws {

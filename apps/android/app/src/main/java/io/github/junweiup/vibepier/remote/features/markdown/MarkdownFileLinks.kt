@@ -53,6 +53,16 @@ internal object MarkdownFileLinks {
                     val start = index
                     while (index < line.length && line[index] == '`') index++
                     val end = line.indexOf("`".repeat(index - start), index)
+                    if (end >= 0 && anyFile) {
+                        val literal = line.substring(index, end)
+                        parseTarget(literal, anyFile = true)?.takeIf {
+                            it.path.lowercase().endsWith(".mp4") &&
+                                Regex("(?i)\\.mp4").findAll(literal).count() == 1 &&
+                                !Regex("\\s[-|>]").containsMatchIn(literal)
+                        }?.let {
+                            links[it.path to it.line] = it
+                        }
+                    }
                     index = if (end < 0) index else end + index - start
                     continue
                 }

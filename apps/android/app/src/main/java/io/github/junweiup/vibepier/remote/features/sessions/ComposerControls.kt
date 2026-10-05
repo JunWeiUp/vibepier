@@ -18,7 +18,7 @@ import android.widget.LinearLayout
 
 /** Stable model/settings toolbar with a separately labelled submit action. */
 @android.annotation.SuppressLint("ViewConstructor") // Created in code with required model/callback arguments, never XML-inflated.
-internal class ComposerControls(context: Context, editor: EditText, onAdd: () -> Unit, onMode: () -> Unit, onModel: () -> Unit, onSend: () -> Unit, onContext: () -> Unit) : LinearLayout(context) {
+internal class ComposerControls(context: Context, editor: EditText, onAdd: () -> Unit, onMode: () -> Unit, onModel: () -> Unit, onSend: () -> Unit, onContext: () -> Unit, onExecution: () -> Unit = {}) : LinearLayout(context) {
     val attachments = LinearLayout(context).apply { orientation = HORIZONTAL }
     val attachmentScroll = HorizontalScrollView(context).apply { isHorizontalScrollBarEnabled = false; addView(attachments); visibility = GONE }
     private fun dp(v: Int) = (v * resources.displayMetrics.density).toInt()
@@ -32,6 +32,7 @@ internal class ComposerControls(context: Context, editor: EditText, onAdd: () ->
         background = Ui.inset(context, Ui.roundRect(context, Palette.surface3, 10), 8, 2); setPadding(dp(12), 0, dp(12), 0)
     }
     val mode = chip(context.getString(R.string.approval_mode), onMode)
+    val execution = chip(context.getString(R.string.session_execution_mode), onExecution).apply { visibility = GONE }
     val contextUsage = IconControl(context, IconControl.Icon.CONTEXT, context.getString(R.string.context_usage_description), action = onContext).apply { visibility = GONE }
     val model = chip(context.getString(R.string.choose_model), onModel)
     val send = action(context.getString(R.string.conversation_send), onSend).apply {
@@ -46,6 +47,7 @@ internal class ComposerControls(context: Context, editor: EditText, onAdd: () ->
         addView(attachmentScroll, LayoutParams(-1, -2).apply { bottomMargin = dp(4) })
         addView(LinearLayout(context).apply {
             gravity = Gravity.CENTER_VERTICAL
+            addView(execution, LayoutParams(dp(88), dp(48)))
             addView(mode, LayoutParams(dp(106), dp(48)))
             addView(model, LayoutParams(0, dp(48), 1f))
         }, LayoutParams(-1, -2))

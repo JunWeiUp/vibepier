@@ -61,7 +61,7 @@ Codex 当前允许桌面构建号 **11645、12404、12553、12947**；配置式�
 
 需要 **Apple silicon Mac、macOS 14+** 和 **Android 13+**。Mac 应用需要保持运行，不能远程开机，也不能绕过 FileVault 开机登录。
 
-1. 安装并打开 Mac 上的 **VibePier.app**，在手机安装正式签名 APK。
+1. 将 **VibePier.app** 安装到 `/Applications` 并打开。首次启动默认显示完全磁盘访问引导并打开系统设置；添加并开启 VibePier，退出后重新打开，再在手机安装正式签名 APK。
 2. 允许蓝牙/附近设备权限。新安装默认通过蓝牙发现 Mac。
 3. 手机自动发起授权，只需在 Mac 弹窗点 **允许这台手机**，不必进入会话页点“申请访问”。
 4. 使用桌面按键和应用控制时，按提示允许 Mac 辅助功能权限；使用语音时再开启对应麦克风权限。
@@ -215,8 +215,9 @@ docs/             产品、开发与部署文档
 | 要做什么 | 对应文档 |
 | --- | --- |
 | 开始使用 | [安装与权限](docs/SETUP.md) · [连接说明](docs/CONNECTIONS.md) · [兼容性](docs/COMPATIBILITY.md) |
-| 部署或迁移 | [部署运维](docs/DEPLOYMENT.md) · [迁移更新](docs/MIGRATION.md) · [设置导入导出](docs/SETTINGS-TRANSFER.md) |
+| 部署或迁移 | [部署运维](docs/DEPLOYMENT.md) · [Mac 更新与权限状态](docs/MACOS-UPDATES.md) · [迁移更新](docs/MIGRATION.md) · [设置导入导出](docs/SETTINGS-TRANSFER.md) |
 | 了解项目 | [产品范围](docs/PROJECT-SPEC.md) · [架构](docs/ARCHITECTURE.md) · [设计](DESIGN.md) · [页面结构](docs/PAGE-STRUCTURE.md) |
+| Agent 协议与可选运行时 | [统一控制架构](docs/AGENT-CONTROL-ARCHITECTURE.md) · [会话 API](protocol/specs/agent-session.md) |
 | 参与开发 | [贡献说明](CONTRIBUTING.md) · [组件规范](docs/COMPONENT-GUIDELINES.md) · [开发验证](docs/DEVELOPMENT.md) · [AGENTS.md](AGENTS.md) |
 | 检查发布 | [产物分发](docs/REGISTRY.md) · [更新记录](CHANGELOG.md) · [验收清单](TODO.md) |
 
@@ -236,3 +237,17 @@ docs/             产品、开发与部署文档
 
 
 云中继下发 APK 支持协商大分片及四块并发，显示下载速度与预计剩余时间；双方升级后生效，详见 [Android 更新](docs/ANDROID-UPDATES.md)。
+
+会话/项目图片及MP4预览与图片上传/APK共用二进制HTTPS文件通道，详见[文件传输](docs/BINARY-FILE-TRANSFER.md)。局域网、公网IPv6和中继并行探测，暂不支持IPv4 NAT自动打洞。
+
+在 Mac 菜单的「**AI 编程助手**」卡片中选择手机可见的服务商；更新后的手机只展示启用项，关闭不会停止桌面任务或删除草稿。[详细说明](docs/PROVIDER-VISIBILITY.md)。
+
+### Agent 控制开发版
+
+开发源码在现有授权加密通道内使用类型化 Agent Session profile。实际能力协商决定可用操作，桌面与可选运行时分别绑定目标和待确认操作。新发起 Agent 变更需要 Mac 与 Android 同步更新；旧未知回执继续沿原路径查询。
+
+手机会话输入区域新增「**任务模式 → 计划 / 执行**」，新建会话也可选计划。Codex 对接原生 collaboration mode，Claude Code 对接原生计划权限模式；实际回读确认后才显示切换成功。入口是否可用取决于所选后端、兼容原生接口及会话空闲状态。[支持范围与限制](docs/COMPATIBILITY.md#phone-plan-mode--手机计划模式)。
+
+发送、停止、审批、队列变更、会话设置和新建前会自动核对最新状态，无需先手动刷新会话。原目标或已选选项变化时停止操作并保留草稿；已提交但结果未知的操作保留原回执，不自动重发。
+
+可选后端通过本机 `vibepier agents status` 和显式 enable 命令配置。Codex App Server 使用私有 socket 与独立 `CODEX_HOME`，桌面须显式连接这个运行时。Claude Code Mods 原型在目标版本契约及原生效果证据验收前保持只读。本机安装与真实原生效果分别验收，可选后端须显式配置，详见[配置与验收边界](docs/AGENT-CONTROL-ARCHITECTURE.md#本地可选运行时--optional-local-runtime-setup)。

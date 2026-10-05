@@ -10,6 +10,7 @@ struct SessionProviderReply {
         let fingerprint: String
         let accountId: String
         let creditId: String
+        let executionMode: String
         init(_ request: [String: Any]) {
             id = request["id"] as? String ?? ""
             operation = request["op"] as? String ?? ""
@@ -18,6 +19,7 @@ struct SessionProviderReply {
             fingerprint = request["fingerprint"] as? String ?? ""
             accountId = request["accountId"] as? String ?? ""
             creditId = request["creditId"] as? String ?? ""
+            executionMode = request["executionMode"] as? String ?? ""
         }
     }
     let object: [String: Any]
@@ -80,7 +82,7 @@ struct SessionProviderReply {
     /// Reconciliation is observational. An unknown, contradictory or differently scoped lookup cannot clear a reservation.
     static func resolvedLookup(
         _ bytes: Data, thread: String, operation: String, cwd: String = "", fingerprint: String = "",
-        accountId: String = "", creditId: String = ""
+        accountId: String = "", creditId: String = "", executionMode: String = ""
     ) -> [String: Any]? {
         guard bytes.count <= 300_000,
             let body = try? JSONSerialization.jsonObject(with: bytes) as? [String: Any],
@@ -88,7 +90,7 @@ struct SessionProviderReply {
         else { return nil }
         let context = Context([
             "op": operation, "threadId": thread, "cwd": cwd, "fingerprint": fingerprint,
-            "accountId": accountId, "creditId": creditId,
+            "accountId": accountId, "creditId": creditId, "executionMode": executionMode,
         ])
         if boolean(body["ok"]) == true && confirms(body, request: context) { return body }
         // The queue can explicitly report that a delete lost a race with sending; that is a resolved failure.
@@ -112,6 +114,10 @@ struct SessionProviderReply {
         case "new":
             return !(reply["threadId"] as? String ?? "").isEmpty
                 && !request.cwd.isEmpty && reply["cwd"] as? String == request.cwd
+                && verifiesExecutionMode(reply, request: request)
+        case "settings":
+            return boolean(reply["accepted"]) == true && sameThread(reply, request)
+                && verifiesExecutionMode(reply, request: request)
         case "lockScreen": return boolean(reply["locked"]) == true
         case "unlockScreen": return boolean(reply["locked"]) == false
         case "approve":
@@ -121,6 +127,14 @@ struct SessionProviderReply {
                 && sameThread(reply, request)
         default: return boolean(reply["accepted"]) == true && sameThread(reply, request)
         }
+    }
+
+    private static func verifiesExecutionMode(_ reply: [String: Any], request: Context) -> Bool {
+        guard !request.executionMode.isEmpty else { return true }
+        let actual =
+            reply["effectiveExecutionMode"] as? String
+            ?? (reply["composer"] as? [String: Any])?["executionMode"] as? String
+        return boolean(reply["executionModeVerified"]) == true && actual == request.executionMode
     }
 
     private static func sameThread(_ reply: [String: Any], _ request: Context) -> Bool {

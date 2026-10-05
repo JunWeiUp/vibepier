@@ -149,12 +149,15 @@ extension ConversationReply {
     /// The bridge has already resolved an opaque image ID from this selected
     /// session, so that source is an exact conversation reference. File reads
     /// still use the same stable, race-safe validation as Markdown previews.
-    static func jpeg(_ source: String, cwd: String, maxPixel: Int) throws -> Data {
+    static func jpeg(_ source: String, cwd: String, maxPixel: Int, maximumBytes: Int = 200_000) throws -> Data {
         if source.hasPrefix("data:image/") {
             guard source.utf8.count <= 48 * 1024 * 1024 else {
                 throw CLIError(L10n.text("session.the_source_image_is_too_large_to_preview"))
             }
-            return try jpeg(source, maxPixel: maxPixel)
+            guard let comma = source.firstIndex(of: ","),
+                let bytes = Data(base64Encoded: String(source[source.index(after: comma)...]))
+            else { throw CLIError(L10n.text("session.the_image_no_longer_exists_or_cannot_be_read")) }
+            return try jpeg(bytes, maxPixel: maxPixel, maximumBytes: maximumBytes)
         }
         let path: String
         if let url = URL(string: source), url.scheme != nil {
@@ -170,6 +173,6 @@ extension ConversationReply {
         }
         let bytes = try SessionMarkdownFiles.readReferencedFile(
             path, cwd: cwd, referencedPaths: [path], maximumBytes: 32 * 1024 * 1024)
-        return try jpeg(bytes, maxPixel: maxPixel)
+        return try jpeg(bytes, maxPixel: maxPixel, maximumBytes: maximumBytes)
     }
 }

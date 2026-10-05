@@ -10,6 +10,8 @@ final class SessionReceiptJournal {
         var created: Double
         var intent: Data?
         var retired: Bool?
+        /// Verified partial native identity for an unresolved operation, never permission to re-execute it.
+        var evidence: Data? = nil
     }
     struct Limits {
         var fileBytes = 16 * 1024 * 1024
@@ -63,6 +65,15 @@ final class SessionReceiptJournal {
 
     var isReliable: Bool { !storageFailed }
     func receipt(_ key: String) -> Receipt? { records[key] }
+    func existingKey(device: String, operation: String) -> String? {
+        let exact = device + ":" + operation
+        if records[exact] != nil { return exact }
+        guard let id = UUID(uuidString: operation) else { return nil }
+        return records.keys.first { key in
+            guard key.hasPrefix(device + ":") else { return false }
+            return UUID(uuidString: String(key.dropFirst(device.count + 1))) == id
+        }
+    }
     func reserve(_ key: String, hash: String, thread: String, intent: Data? = nil) throws -> Reservation {
         if let old = records[key] {
             guard old.hash == hash, old.thread == thread else { return .conflict }
@@ -104,6 +115,17 @@ final class SessionReceiptJournal {
         try publish(next, data: data)
     }
 
+    func recordEvidence(_ key: String, evidence: Data) throws {
+        guard let original = records[key], original.retired != true, original.result == nil,
+            !storageFailed, evidence.count <= 8192
+        else { throw Self.invalidStorage }
+        if original.evidence == evidence { return }
+        var next = records
+        next[key]?.evidence = evidence
+        let data = try checkedEncoding(next, reserveResults: true)
+        try publish(next, data: data)
+    }
+
     private func checkedEncoding(_ next: [String: Receipt], reserveResults: Bool) throws -> Data {
         let encoder = JSONEncoder()
         encoder.outputFormatting = [.sortedKeys, .withoutEscapingSlashes]
@@ -137,7 +159,8 @@ final class SessionReceiptJournal {
         !key.isEmpty && key.utf8.count <= 256 && !receipt.hash.isEmpty && receipt.hash.utf8.count <= 128
             && receipt.thread.utf8.count <= 1024 && receipt.created.isFinite && receipt.created >= 0
             && (receipt.intent?.count ?? 0) <= payloadLimit && (receipt.result?.count ?? 0) <= payloadLimit
-            && (receipt.retired != true || (receipt.result == nil && receipt.intent == nil))
+            && (receipt.evidence?.count ?? 0) <= 8192
+            && (receipt.retired != true || (receipt.result == nil && receipt.intent == nil && receipt.evidence == nil))
     }
     private static var invalidStorage: Failure { .invalid }
     private static var full: Failure { .full }

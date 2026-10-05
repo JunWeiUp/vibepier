@@ -1,0 +1,6 @@
+{
+  "name": "vibepier",
+  "version": "0.1.0",
+  "description": "Explicitly bound local VibePier observation and control for Claude Code Mods",
+  "author": { "name": "VibePier contributors" }
+}

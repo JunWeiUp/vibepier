@@ -80,6 +80,8 @@ struct PhoneRemoteView: View {
                 .accessibilityAddTraits(selected ? .isSelected : [])
             }
             Spacer()
+            AppVersionBadge()
+                .padding(.horizontal, 10).padding(.bottom, 4)
         }
         .padding(10)
         .frame(width: 200)

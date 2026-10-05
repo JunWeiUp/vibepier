@@ -122,14 +122,11 @@ enum SessionRequestLane: String, CaseIterable {
 
     static func resolve(_ request: [String: Any], receipt: Bool = false) -> String {
         let operation = request["op"] as? String ?? ""
-        if ["codexUsage", "codexUsageReset", "codexUsageResetReceipt"].contains(operation) {
+        let category = SessionV1Contract.descriptor(operation)?.laneCategory
+        if category == "account" {
             return (receipt ? Self.accountReceipt : .account).rawValue
         }
-        if [
-            "applications", "applicationShortcutSet", "appUsage", "appUsageSet", "lockScreen", "unlockScreen",
-            "unlockPassword", "androidUpdateStage",
-        ]
-        .contains(operation) {
+        if category == "controls" {
             return Self.controls.rawValue
         }
         switch request["provider"] as? String ?? "codex" {

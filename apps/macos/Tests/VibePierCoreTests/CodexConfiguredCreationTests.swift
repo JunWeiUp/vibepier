@@ -19,9 +19,9 @@ final class CodexConfiguredCreationTests: XCTestCase {
         "model": "fixture-model", "effort": "high", "permissions": ":workspace",
         "approvalPolicy": "on-request", "approvalsReviewer": "user",
     ]
-    private func input() throws -> CodexConfiguredCreation.Input {
+    private func input(settings: [String: Any]? = nil) throws -> CodexConfiguredCreation.Input {
         .init(
-            project: project, settings: try JSONSerialization.data(withJSONObject: settings),
+            project: project, settings: try JSONSerialization.data(withJSONObject: settings ?? self.settings),
             attachments: try JSONSerialization.data(withJSONObject: [
                 "input": [["type": "localImage", "path": "/synthetic/image.png"]],
                 "files": [["path": "/synthetic/notes.md", "label": "notes.md"]],
@@ -114,6 +114,54 @@ final class CodexConfiguredCreationTests: XCTestCase {
         XCTAssertFalse(CodexConfiguredCreation.emptyHistory(["turnHistory": ["history": [:]]]))
     }
 
+    func testPlanFirstTurnCarriesNativePresetAndRequiresOwnerBoundReadback() throws {
+        for actual in ["plan", "default", "missing", "other-owner"] {
+            let turnID = UUID().uuidString
+            var settings = self.settings
+            settings["collaborationMode"] = try CodexExecutionMode.preset(
+                mode: "plan", model: "fixture-model", effort: "high",
+                catalog: [["id": "default"], ["id": "plan"]])
+            var views = 0
+            var sends = 0
+            let services = CodexConfiguredCreation.Services(
+                start: { params in
+                    XCTAssertNil(params["collaborationMode"], "thread/start has no native collaboration field")
+                    return self.started()
+                }, open: { _ in },
+                view: { _ in
+                    views += 1
+                    var state: [String: Any] = ["cwd": self.project.cwd, "turns": []]
+                    if views > 1, actual != "missing" {
+                        let preset: [String: Any] = [
+                            "mode": actual == "default" ? "default" : "plan",
+                            "settings": ["model": "fixture-model", "reasoning_effort": "high"],
+                        ]
+                        state["latestCollaborationMode"] = preset
+                        state["turns"] = [["turnId": turnID, "params": ["collaborationMode": preset]]]
+                    }
+                    return .init(owner: views > 1 && actual == "other-owner" ? "changed-owner" : "owner", state: state)
+                },
+                send: { _, params in
+                    sends += 1
+                    let request = try XCTUnwrap((params["turnStart"] as? [String: Any])?["request"] as? [String: Any])
+                    let preset = try XCTUnwrap(request["collaborationMode"] as? [String: Any])
+                    XCTAssertEqual(preset["mode"] as? String, "plan")
+                    XCTAssertTrue((preset["settings"] as? [String: Any])?["developer_instructions"] is NSNull)
+                    return ["result": ["result": ["turn": ["id": turnID]]]]
+                })
+            let data = try CodexConfiguredCreation.run(
+                input(settings: settings), services: services, observation: .init(), arm: {})
+            let result = try XCTUnwrap(JSONSerialization.jsonObject(with: data) as? [String: Any])
+            XCTAssertEqual(sends, 1)
+            XCTAssertEqual(views, 2)
+            XCTAssertEqual(result["executionModeVerified"] as? Bool, actual == "plan")
+            XCTAssertEqual(result["ok"] as? Bool, actual == "plan")
+            XCTAssertEqual(result["threadId"] as? String, thread, "Unknown native mode must retain created identity")
+            XCTAssertNotNil(result["nativeMessageId"] as? String)
+            if actual != "plan" { XCTAssertEqual(result["unknown"] as? Bool, true) }
+        }
+    }
+
     func testLateObservationIsReadOnlyAndRequiresOriginalNativeMessageIdentity() throws {
         let observation = CodexConfiguredCreation.Observation()
         let id = UUID().uuidString
@@ -132,6 +180,36 @@ final class CodexConfiguredCreationTests: XCTestCase {
         XCTAssertNil(try observation.receipt { _ in view(self.project.cwd, "different") })
         XCTAssertNil(try observation.receipt { _ in view("/different", id) })
         XCTAssertEqual(try observation.receipt { _ in view(self.project.cwd, id) }?["threadId"] as? String, thread)
+    }
+
+    func testLatePlanReceiptRequiresOriginalMessageTurnPresetEvenIfComposerLaterChanges() throws {
+        let observation = CodexConfiguredCreation.Observation()
+        let messageID = UUID().uuidString
+        let turnID = UUID().uuidString
+        observation.bind(
+            .init(id: thread, cwd: project.cwd, projectID: project.id), nativeID: messageID, executionMode: "plan")
+        observation.arm()
+        let plan = try CodexExecutionMode.preset(
+            mode: "plan", model: "fixture-model", effort: "high", catalog: [["id": "plan"]])
+        var state: [String: Any] = [
+            "cwd": project.cwd,
+            "latestCollaborationMode": ["mode": "default", "settings": ["model": "fixture-model"]],
+            "turns": [
+                [
+                    "turnId": turnID, "params": ["collaborationMode": plan],
+                    "items": [["type": "userMessage", "clientId": messageID]],
+                ]
+            ],
+        ]
+        let correct = try observation.receipt { _ in .init(owner: "owner", state: state) }
+        XCTAssertEqual(correct?["executionModeVerified"] as? Bool, true)
+        XCTAssertEqual(correct?["effectiveExecutionMode"] as? String, "plan")
+        XCTAssertEqual(correct?["nativeTurnId"] as? String, turnID)
+        state["turns"] = [["turnId": turnID, "items": [["type": "userMessage", "clientId": messageID]]]]
+        state["latestCollaborationMode"] = plan
+        XCTAssertNil(
+            try observation.receipt { _ in .init(owner: "owner", state: state) },
+            "Current Plan cannot prove an earlier turn's mode")
     }
 
     func testSnapshotMustComeFromExactLocalOwnerAndSupportedFullSnapshot() throws {

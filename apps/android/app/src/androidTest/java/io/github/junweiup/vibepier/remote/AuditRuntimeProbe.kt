@@ -97,7 +97,7 @@ object AuditRuntimeProbe {
                 val panel = activity.sessionNavigation.panel!!
                 check(panel.navigationState().getString("provider") == "claude")
                 check(panel.navigationState().getBoolean("drawer"))
-                check(TaskCompletionNotifications.takeProvider(Intent().putExtra("io.github.junweiup.vibepier.completedProvider", "untrusted")) == null)
+                check(TaskCompletionNotifications.takeRoute(Intent().putExtra("io.github.junweiup.vibepier.completedProvider", "untrusted"), "synthetic-authorization") == null)
                 val versions = activity.javaClass.getDeclaredMethod("getAppVersions").apply { isAccessible = true }.invoke(activity)!!
                 field(versions, "available").set(versions, AvailableAppVersion(BuildConfig.VERSION_CODE.toLong() + 1, "synthetic-next"))
                 activity.javaClass.getDeclaredMethod("showUpdates").apply { isAccessible = true }.invoke(activity)

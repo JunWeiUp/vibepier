@@ -367,10 +367,10 @@ class MainActivity : Activity() {
         if (firstConnection) handler.post { if (!isDestroyed) connectBluetooth() }
         sender.replayUIState()
         appShortcuts = sender.cachedShortcuts; shortcutsSyncing = appShortcuts.isEmpty(); refreshApplicationDock()
-        val completedProvider = TaskCompletionNotifications.takeProvider(intent)
-        if (completedProvider != null) sessionNavigation.showProviderList(completedProvider)
+        val completedRoute = TaskCompletionNotifications.takeRoute(intent, sender.sessionClient.authorizationIdentity)
+        if (completedRoute != null) sessionNavigation.showCompletion(completedRoute)
         else if (!sessionNavigation.restoreState(savedInstanceState) && codexFixture.isNotBlank()) handler.post { showCodex() }
-        if (savedInstanceState?.getBoolean("settingsOpen") == true) handler.post {
+        if (completedRoute == null && savedInstanceState?.getBoolean("settingsOpen") == true) handler.post {
             if (!isDestroyed && !isFinishing) showConnectionOptions()
         }
     }
@@ -379,7 +379,7 @@ class MainActivity : Activity() {
     override fun onNewIntent(intent: android.content.Intent) {
         super.onNewIntent(intent)
         setIntent(intent)
-        TaskCompletionNotifications.takeProvider(intent)?.let { sessionNavigation.showProviderList(it) }
+        TaskCompletionNotifications.takeRoute(intent, sender.sessionClient.authorizationIdentity)?.let { sessionNavigation.showCompletion(it) }
     }
     fun pickCodexAttachment(images: Boolean) = sessionNavigation.pickAttachment(images)
     @Deprecated("Deprecated in Java")

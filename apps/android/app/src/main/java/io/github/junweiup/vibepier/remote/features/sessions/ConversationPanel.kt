@@ -10,10 +10,12 @@ import io.github.junweiup.vibepier.remote.MainActivity
 import io.github.junweiup.vibepier.remote.R
 import io.github.junweiup.vibepier.remote.core.session.SessionClient
 import io.github.junweiup.vibepier.remote.core.session.SessionCreationDraft
+import io.github.junweiup.vibepier.remote.core.session.SessionExecutionModes
 import io.github.junweiup.vibepier.remote.core.session.SessionProvider
 import io.github.junweiup.vibepier.remote.core.ui.CanvasLabel
 import io.github.junweiup.vibepier.remote.core.ui.IconControl
 import io.github.junweiup.vibepier.remote.core.ui.Ui
+import io.github.junweiup.vibepier.remote.core.ui.FullscreenImageDialog
 import io.github.junweiup.vibepier.remote.features.markdown.ChatMarkdownView
 import io.github.junweiup.vibepier.remote.features.markdown.MarkdownFileLinks
 import io.github.junweiup.vibepier.remote.features.markdown.MarkdownFileViewer
@@ -63,7 +65,7 @@ class ConversationPanel(private val activity: Activity, private val client: Sess
     private var drawerLoaded = false
     private var loadedDrawerKey = ""
     private var loadedDrawerInfo = ""
-    private fun drawerKey() = listOf(client.provider, client.listMode, search, projectCwd).joinToString("\u0000")
+    private fun drawerKey() = listOf(client.provider, client.selectedAgentAdapter()?.id, client.listMode, search, projectCwd).joinToString("\u0000")
     private fun stopOpening() {
         opening = false
         openRecovery?.let(ui::removeCallbacks); openRecovery = null
@@ -82,7 +84,7 @@ class ConversationPanel(private val activity: Activity, private val client: Sess
     }
     private fun requestOpen() {
         closeMarkdownViewer()
-        stopOpening(); opening = true
+        stopOpening(); stopSync(); opening = true; ready = false
         page.remove("revision") // A resumed desktop subscription may restart its revision counter.
         status.text = if (page.has("messages")) context.getString(R.string.session_saved_content_syncing_the_latest_state) else context.getString(R.string.session_loading_session)
         val token = generation
@@ -112,7 +114,9 @@ class ConversationPanel(private val activity: Activity, private val client: Sess
     }
 
     private var sending = false
-    private var syncing = false
+    private val syncState = ConversationSyncState()
+    private var syncRetry: Runnable? = null
+    private fun stopSync() { syncRetry?.let(ui::removeCallbacks); syncRetry = null; syncState.reset() }
     private var page = JSONObject()
     private var historyComplete = false
     private var loadingHistory = false
@@ -172,6 +176,8 @@ class ConversationPanel(private val activity: Activity, private val client: Sess
     private lateinit var waitBanner: LinearLayout
     private lateinit var waitMessage: CanvasLabel
     private lateinit var waitCancel: CanvasLabel
+    private var stoppedWaitSignature: String? = null
+    private var sendWaitGeneration = 0
     private var stopRequestedTurn = ""
     private var progressSignature = ""
     private var lastProgressAt = android.os.SystemClock.elapsedRealtime()
@@ -199,7 +205,11 @@ class ConversationPanel(private val activity: Activity, private val client: Sess
     private fun pauseProcessReads() { media.cancelReads(); processStates.values.forEach { it.pause(); it.changed() } }
     private val media by lazy { ConversationMedia(context,
         scope = { ConversationMedia.Scope(client.provider, thread, generation, authorizationSource()) },
-        active = { foreground && !drawer }, version = ::imageVersion, request = ::call, dialog = ::canvasDialog) }
+        active = { foreground && !drawer }, version = ::imageVersion, request = ::call, imageViewer = ::imageViewer, binaryHost = { client.binaryHost }, allowLegacyImages = reviews) }
+    private fun imageViewer(title: String) = FullscreenImageDialog(context, title).also { viewer ->
+        auxiliaryDialogs.add(viewer.dialog)
+        viewer.dialog.setOnDismissListener { auxiliaryDialogs.remove(viewer.dialog) }
+    }
     private var prependAnchor: Pair<Int, Int>? = null
     private var approvalDialog: AlertDialog? = null
     private var openApproval = ""
@@ -223,7 +233,24 @@ class ConversationPanel(private val activity: Activity, private val client: Sess
             insets
         }
         client.onEvent = { value ->
-            if (value.optString("event") == "paired") {
+            if (value.optString("event") == "providersChanged") {
+                val first = client.enabledProviders.firstOrNull()
+                savedDrawer = emptyList(); drawerLoaded = false
+                if (!client.providerEnabled(client.provider) && first != null) switchProvider(first)
+                else if (!client.providerEnabled(client.provider)) {
+                    saveDraft(); thread = ""; title = ""; page = JSONObject()
+                    uploadGeneration++; settingsOperation = ""; processStates.clear(); media.clear()
+                    auxiliaryDialogs.toList().forEach { it.dismiss() }; approvalDialog?.dismiss()
+                    showDrawer()
+                } else if (drawer) showDrawer()
+            }
+            else if (value.optString("event") == "agentCapabilitiesChanged") {
+                if (drawer) showDrawer() else { updateComposer(); if (foreground) requestOpen() }
+            }
+            else if (value.optString("event") == "agentOperationUpdated") {
+                if (!drawer) updateComposer()
+            }
+            else if (value.optString("event") == "paired") {
                 saveDraft(); processStates.clear(); media.clear(); outbox.clear(); olderMessages.clear()
                 auxiliaryDialogs.toList().forEach { it.dismiss() }; auxiliaryDialogs.clear(); approvalDialog?.dismiss()
                 questionDrafts.clear(); approvedHere.clear(); page = JSONObject(); thread = ""; title = ""
@@ -254,7 +281,9 @@ class ConversationPanel(private val activity: Activity, private val client: Sess
             }
         }
         client.onState = { text -> if (drawer && ::info.isInitialized) info.text = text else if (::notice.isInitialized) notice.text = text }
+        if (!reviews && !client.providerEnabled(client.provider)) client.enabledProviders.firstOrNull()?.let { client.provider = it }
         showDrawer()
+        if (!reviews) client.refreshProviderAccess()
     }
     private fun dp(value: Int) = (value * resources.displayMetrics.density).toInt()
     private fun background(color: Int, radius: Int = 14) = Ui.roundRect(context, color, radius)
@@ -309,7 +338,7 @@ class ConversationPanel(private val activity: Activity, private val client: Sess
         saveDraft(); saveDrawerState()
         val y = if (drawer) drawerScroll() ?: 0 else if (::scroll.isInitialized) scroll.scrollY else 0
         return ConversationViewState(authorizationSource(), client.provider, drawer, thread, title, y).json()
-            .put("creationAttachment", creationAttachment != null).put("creationPickerToken", creationPickerToken).apply {
+            .put("agentAdapterId", client.selectedAgentAdapter()?.id).put("creationAttachment", creationAttachment != null).put("creationPickerToken", creationPickerToken).apply {
                 restoredAttachment?.let { pending -> put("pendingUri", pending.uri.toString()); put("pendingTarget", pending.target.json()) }
             }
     }
@@ -317,7 +346,10 @@ class ConversationPanel(private val activity: Activity, private val client: Sess
     private fun renderingScope() = ConversationRenderScope(authorizationSource(), client.provider, thread, generation)
     fun restoreNavigationState(value: JSONObject): Boolean {
         val saved = ConversationViewState.read(value, authorizationSource()) ?: return false
+        if (!reviews && !client.providerEnabled(saved.provider)) return false
         if (client.provider != saved.provider) switchProvider(saved.provider)
+        if (!reviews && value.opt("agentAdapterId") != null && value.opt("agentAdapterId") != JSONObject.NULL && value.opt("agentAdapterId") != client.selectedAgentAdapter()?.id) return false
+        if (!reviews && !value.has("agentAdapterId") && client.selectedAgentAdapter()?.isDefault == false) return false
         restoredDrawer = client.drawerState
         search = restoredDrawer.optString("search"); projectCwd = restoredDrawer.optString("projectCwd"); projectName = restoredDrawer.optString("projectName")
         if (saved.drawer) { showDrawer(); return true }
@@ -337,6 +369,7 @@ class ConversationPanel(private val activity: Activity, private val client: Sess
     /** A picker result waits for a verified page; changing source/provider/thread invalidates it. */
     fun addRestoredPhoneAttachment(uri: android.net.Uri, expectedNavigation: JSONObject): Boolean {
         if (expectedNavigation.optBoolean("creationAttachment") || creationAttachment != null) return false
+        if (!reviews && expectedNavigation.opt("agentAdapterId") != navigationState().opt("agentAdapterId")) return false
         val expected = ConversationViewState.read(expectedNavigation, authorizationSource()) ?: return false
         val current = ConversationViewState.read(navigationState(), authorizationSource()) ?: return false
         if (!expected.sameConversation(current) || restoredAttachment != null || uploading || sending) return false
@@ -345,6 +378,7 @@ class ConversationPanel(private val activity: Activity, private val client: Sess
         return true
     }
     fun addPickedCreationAttachment(uri: android.net.Uri, expectedNavigation: JSONObject): Boolean {
+        if (!reviews && expectedNavigation.opt("agentAdapterId") != navigationState().opt("agentAdapterId")) return false
         if (!ConversationPickerTarget.matchesCreation(expectedNavigation, navigationState(), authorizationSource()) ||
             !creationAttachmentIsCurrent()) return false
         val callback = creationAttachment ?: return false
@@ -377,7 +411,7 @@ class ConversationPanel(private val activity: Activity, private val client: Sess
         saveDrawerState()
         foreground = false; generation++; listGeneration++
         closeMarkdownViewer()
-        stopOpening(); client.cancelPageReads(); pauseProcessReads(); savedDrawer = emptyList()
+        stopOpening(); stopSync(); client.cancelPageReads(); pauseProcessReads(); savedDrawer = emptyList()
         saveDraft(); hideKeyboard(); auxiliaryDialogs.toList().forEach { it.dismiss() }; auxiliaryDialogs.clear(); approvalDialog?.dismiss(); uploadGeneration++
         if (!reviews) client.flushContentCache()
         if (!reviews && thread.isNotEmpty() && client.online && client.paired) client.request("close") { }
@@ -389,7 +423,7 @@ class ConversationPanel(private val activity: Activity, private val client: Sess
         saveDrawerState()
         foreground = false; ui.removeCallbacks(waitCheck); saveDraft(); stopOpening(); client.cancelPageReads(); pauseProcessReads()
         if (!reviews) client.flushContentCache()
-        ready = false; syncing = false; loadingHistory = false
+        ready = false; stopSync(); loadingHistory = false
         auxiliaryDialogs.toList().forEach { it.dismiss() }; auxiliaryDialogs.clear()
         approvalDialog?.dismiss(); openApproval = ""; loadingApproval = false
         updateComposer()
@@ -397,6 +431,7 @@ class ConversationPanel(private val activity: Activity, private val client: Sess
     fun resume() {
         if (foreground) return
         foreground = true
+        if (!reviews) client.refreshProviderAccess()
         ui.removeCallbacks(waitCheck); if (!drawer) ui.postDelayed(waitCheck, 5_000)
         if (drawer) {
             if (authorized) loadList(false)
@@ -409,7 +444,7 @@ class ConversationPanel(private val activity: Activity, private val client: Sess
     fun connectionChanged() {
         val restored = connected && !connectionAvailable
         connectionAvailable = connected
-        if (!connected) { pauseProcessReads(); approvalDialog?.dismiss(); openApproval = "" }
+        if (!connected) { stopSync(); pauseProcessReads(); approvalDialog?.dismiss(); openApproval = "" }
         if (!drawer) { if (!connected) ready = false; updateComposer(); if (!connected) notice.text = context.getString(R.string.session_disconnected_draft_retained_reconnecting_when_available) }
         else if (::info.isInitialized && !connected) info.text = if (!authorized && client.canRequestAuthorization) client.authorizationMessage else context.getString(R.string.session_mac_disconnected_connect_to_view_sessions)
         if (foreground && restored && drawer && authorized) loadList(false)
@@ -421,15 +456,17 @@ class ConversationPanel(private val activity: Activity, private val client: Sess
     private val claude get() = client.provider == "claude"
     private val zcode get() = client.provider == "zcode"
     private val agent get() = SessionProvider.name(client.provider)
-    private val mutableReady get() = ready && connected && (zcode || page.optBoolean("canSend", true))
-    private val canSend get() = mutableReady && supports("send") && page.optBoolean("canSend", !zcode)
+    private val mutableReady get() = ready && connected && authorized && (reviews || client.agentCapabilitiesKnown) &&
+        (reviews || !page.has("contentState") || page.optString("contentState") == "complete")
+    private val queueSubmission get() = supports("queue") && (page.optString("status") == "active" || (page.optJSONArray("queuedMessages")?.length() ?: 0) > 0)
+    private val canSend get() = mutableReady && supports("send") && (reviews || page.opt("canSend") == true)
     private fun supports(key: String, legacyDefault: Boolean = true): Boolean {
-        val current = if (drawer) null else page.optJSONObject("capabilities")
-        val known = current?.takeIf { it.has(key) } ?: client.capabilities().takeIf { it.has(key) }
-        return SessionProvider.supports(client.provider, known?.optBoolean(key), legacyDefault)
+        if (reviews) return (page.optJSONObject("capabilities")?.opt(key) as? Boolean) ?: legacyDefault
+        return client.agentCapability(key, if (drawer) null else thread)
     }
-    private fun threadKey(id: String = thread) = SessionProvider.scope(client.provider, id)
+    private fun threadKey(id: String = thread) = client.sessionScope(id)
     private fun switchProvider(value: String) {
+        if (!reviews && !client.providerEnabled(value)) return
         if (value == client.provider) return
         if (drawer) saveDrawerState()
         if (!reviews && thread.isNotEmpty() && client.online && client.paired) client.request("close") { }
@@ -443,11 +480,11 @@ class ConversationPanel(private val activity: Activity, private val client: Sess
     private fun showDrawer() {
         discardRestoredAttachment()
         // Invalidate old view callbacks before pausing them: a change notification can otherwise start another read.
-        drawer = true; generation++; ready = false
+        drawer = true; generation++; listGeneration++; ready = false
         closeMarkdownViewer()
         stopOpening(); client.cancelPageReads(); pauseProcessReads()
         if (!reviews && thread.isNotEmpty() && client.online && client.paired) client.request("close") { }
-        saveDraft(); syncing = false; lastMessages = ""; removeAllViews(); setBackgroundColor(Palette.background)
+        saveDraft(); stopSync(); lastMessages = ""; removeAllViews(); setBackgroundColor(Palette.background)
         if (savedDrawer.isNotEmpty() && drawerLoaded && savedDrawerKey == drawerKey() && loadedDrawerKey == savedDrawerKey) {
             savedDrawer.forEach { addView(it) }; savedDrawer = emptyList()
             info.text = if (connected) loadedDrawerInfo else context.getString(R.string.session_mac_disconnected_showing_saved_list)
@@ -468,7 +505,14 @@ class ConversationPanel(private val activity: Activity, private val client: Sess
                 background = background(Palette.surface1, 12)
             }, LinearLayout.LayoutParams(dp(44), dp(44)).apply { marginEnd = dp(4) })
         })
-        sheet.addView(Ui.topTabs(context, SessionProvider.ids.map { it to SessionProvider.name(it) }, client.provider, context.getString(R.string.session_sessions)) { hideKeyboard(); switchProvider(it) },
+        val visibleProviders = if (reviews) SessionProvider.ids else client.enabledProviders
+        if (authorized && visibleProviders.isEmpty()) {
+            info = label(context.getString(if (client.providerAccessKnown) R.string.providers_none_enabled else R.string.providers_loading), Ui.BODY, Palette.muted)
+            sheet.addView(info, LinearLayout.LayoutParams(-1, -2).apply { topMargin = dp(20) })
+            if (connected && !client.providerAccessKnown) client.refreshProviderAccess()
+            return
+        }
+        sheet.addView(Ui.topTabs(context, visibleProviders.map { it to SessionProvider.name(it) }, client.provider, context.getString(R.string.session_sessions)) { hideKeyboard(); switchProvider(it) },
             LinearLayout.LayoutParams(-1, -2).apply { topMargin = dp(2); marginStart = dp(4); marginEnd = dp(4) })
         val searchField = EditText(context).apply {
             hint = context.getString(R.string.session_search_sessions_or_projects); textSize = Ui.BODY; setTextColor(Palette.text); setHintTextColor(Palette.faint)
@@ -532,13 +576,33 @@ class ConversationPanel(private val activity: Activity, private val client: Sess
         if (authorized) loadList(false)
     }
     private var screenActionPending = false
-    private fun showDrawerMenu() = menu(context.getString(R.string.session_session_menu), context.getString(R.string.session_request_authorization_again_if_mac_access_expires_or_you_replace), listOf(
-        context.getString(R.string.codex_usage_title) to { showCodexUsage() },
+    private fun showDrawerMenu() = menu(context.getString(R.string.session_session_menu), context.getString(R.string.session_request_authorization_again_if_mac_access_expires_or_you_replace), listOfNotNull(
+        if (!reviews && client.agentAdapters.size > 1) context.getString(R.string.agent_choose_backend) to { showAgentBackends() } else null,
+        if (reviews || client.providerEnabled("codex")) context.getString(R.string.codex_usage_title) to { showCodexUsage() } else null,
         context.getString(R.string.session_lock) to { changeScreenLock(true) },
         context.getString(R.string.session_unlock) to { changeScreenLock(false) },
         context.getString(R.string.session_mac_unlock_setup) to { showUnlockSettings() },
         context.getString(R.string.session_authorize_mac_access_again) to { client.pair() }
     ))
+    private fun showAgentBackends() {
+        val adapters = client.agentAdapters
+        fun label(adapter: io.github.junweiup.vibepier.remote.core.session.SessionAgentAdapter) = adapter.name ?: context.getString(
+            if (adapter.isDefault) R.string.agent_backend_current else if ("managedRuntime" in adapter.backendKinds) R.string.agent_backend_managed else R.string.agent_backend_extension)
+        menu(context.getString(R.string.agent_choose_backend), context.getString(R.string.agent_backend_explanation), adapters.map { adapter ->
+            (if (adapter.id == client.selectedAgentAdapter()?.id) "✓ " else "") + label(adapter) to {
+                if (adapter.id != client.selectedAgentAdapter()?.id) {
+                    if (connected && authorized && thread.isNotEmpty()) client.request("close") { }
+                    saveDraft()
+                    if (client.selectAgentAdapter(adapter.id)) {
+                        thread = ""; title = ""; page = JSONObject(); projectCwd = ""; projectName = ""; search = ""; nextOffset = -1
+                        savedDrawer = emptyList(); drawerLoaded = false; processStates.clear(); media.clear()
+                        auxiliaryDialogs.toList().forEach { it.dismiss() }; approvalDialog?.dismiss(); uploadGeneration++; settingsOperation = ""
+                        showDrawer()
+                    }
+                }
+            }
+        })
+    }
     private fun showCodexUsage() {
         if (!connected || !authorized) { info.text = if (!connected) context.getString(R.string.session_connect_to_the_mac_first) else context.getString(R.string.session_approve_this_phone_on_the_mac_first); return }
         val sheet = CodexUsageSheet(context, ::call, { client.uncertain("", "codex") }, client::clearReceipt)
@@ -626,11 +690,13 @@ class ConversationPanel(private val activity: Activity, private val client: Sess
         crumb.addView(label(project, Ui.LABEL, Palette.text).apply {
             typeface = Typeface.DEFAULT_BOLD; maxLines = 1; ellipsize = android.text.TextUtils.TruncateAt.END
         }, 1, LinearLayout.LayoutParams(0, -2, 1f).apply { marginEnd = dp(8) })
-        if (supports("new")) { newSession.visibility = VISIBLE; newSession.contentDescription = context.getString(R.string.session_new_in_project, project, agent) }
+        val pendingCreation = client.uncertain("", client.provider).any { it.opt("cwd") == projectCwd && it.opt("op") == "new" }
+        if (reviews || client.canPrepareCreation || pendingCreation) { newSession.visibility = VISIBLE; newSession.contentDescription = context.getString(R.string.session_new_in_project, project, agent) }
     }
     /** Starts a session in the open project with its first message, then opens it. */
     private fun showNewSession() {
-        if (!connected || !authorized || projectCwd.isEmpty() || !supports("new")) return
+        val pendingCreation = client.uncertain("", client.provider).any { it.opt("cwd") == projectCwd && it.opt("op") == "new" }
+        if (!connected || !authorized || projectCwd.isEmpty() || (!reviews && !client.canPrepareCreation && !pendingCreation)) return
         hideKeyboard()
         val cwd = projectCwd; val provider = client.provider; var busy = false
         val token = generation
@@ -698,7 +764,7 @@ class ConversationPanel(private val activity: Activity, private val client: Sess
                 context.getString(R.string.session_add_image_phone_gallery) to { (activity as? MainActivity)?.pickCodexAttachment(true) },
                 context.getString(R.string.session_add_file_phone_files) to { (activity as? MainActivity)?.pickCodexAttachment(false) }
             ))
-        })
+        }, permits = { key -> reviews || client.creationCapability(key, creation) })
         val body = column().apply {
             addView(label("$agent · $projectName", Ui.LABEL, Palette.muted).apply { maxLines = 1; ellipsize = android.text.TextUtils.TruncateAt.END },
                 LinearLayout.LayoutParams(-1, -2).apply { bottomMargin = dp(10) })
@@ -725,7 +791,8 @@ class ConversationPanel(private val activity: Activity, private val client: Sess
             call("newOptions", draftFields().put("id", id)) { result ->
                 if (!dialog.isShowing || !sameCreationScope() || optionsRequest != id) return@call
                 if (!result.optBoolean("ok")) { state.text = result.optString("error", context.getString(R.string.creation_options_unavailable)); return@call }
-                options.applyOptions(result); state.text = hintText
+                options.applyOptions(result)
+                state.text = if (reviews || client.creationCapability("new", creation)) hintText else context.getString(R.string.agent_upgrade_required)
             }
         }
         fun receive(result: JSONObject) {
@@ -791,6 +858,7 @@ class ConversationPanel(private val activity: Activity, private val client: Sess
             }
             val text = field.text.toString().trim()
             if (text.isEmpty() && attachmentIDsForDraft().length() == 0) { state.text = context.getString(R.string.session_enter_the_first_message); state.setTextColor(Palette.amber); return@button }
+            if (!reviews && !client.creationCapability("new", creation)) { state.text = context.getString(R.string.agent_capability_unavailable); return@button }
             if (!options.loaded || !options.ready) { state.text = context.getString(R.string.creation_choose_options); return@button }
             if (!saveCreation()) { state.text = context.getString(R.string.creation_draft_unavailable); return@button }
             val intent = try { creation.request(java.util.UUID.randomUUID().toString(), attachmentIDsForDraft()) }
@@ -927,6 +995,11 @@ class ConversationPanel(private val activity: Activity, private val client: Sess
         }
     }
     private fun loadList(more: Boolean, useCache: Boolean = true) {
+        if (!reviews && !more && !useCache) client.refreshProviderAccess()
+        if (!reviews && !client.providerEnabled(client.provider)) {
+            client.refreshProviderAccess()
+            return
+        }
         if (!drawer || (more && loadingList)) return
         if (!authorized) { info.text = context.getString(R.string.session_bluetooth_approval_required); return }
         if (client.listMode == "projects" && projectCwd.isEmpty()) { loadProjects(useCache, more); return }
@@ -980,8 +1053,8 @@ class ConversationPanel(private val activity: Activity, private val client: Sess
             savedDrawer = (0 until childCount).map { getChildAt(it) }; savedDrawerKey = drawerKey()
         }
         searchWork?.let(ui::removeCallbacks); searchWork = null
-        client.cancelPageReads(); pauseProcessReads(); listGeneration++; stopOpening(); syncing = false
-        stopRequestedTurn = ""; progressSignature = ""; lastProgressAt = android.os.SystemClock.elapsedRealtime()
+        client.cancelPageReads(); pauseProcessReads(); listGeneration++; stopOpening(); stopSync()
+        stoppedWaitSignature = null; sendWaitGeneration++; stopRequestedTurn = ""; progressSignature = ""; lastProgressAt = android.os.SystemClock.elapsedRealtime()
         saveDraft(); thread = id; title = name; drawer = false; ready = false; sending = false; submittingApproval = ""; retryableOperation = ""; generation++
         uploading = false; uploadLabel = ""; uploadGeneration++; settingsOperation = ""; approvedHere.clear()
         if (reviews) reviewAttachments = JSONArray()
@@ -1034,12 +1107,12 @@ class ConversationPanel(private val activity: Activity, private val client: Sess
             private var startY = 0f
             override fun dispatchTouchEvent(event: MotionEvent): Boolean {
                 if (event.actionMasked == MotionEvent.ACTION_DOWN) startY = event.y
-                if (event.actionMasked == MotionEvent.ACTION_UP && event.y - startY > dp(32) && !canScrollVertically(-1)) loadOlder()
+                if (event.actionMasked == MotionEvent.ACTION_UP && event.y - startY > dp(32) && !canScrollVertically(-1)) loadOlder(explicitPull = true)
                 return super.dispatchTouchEvent(event)
             }
             override fun performAccessibilityAction(action: Int, arguments: android.os.Bundle?): Boolean {
-                if (action == android.view.accessibility.AccessibilityNodeInfo.ACTION_SCROLL_BACKWARD && !canScrollVertically(-1) && (page.optBoolean("hasOlder") || renderedProcesses.firstOrNull()?.hasEarlier() == true)) {
-                    loadOlder(); return true
+                if (action == android.view.accessibility.AccessibilityNodeInfo.ACTION_SCROLL_BACKWARD && !canScrollVertically(-1)) {
+                    loadOlder(explicitPull = true); return true
                 }
                 return super.performAccessibilityAction(action, arguments)
             }
@@ -1062,7 +1135,7 @@ class ConversationPanel(private val activity: Activity, private val client: Sess
             }
         }.apply { addView(queuedBox); isVerticalScrollBarEnabled = false }, LinearLayout.LayoutParams(-1, -2))
         waitMessage = label("", Ui.CAPTION, Palette.amber).apply { accessibilityLiveRegion = View.ACCESSIBILITY_LIVE_REGION_POLITE }
-        waitCancel = button(context.getString(R.string.session_stop_waiting)) { saveDraft(); hideKeyboard(); showDrawer() }
+        waitCancel = button(context.getString(R.string.session_stop_waiting)) { stopWaiting() }
         waitBanner = column().apply {
             visibility = GONE; setPadding(dp(12), dp(8), dp(12), dp(8)); background = background(Palette.surface3, 12)
             addView(waitMessage, LinearLayout.LayoutParams(-1, -2))
@@ -1078,7 +1151,7 @@ class ConversationPanel(private val activity: Activity, private val client: Sess
             minLines = 1; maxLines = 5; gravity = Gravity.TOP; background = null
             setPadding(dp(12), dp(12), dp(12), dp(12)); setText(if (reviews) "" else client.draft(thread))
         }
-        composerControls = ComposerControls(context, editor, ::showAddMenu, ::showModeMenu, ::showModelMenu, ::sendReply, ::showContextUsage)
+        composerControls = ComposerControls(context, editor, ::showAddMenu, ::showModeMenu, ::showModelMenu, ::sendReply, ::showContextUsage, ::showExecutionModeMenu)
         sendButton = composerControls.send
         layout.addView(composerControls, LinearLayout.LayoutParams(-1, -2))
         attachmentRendering = ""
@@ -1106,10 +1179,12 @@ class ConversationPanel(private val activity: Activity, private val client: Sess
         for (i in 0 until first) if (ids[i] !in olderMessages) olderMessages[ids[i]] = previous.getJSONObject(i)
     }
     /** Earlier turns, a batch before the oldest message shown; scrolling near the top asks for them on its own. */
-    private fun loadOlder() {
+    private fun loadOlder(explicitPull: Boolean = false) {
         if (!foreground || drawer || !ready || !connected || loadingHistory) return
         if (renderedProcesses.firstOrNull()?.loadEarlier() == true) return
-        if (historyComplete || !page.optBoolean("hasOlder")) return
+        // An explicit pull rechecks the desktop when the saved pagination hint is out of date.
+        // Automatic near-top loading still stops at the last confirmed boundary.
+        if (!explicitPull && (historyComplete || !page.optBoolean("hasOlder"))) return
         val before = olderMessages.keys.firstOrNull() ?: page.optJSONArray("messages")?.optJSONObject(0)?.optString("id") ?: return
         loadingHistory = true
         (timeline.getChildAt(0) as? CanvasLabel)?.text = context.getString(R.string.session_loading_earlier_messages)
@@ -1154,7 +1229,7 @@ class ConversationPanel(private val activity: Activity, private val client: Sess
         status.text = when {
             !connected -> context.getString(R.string.session_mac_disconnected_2)
             (value.optJSONArray("approvals")?.length() ?: 0) > 0 -> context.getString(R.string.session_waiting_for_you_answer_or_review_on_the_phone)
-            value.optString("status") == "active" -> if (supports("queue", client.provider == "codex")) context.getString(R.string.session_provider_working_queue, agent) else context.getString(R.string.session_provider_working, agent)
+            value.optString("status") == "active" -> if (supports("queue")) context.getString(R.string.session_provider_working_queue, agent) else context.getString(R.string.session_provider_working, agent)
             value.optString("status") == "idle" -> if (canSend) context.getString(R.string.session_connected_ready_to_reply) else context.getString(R.string.session_connected_viewing_session)
             else -> context.getString(R.string.session_session_synced)
         }
@@ -1165,9 +1240,7 @@ class ConversationPanel(private val activity: Activity, private val client: Sess
             else -> Palette.accent
         }, 3)
         val approvals = value.optJSONArray("approvals") ?: JSONArray()
-        if (!reviews) client.uncertain(thread).filter { it.optString("op") == "approve" }.forEach { operation ->
-            if ((0 until approvals.length()).none { approvals.getJSONObject(it).optString("fingerprint") == operation.optString("fingerprint") }) client.clearReceipt(operation.optString("id"))
-        }
+        // A disappearing approval is not proof that our earlier decision was submitted.
         if (openApproval.isNotEmpty() && (0 until approvals.length()).none { approvals.getJSONObject(it).optString("fingerprint") == openApproval }) {
             val revised = (0 until approvals.length()).any { approvals.getJSONObject(it).optString("id") == openApprovalId }
             approvalDialog?.dismiss(); openApproval = ""; notice.text = if (revised) context.getString(R.string.session_the_request_changed_review_it_again) else context.getString(R.string.session_the_request_was_handled_or_is_no_longer_valid); submittingApproval = ""
@@ -1207,14 +1280,27 @@ class ConversationPanel(private val activity: Activity, private val client: Sess
         drainRestoredAttachment()
         refreshTurnChanges()
     }
-    /** Asks for the whole current page, e.g. after a missed delta; one request at a time. */
+    /** A dirty event during a read schedules another read instead of being dropped. */
     private fun resync(withCache: Boolean = true) {
-        if (drawer || syncing || thread.isEmpty()) return
-        syncing = true; val token = generation
-        call("sync", JSONObject().put("threadId", thread).apply { if (withCache) put("knownVersion", page.optString("cacheVersion")) }) { response ->
-            if (token != generation || drawer) return@call
-            syncing = false
-            if (response.optBoolean("ok")) applyPage(response)
+        if (!foreground || drawer || thread.isEmpty() || !connected || !authorized) return
+        syncState.request(withCache)
+        if (syncRetry == null) runSync()
+    }
+    private fun runSync() {
+        if (!foreground || drawer || thread.isEmpty() || !connected || !authorized) { stopSync(); return }
+        val read = syncState.begin() ?: return
+        val token = generation; val source = client.provider; val selected = client.selectedAgentAdapter()?.id
+        val authorization = authorizationSource(); val view = client.viewVersion
+        call("sync", JSONObject().put("threadId", thread).apply { if (read.withCache) put("knownVersion", page.optString("cacheVersion")) }) { response ->
+            if (token != generation || drawer || !foreground || source != client.provider || selected != client.selectedAgentAdapter()?.id ||
+                authorization != authorizationSource() || view != client.viewVersion || !syncState.current(read)) return@call
+            val success = response.optBoolean("ok") && (!response.has("contentState") || response.optString("contentState") == "complete")
+            // Mark the read finished before rendering: applyPage can request a cache-free correction.
+            val again = syncState.finish(read, success)
+            if (success) applyPage(response)
+            if (again) {
+                syncRetry = Runnable { syncRetry = null; runSync() }.also { ui.postDelayed(it, if (success) 150L else 750L) }
+            }
         }
     }
     private fun userIDs(messages: JSONArray?) = (0 until (messages?.length() ?: 0)).map { messages!!.getJSONObject(it) }
@@ -1307,7 +1393,7 @@ class ConversationPanel(private val activity: Activity, private val client: Sess
                 val detail = result.optJSONObject("approval")
                 if (result.optBoolean("ok") && detail != null && detail.optString("fingerprint") == approval.optString("fingerprint")) {
                     val current = page.optJSONArray("approvals") ?: JSONArray()
-                    if ((0 until current.length()).any { current.getJSONObject(it).optString("fingerprint") == detail.optString("fingerprint") }) showApproval(detail)
+                    if ((0 until current.length()).any { current.getJSONObject(it).optString("fingerprint") == detail.optString("fingerprint") }) showApproval(JSONObject(detail.toString()).apply { if (approval.has("revision")) put("revision", approval.get("revision")) })
                     else notice.text = context.getString(R.string.session_the_approval_changed_or_expired_refresh_it)
                 } else notice.text = result.optString("error", context.getString(R.string.session_could_not_read_the_full_request_handle_it_on_the_mac))
             }
@@ -1316,7 +1402,8 @@ class ConversationPanel(private val activity: Activity, private val client: Sess
         val fingerprint = approval.optString("fingerprint"); val target = thread; val token = generation
         val actionScope = renderingScope()
         openApproval = fingerprint; openApprovalId = approval.optString("id")
-        val isQuestion = approval.optString("kind") == "questions" && approval.optBoolean("canDecide")
+        val isQuestion = approval.optString("kind") == "questions" && approval.optBoolean("canDecide") &&
+            (approval.optJSONArray("questions")?.length() ?: 0) > 0
         val questions = approval.optJSONArray("questions") ?: JSONArray()
         if (isQuestion && fingerprint !in questionDrafts && questionDrafts.size >= 32) questionDrafts.remove(questionDrafts.keys.first())
         val answers = if (isQuestion) questionDrafts.getOrPut(fingerprint) { mutableMapOf() } else mutableMapOf()
@@ -1468,7 +1555,7 @@ class ConversationPanel(private val activity: Activity, private val client: Sess
                 val payload = JSONObject()
                 answers.filterValues { it.isNotBlank() }.forEach { (id, answer) -> payload.put(id, answer.trim()) }
                 submittingApproval = fingerprint; message.text = heading + context.getString(R.string.session_submitting_answer); hideKeyboard(); update()
-                call("approve", JSONObject().put("threadId", target).put("fingerprint", fingerprint).put("answers", payload), ::accepted)
+                call("approve", JSONObject().put("threadId", target).put("fingerprint", fingerprint).put("expectedApprovalRevision", approval.opt("revision")).put("answers", payload), ::accepted)
             }
             check.setOnClickListener { checkOrRetry { context.getString(R.string.session_saved_answer) } }
         } else if (optionLabels.isNotEmpty()) {
@@ -1476,7 +1563,7 @@ class ConversationPanel(private val activity: Activity, private val client: Sess
                 button.setOnClickListener {
                     if (!current() || submittingApproval.isNotEmpty() || !mutableReady || !supports("approvals") || fingerprint in approvedHere || uncertain() != null) return@setOnClickListener
                     submittingApproval = fingerprint; message.text = heading + context.getString(R.string.session_submitting_choice, label); update()
-                    call("approve", JSONObject().put("threadId", target).put("fingerprint", fingerprint).put("option", label), ::accepted)
+                    call("approve", JSONObject().put("threadId", target).put("fingerprint", fingerprint).put("expectedApprovalRevision", approval.opt("revision")).put("option", label), ::accepted)
                 }
             }
             check.setOnClickListener { checkOrRetry { it.optString("option") } }
@@ -1484,7 +1571,7 @@ class ConversationPanel(private val activity: Activity, private val client: Sess
             fun submit(accepted: Boolean) {
                 if (!current() || submittingApproval.isNotEmpty() || !mutableReady || !supports("approvals") || fingerprint in approvedHere || uncertain() != null) return
                 submittingApproval = fingerprint; message.text = heading + context.getString(R.string.session_submitting_decision); update()
-                call("approve", JSONObject().put("threadId", target).put("fingerprint", fingerprint).put("allow", accepted), ::accepted)
+                call("approve", JSONObject().put("threadId", target).put("fingerprint", fingerprint).put("expectedApprovalRevision", approval.opt("revision")).put("allow", accepted), ::accepted)
             }
             allow.setOnClickListener { submit(true) }
             deny.setOnClickListener {
@@ -1504,7 +1591,7 @@ class ConversationPanel(private val activity: Activity, private val client: Sess
         "terminal" -> context.getString(R.string.session_this_session_is_running_in_a_mac_terminal_continue_on_the_mac)
         else -> context.getString(R.string.session_replies_continue_this_session_in_the_background_on_the_mac)
     }
-    private fun modeName(mode: String) = if (zcode) selection().optString("modeLabel").ifBlank { mode.ifBlank { context.getString(R.string.session_permission_mode) } } else if (claude) when (mode) { "default" -> context.getString(R.string.session_ask_before_changes); "acceptEdits" -> context.getString(R.string.session_accept_edits); "auto" -> context.getString(R.string.session_auto); "plan" -> context.getString(R.string.session_plan); "bypassPermissions" -> context.getString(R.string.session_skip_approvals); else -> context.getString(R.string.session_default_permissions) } else when (mode) { "auto" -> context.getString(R.string.session_ask_to_approve); "guardian-approvals" -> context.getString(R.string.session_approve_for_me); "full-access" -> context.getString(R.string.session_full_access); else -> context.getString(R.string.session_desktop_custom_settings) }
+    private fun modeName(mode: String) = if (zcode) selection().optString("modeLabel").ifBlank { when (mode) { "plan" -> context.getString(R.string.session_plan); "build" -> context.getString(R.string.session_ask_before_changes); "edit" -> context.getString(R.string.session_accept_edits); "yolo" -> context.getString(R.string.session_full_access); else -> mode.ifBlank { context.getString(R.string.session_permission_mode) } } } else if (claude) when (mode) { "default" -> context.getString(R.string.session_ask_before_changes); "acceptEdits" -> context.getString(R.string.session_accept_edits); "auto" -> context.getString(R.string.session_auto); "plan" -> context.getString(R.string.session_plan); "bypassPermissions" -> context.getString(R.string.session_skip_approvals); else -> context.getString(R.string.session_default_permissions) } else when (mode) { "auto" -> context.getString(R.string.session_ask_to_approve); "guardian-approvals" -> context.getString(R.string.session_approve_for_me); "full-access" -> context.getString(R.string.session_full_access); else -> context.getString(R.string.session_desktop_custom_settings) }
     private fun effortName(value: String) = when (value) { "default" -> context.getString(R.string.session_default); "low" -> context.getString(R.string.session_low); "medium" -> context.getString(R.string.session_medium); "high" -> context.getString(R.string.session_high); "xhigh" -> context.getString(R.string.session_extra_high); "max" -> context.getString(R.string.session_maximum); "ultra" -> context.getString(R.string.session_ultra); else -> value }
     private fun entries() = if (reviews) reviewAttachments else client.attachments(thread)
     private fun addAttachment(item: JSONObject) { if (entries().length() >= 6) { notice.text = context.getString(R.string.session_add_up_to_6_attachments); return }; val items = entries(); items.put(item); if (reviews) reviewAttachments = items else if (!client.saveAttachments(thread, items)) notice.text = context.getString(R.string.session_could_not_save_attachments_check_phone_storage_and_retry) }
@@ -1577,7 +1664,7 @@ class ConversationPanel(private val activity: Activity, private val client: Sess
         return ProjectFileHost(context, target, client.provider, { op, fields, done -> call(op, fields, done) },
             isCurrent = { token == generation && target == thread && !drawer && foreground },
             canQuote = { editor.isEnabled }, quote = ::quoteFile,
-            canAttach = { mutableReady && supports("attachments") && !uploading && !sending && entries().length() < 6 }, attach = { path -> closeFileViews(); addMacFile(path) })
+            canAttach = { mutableReady && supports("attachments") && !uploading && !sending && entries().length() < 6 }, attach = { path -> closeFileViews(); addMacFile(path) }, binaryHost = { client.binaryHost }, allowLegacyMedia = reviews)
     }
 
     private fun showProjectFiles(mode: String = "all") {
@@ -1758,15 +1845,64 @@ class ConversationPanel(private val activity: Activity, private val client: Sess
         if (!selection().optBoolean(key)) return false
         menu(context.getString(R.string.session_change_in_the_mac_desktop_app), reason.ifBlank { context.getString(R.string.session_settings_on_mac, agent) }, emptyList()); return true
     }
+    private fun settingsAvailable(capability: String): Boolean {
+        if (mutableReady && supports("settings") && supports(capability)) return true
+        val reason = if (!connected) context.getString(R.string.session_wait_disconnected)
+            else if (!ready) context.getString(R.string.session_wait_loading)
+            else page.optString("readOnlyReason").ifBlank { context.getString(R.string.session_settings_on_mac, agent) }
+        menu(context.getString(R.string.session_session_settings), reason, emptyList())
+        return false
+    }
+    private fun requestComposerOptions(fields: JSONObject, callback: (JSONObject) -> Unit) {
+        val token = generation
+        hideKeyboard()
+        val loading = canvasDialog(context.getString(R.string.session_session_settings),
+            label(context.getString(R.string.session_loading), 14f), row(), compact = true)
+        call("composerOptions", fields) { result ->
+            loading.dismiss()
+            if (token != generation) return@call
+            if (!result.optBoolean("ok")) {
+                menu(context.getString(R.string.session_session_settings), result.optString("error").ifBlank {
+                    context.getString(R.string.session_settings_on_mac, agent)
+                }, emptyList())
+                return@call
+            }
+            callback(result)
+        }
+    }
+    private fun executionName(id: String) = context.getString(when (id) {
+        "plan" -> R.string.session_execution_plan
+        "default" -> R.string.session_execution_run
+        else -> R.string.session_choose_execution_mode
+    })
+    private fun showExecutionModeMenu() {
+        if (!settingsAvailable("executionMode") || lockedNotice("executionModeLocked")) return
+        requestComposerOptions(JSONObject().put("threadId", thread)) { result ->
+            result.optJSONObject("composer")?.let { page.put("composer", it) }
+            for (key in listOf("executionModes", "executionModePermissionCoupled")) if (result.has(key)) page.put(key, result.get(key))
+            updateComposer()
+            val choices = SessionExecutionModes.decode(result)
+            val actions = choices.map { choice ->
+                (if (selection().optString("executionMode") == choice.id) "✓ " else "") + executionName(choice.id) to {
+                    applySettings(JSONObject().put("executionMode", choice.id))
+                }
+            }
+            val permission = SessionExecutionModes.defaultPermissionLabel(result, choices)
+            val description = if (permission != null) context.getString(R.string.session_execution_coupled_description, permission)
+                else context.getString(if (choices.isEmpty()) R.string.session_execution_unavailable else R.string.session_execution_description)
+            menu(context.getString(R.string.session_execution_mode), description, actions)
+        }
+    }
     private fun showModeMenu() {
-        if (!mutableReady || !supports("settings") || !supports("permissionMode")) return
+        if (SessionExecutionModes.coupled(page) && selection().optString("executionMode") == "plan") return
+        if (!settingsAvailable("permissionMode")) return
         if (lockedNotice("modeLocked")) return
         val current = selection().optString("mode")
         if (zcode) {
             val token = generation
-            call("composerOptions", JSONObject().put("threadId", thread)) { result ->
-                if (token != generation) return@call
-                if (!result.optBoolean("ok")) { notice.text = result.optString("error"); return@call }
+            requestComposerOptions(JSONObject().put("threadId", thread)) { result ->
+                if (token != generation) return@requestComposerOptions
+                if (!result.optBoolean("ok")) { notice.text = result.optString("error"); return@requestComposerOptions }
                 val modes = result.optJSONArray("permissionModes") ?: result.optJSONArray("modes") ?: JSONArray()
                 val options = (0 until modes.length()).map { index ->
                     val value = modes.optJSONObject(index)
@@ -1790,7 +1926,6 @@ class ConversationPanel(private val activity: Activity, private val client: Sess
                 option("default", context.getString(R.string.session_ask_confirm_before_changes)),
                 option("acceptEdits", context.getString(R.string.session_accept_edits_accept_file_changes_automatically)),
                 option("auto", context.getString(R.string.session_auto_claude_code_evaluates_risk)),
-                option("plan", context.getString(R.string.session_plan_analyze_without_edits)),
                 (if (current == "bypassPermissions") "✓ " else "") + context.getString(R.string.session_skip_approvals_do_not_ask_again) to {
                     if (current == "bypassPermissions") applySettings(JSONObject().put("mode", "bypassPermissions").put("confirmFullAccess", true))
                     else menu(context.getString(R.string.session_skip_all_permission_confirmations), context.getString(R.string.session_claude_full_access_warning, title), listOf(context.getString(R.string.session_enable_skip_approvals) to { applySettings(JSONObject().put("mode", "bypassPermissions").put("confirmFullAccess", true)) }))
@@ -1822,13 +1957,13 @@ class ConversationPanel(private val activity: Activity, private val client: Sess
         }
     }
     private fun showModelMenu() {
-        if (!mutableReady || !supports("settings") || !supports("modelSelection")) return
+        if (!settingsAvailable("modelSelection")) return
         if (lockedNotice("locked")) return
         val token = generation
-        val selectionVersion = JSONObject().apply { val current = selection(); for (key in listOf("model", "effort", "mode")) put(key, current.optString(key)); put("owner", page.optString("owner")) }.toString()
-        call("composerOptions", JSONObject().put("threadId", thread).put("cacheVersion", selectionVersion)) { result ->
-            if (token != generation) return@call
-            if (!result.optBoolean("ok")) { notice.text = result.optString("error"); return@call }
+        val selectionVersion = JSONObject().apply { val current = selection(); for (key in listOf("model", "effort", "mode", "executionMode")) put(key, current.optString(key)); put("owner", page.optString("owner")) }.toString()
+        requestComposerOptions(JSONObject().put("threadId", thread).put("cacheVersion", selectionVersion)) { result ->
+            if (token != generation) return@requestComposerOptions
+            if (!result.optBoolean("ok")) { notice.text = result.optString("error"); return@requestComposerOptions }
             result.optJSONObject("composer")?.let { page.put("composer", it); updateComposer() }
             models = result.optJSONArray("models") ?: JSONArray()
             val effortOptions = result.optJSONArray("efforts") ?: JSONArray()
@@ -1858,27 +1993,32 @@ class ConversationPanel(private val activity: Activity, private val client: Sess
             settingsOperation = ""
             result.optJSONObject("composer")?.let { page.put("composer", it) }
             notice.text = if (result.optBoolean("ok")) (if (result.optBoolean("queued")) context.getString(R.string.session_the_desktop_is_busy_the_change_takes_effect_after_the_current_ta) else context.getString(R.string.session_settings_synced_provider, agent)) else result.optString("error", context.getString(R.string.session_settings_result_not_yet_confirmed))
-            if (reviews && result.optBoolean("ok")) { val value = selection(); listOf("model", "effort", "mode").forEach { key -> if (fields.has(key)) value.put(key, fields.get(key)) }; page.put("composer", value) }
+            if (reviews && result.optBoolean("ok")) { val value = selection(); listOf("model", "effort", "mode", "executionMode").forEach { key -> if (fields.has(key)) value.put(key, fields.get(key)) }; page.put("composer", value) }
             updateComposer()
         }
     }
     private fun showAttachment(item: JSONObject) {
+        if (item.optString("mime").startsWith("image/")) {
+            val viewer = imageViewer(context.getString(R.string.session_named_image, item.optString("name")))
+            val token = generation
+            fun load() {
+                viewer.loading()
+                call("attachmentPreview", JSONObject().put("threadId", thread).put("attachmentId", item.optString("attachmentId"))) { result ->
+                    if (token != generation || !viewer.isShowing) return@call
+                    val bytes = try { android.util.Base64.decode(result.optString("image"), android.util.Base64.DEFAULT) } catch (_: Exception) { null }
+                    val image = bytes?.let { android.graphics.BitmapFactory.decodeByteArray(it, 0, it.size) }
+                    if (image != null) viewer.display(image)
+                    else viewer.failed(result.optString("error", context.getString(R.string.session_image_preview_unavailable)))
+                }
+            }
+            viewer.retry = ::load; viewer.show(); load(); return
+        }
         val body = column().apply {
             addView(label(item.optString("name"), 17f).apply { typeface = Typeface.DEFAULT_BOLD })
             addView(label(android.text.format.Formatter.formatShortFileSize(context, item.optLong("size")) + " · " + item.optString("mime"), 12f, Palette.muted), LinearLayout.LayoutParams(-1, -2).apply { topMargin = dp(8); bottomMargin = dp(12) })
         }
         val footer = row(); val dialog = canvasDialog(context.getString(R.string.session_attachment_preview), ScrollView(context).apply { addView(body) }, footer, compact = true)
         footer.addView(button(context.getString(R.string.close)) { dialog.dismiss() }, LinearLayout.LayoutParams(-1, -2))
-        if (item.optString("mime").startsWith("image/")) {
-            val token = generation
-            call("attachmentPreview", JSONObject().put("threadId", thread).put("attachmentId", item.optString("attachmentId"))) { result ->
-                if (token != generation || !dialog.isShowing) return@call
-                val bytes = try { android.util.Base64.decode(result.optString("image"), android.util.Base64.DEFAULT) } catch (_: Exception) { null }
-                val image = bytes?.let { android.graphics.BitmapFactory.decodeByteArray(it, 0, it.size) }
-                if (image != null) body.addView(AttachmentPreview(context, image).apply { contentDescription = context.getString(R.string.session_named_image, item.optString("name")) })
-                else body.addView(label(result.optString("error", context.getString(R.string.session_image_preview_unavailable)), 13f, Palette.muted))
-            }
-        }
     }
     private fun renderAttachments() {
         val items = entries(); val signature = items.toString() + uploadLabel + sending + uploading + client.uncertain(thread).any { it.optString("op") == "send" }
@@ -1909,29 +2049,35 @@ class ConversationPanel(private val activity: Activity, private val client: Sess
     private fun updateComposer() {
         if (drawer || !::sendButton.isInitialized) return
         val pendingOperations = if (reviews) emptyList() else client.uncertain(thread).filter { it.optString("op") in listOf("send", "interrupt", "settings", "queueSteer", "queueDelete") }
-        val unresolved = pendingOperations.isNotEmpty()
+        val unresolved = pendingOperations.any { it.optString("op") != "send" || !client.waitingStopped(thread, it) } ||
+            (!reviews && client.duplicateUnconfirmedSend(thread, editor.text.toString().trim(), attachmentIDs()))
         val selection = selection()
         composerControls.contextUsage.visibility = if (!zcode || selection.optString("contextUsage").isNotBlank()) VISIBLE else GONE
         composerControls.contextUsage.contentDescription = context.getString(R.string.context_usage_description) + selection.optString("contextUsage").let { if (it.isBlank()) "" else "：$it" }
         composerControls.contextUsage.isEnabled = ready && connected
         composerControls.mode.text = modeName(selection.optString("mode")) + " ▾"
         composerControls.mode.contentDescription = (if (claude || zcode) context.getString(R.string.session_permission_mode_2) else context.getString(R.string.session_approval_mode)) + "${modeName(selection.optString("mode"))}"
-        composerControls.mode.visibility = if (supports("permissionMode") || selection.optString("mode").isNotBlank()) VISIBLE else GONE
+        val coupledPlan = SessionExecutionModes.coupled(page) && selection.optString("executionMode") == "plan"
+        composerControls.mode.visibility = if (!coupledPlan && (supports("permissionMode") || selection.optString("mode").isNotBlank())) VISIBLE else GONE
+        composerControls.execution.text = executionName(selection.optString("executionMode")) + " ▾"
+        composerControls.execution.contentDescription = context.getString(R.string.session_execution_selection, executionName(selection.optString("executionMode")))
+        composerControls.execution.visibility = if (supports("executionMode") || selection.optString("executionMode").isNotBlank()) VISIBLE else GONE
         val effort = selection.optString("effortLabel").ifBlank { effortName(selection.optString("effort")) }
-        composerControls.model.text = selection.optString("modelLabel").ifBlank { selection.optString("model", context.getString(R.string.choose_model)) }.let { if (it == "default") context.getString(R.string.session_default_model) else it.replaceFirstChar { c -> c.uppercase() } }.replace("Gpt-", "GPT-").replace("gpt-", "GPT-") + (if (selection.optBoolean("locked") || effort.isBlank()) "" else " · " + effort) + " ▾"
+        composerControls.model.text = selection.optString("modelLabel").ifBlank { selection.optString("model", context.getString(R.string.choose_model)).let { if (zcode && it.contains("/")) it.substringAfter("/").ifBlank { context.getString(R.string.choose_model) } else it } }.let { if (it == "default") context.getString(R.string.session_default_model) else it.replaceFirstChar { c -> c.uppercase() } }.replace("Gpt-", "GPT-").replace("gpt-", "GPT-") + (if (selection.optBoolean("locked") || effort.isBlank()) "" else " · " + effort) + " ▾"
         composerControls.model.contentDescription = context.getString(R.string.session_model_description, selection.optString("model"), effortName(selection.optString("effort")))
         composerControls.model.visibility = if (supports("modelSelection") || selection.optString("model").isNotBlank()) VISIBLE else GONE
         val settingsUnknown = !reviews && client.uncertain(thread).any { it.optString("op") == "settings" }
-        listOf(composerControls.mode to "permissionMode", composerControls.model to "modelSelection").forEach { (view, capability) ->
-            view.isEnabled = mutableReady && supports("settings") && supports(capability) && settingsOperation.isEmpty() && !settingsUnknown
+        listOf(composerControls.mode, composerControls.model, composerControls.execution).forEach { view ->
+            view.isEnabled = settingsOperation.isEmpty() && !settingsUnknown
+            if (view === composerControls.execution) view.isEnabled = view.isEnabled && mutableReady && supports("executionMode") && !selection.optBoolean("executionModeLocked")
             view.alpha = if (view.isEnabled) 1f else .4f
         }
         composerControls.add.visibility = if (supports("attachments")) VISIBLE else GONE
         composerControls.add.isEnabled = mutableReady && supports("attachments") && !sending && !uploading
-        editor.isEnabled = !zcode || canSend
+        editor.isEnabled = mutableReady
         renderAttachments()
         renderQueue()
-        val submit = ConversationActions.submit(page.optString("status") == "active", supports("queue", client.provider == "codex"),
+        val submit = ConversationActions.submit(page.optString("status") == "active" || (page.optJSONArray("queuedMessages")?.length() ?: 0) > 0, supports("queue"),
             mutableReady, canSend, sending, uploading, unresolved, settingsOperation.isNotEmpty(),
             editor.text.toString().isNotBlank() || attachmentIDs().length() > 0)
         stopButton.visibility = if (supports("interrupt") && page.optString("status") == "active") VISIBLE else GONE
@@ -1943,10 +2089,10 @@ class ConversationPanel(private val activity: Activity, private val client: Sess
         sendButton.setTextColor(if (submit.enabled) Palette.onAccent else Palette.faint)
         sendButton.text = context.getString(if (sending) R.string.session_sending else if (submit.queued) R.string.conversation_queue_send else R.string.conversation_send)
         sendButton.contentDescription = context.getString(if (sending) R.string.session_sending else if (submit.queued) R.string.session_add_to_the_send_queue else R.string.session_send_message)
-        notice.minimumHeight = if (unresolved) dp(48) else 0
+        notice.minimumHeight = if (pendingOperations.isNotEmpty()) dp(48) else 0
         notice.gravity = Gravity.CENTER_VERTICAL
         notice.setOnClickListener {
-            if (!unresolved) return@setOnClickListener
+            if (pendingOperations.isEmpty()) return@setOnClickListener
             if (retryableOperation.isEmpty()) checkUncertain()
             else {
                 val token = generation
@@ -1963,16 +2109,17 @@ class ConversationPanel(private val activity: Activity, private val client: Sess
             }
         }
         renderWaitState()
-        if (unresolved) notice.text = if (retryableOperation.isEmpty()) context.getString(R.string.session_operation_unknown, operationName(pendingOperations.first().optString("op"))) else context.getString(R.string.session_mac_has_not_received_it_tap_to_retry_the_original_operation)
+        if (pendingOperations.isNotEmpty()) notice.text = if (retryableOperation.isEmpty()) context.getString(R.string.session_operation_unknown, operationName(pendingOperations.first().optString("op"))) else context.getString(R.string.session_mac_has_not_received_it_tap_to_retry_the_original_operation)
     }
     private fun sendReply() {
         if (!sendButton.isEnabled) return
         val ids = attachmentIDs()
         if (!canSend) return
         val text = editor.text.toString().trim(); if (text.toByteArray().size > 32_000) { notice.text = context.getString(R.string.session_reply_is_too_long_send_it_in_parts); return }
-        val target = thread; val token = generation; sending = true; updateComposer(); notice.text = context.getString(R.string.session_sending_to, title)
-        call("send", JSONObject().put("threadId", target).put("text", text).put("attachments", ids)) { result ->
+        val target = thread; val token = generation; val waitToken = ++sendWaitGeneration; stoppedWaitSignature = null; sending = true; updateComposer(); notice.text = context.getString(R.string.session_sending_to, title)
+        call("send", JSONObject().put("threadId", target).put("submissionMode", if (queueSubmission) "queue" else "start").put("text", text).put("attachments", ids)) { result ->
             if (token != generation) return@call
+            if (waitToken != sendWaitGeneration) { updateComposer(); return@call }
             sending = false
             if (result.optBoolean("ok") && result.optBoolean("accepted")) {
                 if (editor.text.toString().trim() == text) editor.setText("")
@@ -1992,14 +2139,14 @@ class ConversationPanel(private val activity: Activity, private val client: Sess
         }
     }
     private fun applyQueue(value: JSONObject) {
-        if (!supports("queue", client.provider == "codex") || !foreground || drawer || value.optString("threadId") != thread || (!reviews && value.optLong("viewVersion", -1) != client.viewVersion)) return
+        if (!supports("queue") || !foreground || drawer || value.optString("threadId") != thread || (!reviews && value.optLong("viewVersion", -1) != client.viewVersion)) return
         page.put("queuedMessages", value.optJSONArray("queuedMessages") ?: JSONArray())
         if (!reviews) client.rememberPage(thread, page)
         renderQueue()
     }
     private fun renderQueue() {
         if (!::queuedBox.isInitialized) return
-        val entries = if (supports("queue", client.provider == "codex")) page.optJSONArray("queuedMessages") ?: JSONArray() else JSONArray()
+        val entries = if (supports("queue")) page.optJSONArray("queuedMessages") ?: JSONArray() else JSONArray()
         val uncertain = if (reviews) emptyList() else client.uncertain(thread).filter { it.optString("op").startsWith("queue") }
         val key = entries.toString() + ready + connected + sending + uncertain.toString()
         if (queueRendering == key) return
@@ -2017,20 +2164,21 @@ class ConversationPanel(private val activity: Activity, private val client: Sess
                 addView(row().apply {
                     gravity = Gravity.CENTER_VERTICAL
                     addView(label(item.optString("pausedReason").ifBlank { status }, Ui.CAPTION, Palette.faint).apply { maxLines = 2 }, LinearLayout.LayoutParams(0, -2, 1f))
-                    addView(button(context.getString(R.string.session_steer)) { queueAction("queueSteer", id) }.apply { isEnabled = !blocked && item.optBoolean("canSteer", true); alpha = if (isEnabled) 1f else .4f }, LinearLayout.LayoutParams(-2, dp(48)))
-                    addView(button(context.getString(R.string.delete)) { queueAction("queueDelete", id) }.apply { isEnabled = !blocked && item.optBoolean("canDelete", true); alpha = if (isEnabled) 1f else .4f }, LinearLayout.LayoutParams(-2, dp(48)).apply { marginStart = dp(4) })
+                    addView(button(context.getString(R.string.session_steer)) { queueAction("queueSteer", id) }.apply { isEnabled = !blocked && supports("queueSteer") && item.opt("canSteer") == true; alpha = if (isEnabled) 1f else .4f }, LinearLayout.LayoutParams(-2, dp(48)))
+                    addView(button(context.getString(R.string.delete)) { queueAction("queueDelete", id) }.apply { isEnabled = !blocked && supports("queueDelete") && item.opt("canDelete") == true; alpha = if (isEnabled) 1f else .4f }, LinearLayout.LayoutParams(-2, dp(48)).apply { marginStart = dp(4) })
                 })
             }, LinearLayout.LayoutParams(-1, -2).apply { topMargin = dp(6); bottomMargin = dp(4) })
         }
     }
     private fun queueAction(op: String, id: String) {
-        if (!mutableReady || !supports("queue", client.provider == "codex") || sending) return
+        if (!mutableReady || !supports(op) || sending) return
         val token = generation; sending = true; updateComposer()
         call(op, JSONObject().put("threadId", thread).put("messageId", id)) { result ->
             if (token != generation || drawer) return@call
             sending = false
             if (result.optBoolean("ok")) {
-                applyQueue(result.put("viewVersion", client.viewVersion).put("threadId", thread))
+                if (result.has("queuedMessages")) applyQueue(result.put("viewVersion", client.viewVersion).put("threadId", thread))
+                else resync(withCache = false)
                 notice.text = if (op == "queueSteer") context.getString(R.string.session_requested_steering_for_the_current_task) else context.getString(R.string.session_queued_message_deleted)
                 if (op == "queueSteer") ui.postDelayed({
                     val queued = page.optJSONArray("queuedMessages") ?: JSONArray()
@@ -2048,12 +2196,13 @@ class ConversationPanel(private val activity: Activity, private val client: Sess
 
     private fun renderWaitState() {
         if (drawer || !::waitBanner.isInitialized) return
-        val reason = SessionWaitState.reason(connected, ready, !reviews && client.uncertain(thread).isNotEmpty(),
+        val reason = SessionWaitState.reason(connected, ready, !reviews && client.waitingOperations(thread).isNotEmpty(),
             (page.optJSONArray("approvals")?.length() ?: 0) > 0, page.optJSONObject("blocker")?.optString("code") ?: "",
             page.optString("status"), android.os.SystemClock.elapsedRealtime() - lastProgressAt)
         val stopping = connected && stopRequestedTurn.isNotEmpty()
-        waitBanner.visibility = if (reason == null && !stopping) GONE else VISIBLE
-        if (reason == null && !stopping) return
+        val signature = waitSignature()
+        waitBanner.visibility = if ((reason == null && !stopping) || stoppedWaitSignature == signature) GONE else VISIBLE
+        if (waitBanner.visibility == GONE) return
         val message = if (stopping) R.string.session_wait_stopping else when (reason) {
             SessionWaitState.Reason.DISCONNECTED -> R.string.session_wait_disconnected
             SessionWaitState.Reason.UNKNOWN -> R.string.session_wait_unknown
@@ -2069,6 +2218,21 @@ class ConversationPanel(private val activity: Activity, private val client: Sess
         waitMessage.text = context.getString(message) + "\n" + context.getString(R.string.session_stop_waiting_detail) +
             if (canStop) "\n" + context.getString(R.string.conversation_stop_at_header) else ""
         waitCancel.text = context.getString(R.string.session_stop_waiting)
+    }
+
+    private fun waitSignature() = listOf(connected, ready, progressSignature,
+        if (reviews) "" else client.waitingOperations(thread).map { it.optString("id") }.sorted()).joinToString("\u0000")
+
+    private fun stopWaiting() {
+        saveDraft(); hideKeyboard()
+        if (canStopCurrentTurn()) { stopCurrentTurn(); return }
+        if (!reviews && !client.stopWaiting(thread)) {
+            notice.text = context.getString(R.string.client_receipt_save_failed); return
+        }
+        sendWaitGeneration++; sending = false
+        stoppedWaitSignature = waitSignature()
+        notice.text = context.getString(R.string.session_wait_stopped)
+        updateComposer()
     }
 
     private fun stopCurrentTurn() {

@@ -284,7 +284,7 @@
     </plurals>
     <string name="session_retry_original_request">Retry original request</string>
     <string name="session_stop_waiting">Stop waiting</string>
-    <string name="session_stop_waiting_detail">This closes the waiting view. The Mac may still be working; the draft and unconfirmed receipt are kept.</string>
+    <string name="session_stop_waiting_detail">Ends waiting here and keeps the draft and receipt for checking. When the current task can be verified, a stop request is sent to the Mac.</string>
     <string name="session_wait_disconnected">Connection interrupted. The current result cannot be confirmed.</string>
     <string name="session_wait_unknown">The result is not confirmed. Check the receipt before submitting again.</string>
     <string name="session_wait_loading">Waiting for the Mac to return the session state.</string>
@@ -294,4 +294,5 @@
     <string name="session_wait_blocked">The provider reports that this task is blocked or failed.</string>
     <string name="session_wait_slow">No new progress for at least a minute. The task may still be running; you can cancel it manually.</string>
     <string name="session_wait_stopping">Cancellation requested. Waiting for the Mac to confirm that the task stopped.</string>
+    <string name="session_wait_stopped">Waiting stopped. Unconfirmed receipts are kept; you can write a different message.</string>
 </resources>

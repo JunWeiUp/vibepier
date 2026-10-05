@@ -305,11 +305,15 @@ final class ClaudeBridge: @unchecked Sendable {
             prompt = try ClaudePrompt(text: text)
         }
         let proof = prompt.proof
+        let requestedExecution = request["executionMode"] as? String
+        let requestedPermission = requestedExecution == nil ? nil : configuration["mode"]
         let session = UUID().uuidString.lowercased()
         try operationReceipts.observe(ticket, bytes: proof.retainedBytes + cwd.utf8.count + session.utf8.count) {
             [weak self] in
             guard let self, let url = try? self.file(session) else { return nil }
-            return ClaudeCreationReceipt.read(url, session: session, cwd: cwd, proof: proof)
+            return ClaudeCreationReceipt.read(
+                url, session: session, cwd: cwd, proof: proof,
+                executionMode: requestedExecution, permissionMode: requestedPermission)
         }
         // Save before launching so the first turn and later phone continuations agree.
         // Old phone requests without configuration keep the existing creation defaults.
@@ -326,7 +330,9 @@ final class ClaudeBridge: @unchecked Sendable {
         operationReceipts.arm(ticket)
         @Sendable func poll(_ step: Int) {
             if let url = try? self.file(session),
-                let value = ClaudeCreationReceipt.read(url, session: session, cwd: cwd, proof: proof)
+                let value = ClaudeCreationReceipt.read(
+                    url, session: session, cwd: cwd, proof: proof,
+                    executionMode: requestedExecution, permissionMode: requestedPermission)
             {
                 reply(value)
                 return
@@ -367,9 +373,12 @@ final class ClaudeBridge: @unchecked Sendable {
             if op == "newOptions" {
                 return [
                     "creationVersion": 1, "draftId": draft.id, "models": Self.models,
-                    "composer": ["model": "default", "effort": "default", "mode": "default"],
-                    "capabilities": ["attachments": true],
-                    "permissionModes": Self.modes.map { mode -> [String: Any] in
+                    "composer": [
+                        "model": "default", "effort": "default", "mode": "default", "executionMode": "default",
+                    ],
+                    "capabilities": ["attachments": true, "executionMode": true],
+                    "executionModes": ClaudeSessionConfiguration.executionModes, "executionModePermissionCoupled": true,
+                    "permissionModes": Self.modes.filter { $0 != "plan" }.map { mode -> [String: Any] in
                         [
                             "id": mode, "name": ClaudeDesktop.modeTitles[mode] ?? mode,
                             "requiresConfirmation": mode == "bypassPermissions",
@@ -393,6 +402,9 @@ final class ClaudeBridge: @unchecked Sendable {
         }
         let viewVersion = (request["viewVersion"] as? NSNumber)?.int64Value ?? -1
         if op == "close" {
+            if let target = request["threadId"] as? String, selected[client] != target {
+                throw CLIError(L10n.text("session.the_session_view_changed"))
+            }
             guard viewVersion >= 0, viewVersion >= (viewVersions[client] ?? -1) else {
                 throw CLIError(L10n.text("session.the_session_view_changed"))
             }
@@ -435,6 +447,12 @@ final class ClaudeBridge: @unchecked Sendable {
         refresh(session)
         if let failure = transcript.failure { throw failure }
         let cwd = transcript.cwd.isEmpty ? "/" : transcript.cwd
+        if SessionV1Contract.descriptor(op)?.durableMutation == true,
+            let expected = request["nativeOwnerEpoch"] as? String,
+            try makePage(session)["nativeOwnerEpoch"] as? String != expected
+        {
+            throw CLIError(L10n.text("session.the_session_view_changed"))
+        }
         switch op {
         case "readMarkdownFile":
             throw try markdownFiles.request(
@@ -505,7 +523,9 @@ final class ClaudeBridge: @unchecked Sendable {
             throw ConversationImageRequest(
                 thread: session, id: id, source: source,
                 cwd: transcript.cwd,
-                maxPixel: request["size"] as? String == "large" ? 1280 : 480)
+                maxPixel: request["size"] as? String == "large"
+                    ? (request["binaryVersion"] as? Int == 1 ? 2048 : 1280) : 480,
+                device: client, binary: request["binaryVersion"] as? Int == 1)
         case "composerOptions":
             let owner = owner(session)
             // Reading the menus means switching the desktop app; while locked, keep the last known ones.
@@ -514,6 +534,14 @@ final class ClaudeBridge: @unchecked Sendable {
             }
             return [
                 "threadId": session, "models": models(session), "composer": composer(session, owner: owner),
+                "executionModes": ClaudeSessionConfiguration.executionModes, "executionModePermissionCoupled": true,
+                "capabilities": ["executionMode": owner?.desktop == true && desktopControls[session]?.mode != nil],
+                "permissionModes": Self.modes.filter { $0 != "plan" }.map {
+                    [
+                        "id": $0, "name": ClaudeDesktop.modeTitles[$0] ?? $0,
+                        "requiresConfirmation": $0 == "bypassPermissions",
+                    ]
+                },
                 "description": owner?.desktop == true
                     ? L10n.text("provider.uses_the_models_currently_available_in_claude_desktop_for_this_session_only")
                     : L10n.text("provider.applies_to_subsequent_claude_code_requests_sent_from_the_phone"),
@@ -577,7 +605,7 @@ final class ClaudeBridge: @unchecked Sendable {
                 }
                 let model = request["model"] as? String
                 let effort = request["effort"] as? String
-                let mode = request["mode"] as? String
+                let mode = try ClaudeSessionConfiguration.permissionMode(request)
                 guard model != nil || effort != nil || mode != nil else {
                     throw CLIError(L10n.text("provider.no_settings_to_change"))
                 }
@@ -624,7 +652,16 @@ final class ClaudeBridge: @unchecked Sendable {
                     }
                 }
                 schedule(session)
-                return ["accepted": true, "threadId": session, "composer": composer(session, owner: owner)]
+                let actual = composer(session, owner: owner)
+                if let requested = request["executionMode"] as? String {
+                    guard actual["executionMode"] as? String == requested,
+                        actual["mode"] as? String == mode
+                    else { throw UnconfirmedDesktopMutation(reason: L10n.text("core.invalid_receipt")) }
+                }
+                return [
+                    "accepted": true, "threadId": session, "composer": actual,
+                    "executionModeVerified": request["executionMode"] != nil,
+                ]
             }
             let next = try ClaudeSessionConfiguration.resolve(request, current: selection(session))
             let previous = settings[session]
@@ -634,7 +671,16 @@ final class ClaudeBridge: @unchecked Sendable {
                 throw CLIError(L10n.text("provider.could_not_save_session_settings"))
             }
             schedule(session)
-            return ["accepted": true, "threadId": session]
+            var result: [String: Any] = [
+                "accepted": true, "threadId": session, "composer": composer(session, owner: owner(session)),
+            ]
+            if request["executionMode"] != nil {
+                result["ok"] = false
+                result["unknown"] = true
+                result["executionModeVerified"] = false
+                result["accepted"] = false
+            }
+            return result
         case "interrupt":
             if runs[session] == nil, let owner = owner(session), owner.desktop, owner.busy, let host = owner.host {
                 refresh(session)
@@ -663,7 +709,10 @@ final class ClaudeBridge: @unchecked Sendable {
                         })
                 }
                 schedule(session)
-                return ["accepted": true, "threadId": session]
+                return [
+                    "accepted": true, "threadId": session, "turnId": expected, "interruptRequested": true,
+                    "turnIdentityKind": "nativeMessageAnchor",
+                ]
             }
             guard let run = runs[session] else {
                 throw CLIError(L10n.text("session.there_is_no_running_task_in_this_session"))
@@ -673,7 +722,10 @@ final class ClaudeBridge: @unchecked Sendable {
             }
             run.process.interrupt()
             queue.asyncAfter(deadline: .now() + 3) { if run.process.isRunning { run.process.terminate() } }
-            return ["accepted": true, "threadId": session]
+            return [
+                "accepted": true, "threadId": session, "turnId": run.token, "interruptRequested": true,
+                "turnIdentityKind": "managedRun",
+            ]
         case "send":
             guard let ticket else { throw CLIError(L10n.text("core.invalid_request")) }
             let text = (request["text"] as? String ?? "").trimmingCharacters(in: .whitespacesAndNewlines)
@@ -798,7 +850,8 @@ final class ClaudeBridge: @unchecked Sendable {
                         else { return nil }
                         return [
                             "ok": true, "accepted": true, "threadId": session, "delivery": "desktop",
-                            "nativeMessageId": id,
+                            "nativeMessageId": id, "turnId": "desktop:" + host + ":" + id,
+                            "turnIdentityKind": "nativeMessageAnchor",
                         ]
                     }
                 },
@@ -821,7 +874,10 @@ final class ClaudeBridge: @unchecked Sendable {
         }
         runErrors.removeValue(forKey: session)
         schedule(session)
-        return ["accepted": true, "threadId": session, "delivery": "desktop", "nativeMessageId": nativeID]
+        return [
+            "accepted": true, "threadId": session, "delivery": "desktop", "nativeMessageId": nativeID,
+            "turnId": "desktop:" + host + ":" + nativeID, "turnIdentityKind": "nativeMessageAnchor",
+        ]
     }
     /// Open desktop permission requests of this session, with full details; empty unless the desktop app owns it.
     private func approvals(_ session: String) -> [[String: Any]] {
@@ -860,6 +916,7 @@ final class ClaudeBridge: @unchecked Sendable {
     }
     private func composer(_ session: String, owner: ClaudeDesktop.Owner?) -> [String: Any] {
         var value: [String: Any] = selection(session)
+        value.removeValue(forKey: "executionMode")
         let current = currentModel(session)
         if owner?.desktop == true {
             if let host = owner?.host, let visible = ClaudeDesktop.visibleControls(host: host) {
@@ -870,10 +927,18 @@ final class ClaudeBridge: @unchecked Sendable {
             value["modelLabel"] = live?.model ?? current?.label ?? L10n.text("provider.desktop_model")
             value["effort"] = live?.effort ?? currentEffort(session)
             value["mode"] = live?.mode ?? value["mode"]
+            if let mode = ClaudeSessionConfiguration.executionMode(permissionMode: live?.mode) {
+                value["executionMode"] = mode
+            }
             value["contextUsage"] = live?.contextUsage ?? ""
             value["modeLocked"] = false
         } else if value["model"] as? String == "default", let current {
             value["modelLabel"] = current.label
+        }
+        if owner?.desktop != true,
+            let mode = ClaudeSessionConfiguration.executionMode(permissionMode: transcripts[session]?.permissionMode)
+        {
+            value["executionMode"] = mode
         }
         return value
     }
@@ -1047,6 +1112,18 @@ final class ClaudeBridge: @unchecked Sendable {
         page["threadId"] = session
         page["title"] = transcript.title
         let owner = owner(session)
+        if let owner {
+            page["nativeOwnerEpoch"] = CodexConversation.fingerprint([
+                "pid": owner.pid, "host": owner.host ?? "", "session": session,
+                "incarnation": transcript.incarnation.uuidString,
+            ])
+        } else if let run = runs[session] {
+            page["nativeOwnerEpoch"] = CodexConversation.fingerprint(["run": run.token, "session": session])
+        } else {
+            page["nativeOwnerEpoch"] = CodexConversation.fingerprint([
+                "session": session, "incarnation": transcript.incarnation.uuidString, "owner": "idleHistory",
+            ])
+        }
         let desktopTurn =
             owner?.desktop == true && owner?.busy == true
             ? owner?.host.flatMap { ClaudeSendReceipt.activeTurn(entries: entries, host: $0) } : nil
@@ -1060,6 +1137,9 @@ final class ClaudeBridge: @unchecked Sendable {
         capabilities["markdownFiles"] = true
         capabilities["projectFiles"] = true
         capabilities["videoFiles"] = true
+        capabilities["executionMode"] = owner?.desktop == true && desktopControls[session]?.mode != nil
+        page["executionModes"] = ClaudeSessionConfiguration.executionModes
+        page["executionModePermissionCoupled"] = true
         page["capabilities"] = capabilities
         if let owner { page["owner"] = owner.desktop ? "desktop" : "terminal" }
         // Details can be whole files; the phone fetches them when the card is opened.

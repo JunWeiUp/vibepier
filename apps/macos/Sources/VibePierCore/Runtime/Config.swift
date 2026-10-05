@@ -126,6 +126,9 @@ struct Config: Codable, Equatable {
     var remotePort: Int?
     /// Ordered Mac-configured application bundle IDs; empty strings leave a slot unassigned.
     var applicationShortcuts: [String]?
+    /// Mac-owned provider visibility; missing entries preserve existing access on upgrade.
+    var sessionProviders: [String: Bool]?
+    var sessionProviderRevision: Int64?
     /// Cloud relay for the Android remote, e.g. "wss://example.com/vibepier/relay". Empty turns it off.
     var relayURL: String?
     /// Room shared by this Mac and its phones on the relay.

@@ -30,6 +30,7 @@ The key editor sizes its preset column count from localized label width; large-t
 
 ## Interaction rules
 
+- Android custom actionable controls share a mint hover layer, bounded press ripple and a 2dp keyboard-focus ring. Feedback is drawn above content so selection/background refreshes cannot erase it. Display-only labels stay quiet; disabled controls retain their existing dimmed treatment and do not highlight. The circular voice pad uses a circular hover/focus ring and its existing held animation. Hover never sends a remote action. 安卓自绘可操作控件统一提供薄荷色悬停、限定范围的按下涟漪和 2dp 键盘焦点描边；静态文字无反馈，禁用沿用变淡状态且不高亮。圆形语音键采用圆环反馈，保留按住动画；悬停不触发远程操作。
 - Keep the remote surface compact: connection/current-app context above the controls, a prominent circular voice button, deletion at its lower right, and a stable application dock.
 - A voice press begins only inside the circle. Releasing, leaving the hit region, losing focus, navigation or disconnection ends it. Re-entering does not restart the same gesture. One pointer owns the gesture.
 - Saved application slots stay in place. A temporary current-app slot does not reorder the user's configured shortcuts. Do not allow an application-state update during a touch to turn a launch into an unintended hide.
@@ -37,8 +38,13 @@ The key editor sizes its preset column count from localized label width; large-t
 - Preserve drafts and read position during normal navigation. Show cached data as cached; do not infer current mutation capability from it.
 - Pending operations stay visibly pending. Unknown results ask for verification; they are not labeled failed-and-safe-to-repeat. Unsupported actions explain the next useful step on the Mac.
 - Opening the Mac menu must not ask for microphone access. Permission requests belong to the relevant explicit action or setting.
+- Keep the Mac menu panel's top edge fixed during each opening when task counts or status content change. Resize downward and retain scrolling for long content; reopening uses the menu item's current system position. Mac 菜单面板在同次打开期间固定顶部，会话任务数量或状态内容变化时向下伸缩，内容较多时保留滚动；重新打开按菜单图标当前位置定位。
 
 Native phone UI examples in both READMEs use original emulator captures with synthetic data. [Capture provenance](assets/previews/README.md) distinguishes them from concept illustrations and real-device acceptance.
+
+The conversation composer has an independent **Plan / Execute** task-mode control alongside permissions and model selection. New-session options use the same choices. Show the current verified mode, disable switching while busy or unconfirmed, and dismiss the menu before submitting a change. When Plan includes a native permission mode, hide conflicting permission choices and disclose the default permission on the Execute option.
+
+会话输入区域和新建选项提供独立「计划/执行」入口，显示已核验当前模式；忙碌或待确认时禁用切换，选中后先关闭菜单。计划模式绑定原生权限时隐藏冲突的权限入口，执行选项明确显示采用的默认权限。
 
 ## Brand assets
 
@@ -74,6 +80,8 @@ Editorial illustrations use graphite, mint and generous empty space. They commun
 
 HTML/HTM project files default to Preview, with Source available in the same tab strip. Keep original document styling and interactive state across tab switches; native actions stay outside the webpage. HTML/HTM 默认预览，源码标签并列，原页面风格与交互状态保留；底部应用操作独立于网页。
 
+Image previews use the available screen with the image fitted inside the main viewport. Keep system insets and compact, reachable close/retry controls; avoid a compact half-screen dialog. Pinch zoom and pan belong to the image surface. Double-tap alternates between a detailed view and the original fitted view. Bound zoom and pan, and reset when a new preview opens. 图片预览尽量占满可用屏幕，保留系统安全边距与简洁易点的关闭/重试入口，图片占主要空间。双指缩放、拖动仅作用于图片；双击切换局部放大与完整画面。缩放与拖动有边界，重新打开时重置。
+
 Build 11 keeps Stop task in one header location, labels Send/Queue send visibly and reserves Stop waiting for returning to the list while Mac work continues. Message updates retain row identity, expansion and visible-row anchors. Microphone capability changes refresh the effective source and terminate a lost phone-audio path without switching during a hold. Settings update existing choice nodes.
 
 build 11 将停止任务固定在顶部，发送/排队明示；停止等待只返回列表并说明 Mac 任务继续。消息更新保留行身份、展开态与阅读位置，通路失效结束手机录音且不在同一次按住中切换来源，设置刷新不重建焦点选项。
@@ -81,3 +89,19 @@ build 11 将停止任务固定在顶部，发送/排队明示；停止等待只�
 The Mac app picker uses a fixed header, shortcut actions and search field above a scrolling grouped list. App names are left-aligned; bundle IDs use muted caption text. Initial-letter badges identify rows without implying that Mac app icons are available. The selected app has a mint checkmark and tinted row. Shortcut configuration uses numbered rows; all interactive rows retain at least 48dp touch targets.
 
 Mac 应用选择页采用固定标题、快捷栏操作和搜索框，下方应用列表独立滚动。应用名称左对齐，包名使用弱化的辅助文字；首字标识用于区分行，不假装已获取 Mac 应用图标。当前应用用薄荷绿勾选与浅色底标记，快捷栏配置使用位置编号，各操作保留至少 48dp 触摸区域。
+
+## Mac permission setup / Mac 权限引导
+
+First installed launch presents a dedicated Full Disk Access guide and opens its System Settings pane once. Keep a permanent menu-bar entry, explain the +/select/enable/restart sequence, and provide a Finder reveal action. Guide presentation never represents an authorization grant; do not display a verified status without a supported check. Accessibility remains separate and microphone remains on demand.
+
+安装后首次启动显示完全磁盘访问引导并打开系统设置一次；菜单栏保留入口，明确添加、开启及重启步骤，可在 Finder 定位当前应用。不把打开引导当成授权成功；辅助功能独立，麦克风按需申请。
+
+Show a clickable file-access status with distinct not-verified, checking, access-confirmed and permission-required states. Its result refers to the last actual file operation, with an explicit explanation that it does not verify every folder or the Full Disk Access switch. Recheck in the background and keep the button stable while busy. An observed permission denial can reopen repair guidance once per running installed app regardless of its first-launch marker. Offer both Full Disk Access and Files and Folders settings.
+
+文件访问状态按钮区分尚未验证、检查中、已可访问和需要授权，说明状态对应最近实际文件操作，不代表所有目录或完全磁盘访问开关。后台重查时保留按钮位置。安装版进程首次遇到真实权限拒绝时可重新显示修复引导，不受首次显示记录阻止；提供完全磁盘访问及文件与文件夹设置入口。
+
+## AI coding assistant switches / AI 编程助手开关
+
+The Mac menu places a compact assistant card after the phone connection card: header plus enabled count; Codex, Claude Code and ZCode rows each show a mark, name, visibility status and native switch. Mint accents follow VibePier. Controls remain disabled while saving, and failures show inside the card. “Enabled” describes phone access, not runtime health.
+
+Mac 手机连接卡片下新增助手卡片，标题右侧显示启用数，每行包含标记、名称、已启用/已关闭和原生开关。沿用薄荷绿；保存期间禁用操作，失败原位显示。手机只展示启用标签，全关闭给出空状态及 Mac 开启提示。

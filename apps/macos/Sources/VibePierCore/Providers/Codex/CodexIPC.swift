@@ -15,6 +15,7 @@ final class CodexIPC: @unchecked Sendable {
     private var generation = UUID()
     private var pending: [String: Pending] = [:]
     private var snapshots: [String: Data] = [:]
+    private var snapshotArrivals: [String: UUID] = [:]
     var broadcast: (@Sendable (Data) -> Void)?
     var disconnected: (@Sendable () -> Void)?
     private let path: String
@@ -89,6 +90,7 @@ final class CodexIPC: @unchecked Sendable {
                 let replies = Array(pending.values)
                 pending.removeAll()
                 snapshots.removeAll()
+                snapshotArrivals.removeAll()
                 return (old, replies)
             }
             if old >= 0 { shutdown(old, SHUT_RDWR) }
@@ -97,6 +99,39 @@ final class CodexIPC: @unchecked Sendable {
         for reply in replies { reply.ready.signal() }
     }
     func latestSnapshot(_ thread: String) -> Data? { lock.withLock { snapshots[thread] } }
+    /// Duplicate following:true is a native read-only request for a current full snapshot.
+    /// Require a new arrival; an old cached snapshot is never proof of hydration completion.
+    func freshSnapshot(_ thread: String, owner: String, minimumRevision: Int, timeout: Double = 3) throws
+        -> CodexHistoryReadback.Snapshot
+    {
+        guard minimumRevision >= 0, !owner.isEmpty, timeout.isFinite, timeout > 0, timeout <= 3 else {
+            throw CLIError(L10n.text("core.invalid_request"))
+        }
+        let (arrival, token, connected) = lock.withLock { (snapshotArrivals[thread], generation, fd >= 0) }
+        guard connected else { throw CLIError(L10n.text("session.codex_disconnected")) }
+        let deadline = ProcessInfo.processInfo.systemUptime + timeout
+        try follow(thread, owner: owner, on: true)
+        var inspected: UUID?
+        repeat {
+            let (bytes, next, live) = lock.withLock { () -> (Data?, UUID?, Bool) in
+                let live = generation == token && fd >= 0
+                let next = snapshotArrivals[thread]
+                return (live && next != arrival && next != inspected ? snapshots[thread] : nil, next, live)
+            }
+            guard live else { throw CLIError(L10n.text("session.codex_disconnected")) }
+            if let bytes {
+                inspected = next
+                if let snapshot = CodexHistoryReadback.snapshot(
+                    bytes, thread: thread, owner: owner, minimumRevision: minimumRevision)
+                {
+                    return snapshot
+                }
+            }
+            let remaining = deadline - ProcessInfo.processInfo.systemUptime
+            if remaining > 0 { Thread.sleep(forTimeInterval: min(0.025, remaining)) }
+        } while ProcessInfo.processInfo.systemUptime < deadline
+        throw CLIError(L10n.text("session.the_session_has_not_loaded_yet"))
+    }
     func request(_ method: String, _ params: [String: Any], version: Int, target: String? = nil, timeout: Double = 12)
         throws -> [String: Any]
     {
@@ -180,6 +215,7 @@ final class CodexIPC: @unchecked Sendable {
                     guard generation == token else { return (false, []) }
                     fd = -1
                     snapshots.removeAll()
+                    snapshotArrivals.removeAll()
                     let replies = Array(pending.values)
                     pending.removeAll()
                     return (true, replies)
@@ -228,16 +264,23 @@ final class CodexIPC: @unchecked Sendable {
                         generation: token)
                 }
             case "broadcast":
-                if object["method"] as? String == "thread-stream-state-changed",
-                    let params = object["params"] as? [String: Any],
-                    let thread = params["conversationId"] as? String,
-                    (params["change"] as? [String: Any])?["type"] as? String == "snapshot"
-                {
-                    lock.withLock {
-                        if snapshots.count >= 2 { snapshots.removeAll() }
+                let current = lock.withLock { () -> Bool in
+                    guard generation == token, fd == descriptor else { return false }
+                    if object["method"] as? String == "thread-stream-state-changed",
+                        let params = object["params"] as? [String: Any],
+                        let thread = params["conversationId"] as? String,
+                        (params["change"] as? [String: Any])?["type"] as? String == "snapshot"
+                    {
+                        if snapshots.count >= 2 {
+                            snapshots.removeAll()
+                            snapshotArrivals.removeAll()
+                        }
                         snapshots[thread] = body
+                        snapshotArrivals[thread] = UUID()
                     }
+                    return true
                 }
+                guard current else { return }
                 broadcast?(body)
             default: break
             }

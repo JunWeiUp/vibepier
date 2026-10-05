@@ -145,3 +145,44 @@ func TestRelayStreamingAndIsolation(t *testing.T) {
 		t.Fatal("completed capability reused")
 	}
 }
+
+func TestMediaRangeAndCapabilities(t *testing.T) {
+	s := Store{Root: t.TempDir()}
+	data := bytes.Repeat([]byte{9}, 300000)
+	file := filepath.Join(t.TempDir(), "snapshot.apk")
+	_ = os.WriteFile(file, data, 0600)
+	offer, err := s.Create("media", "phone-a", "media:transfer", file, int64(len(data)), 100000)
+	if err != nil {
+		t.Fatal(err)
+	}
+	server := httptest.NewServer(&s)
+	defer server.Close()
+	for _, test := range []struct {
+		token, span string
+		want        int
+	}{{Token(), "bytes=100000-", 403}, {offer.Read, "bytes=0-", 409}, {offer.Read, "bytes=100000-", 206}, {offer.Read, "bytes=100000-", 409}} {
+		req, _ := http.NewRequest("GET", server.URL+"/files/"+offer.ID, nil)
+		req.Header.Set("Authorization", "Bearer "+test.token)
+		req.Header.Set("Range", test.span)
+		resp, err := server.Client().Do(req)
+		if err != nil {
+			t.Fatal(err)
+		}
+		body, _ := io.ReadAll(resp.Body)
+		_ = resp.Body.Close()
+		if resp.StatusCode != test.want {
+			t.Fatalf("status %d wanted %d", resp.StatusCode, test.want)
+		}
+		if test.want == 206 && !bytes.Equal(body, data[100000:]) {
+			t.Fatal("incorrect resumed bytes")
+		}
+	}
+	s.Cancel("", "phone-b")
+	if _, err = s.Status(offer.ID); err != nil {
+		t.Fatal("another phone cancelled transfer")
+	}
+	s.Cancel("", "phone-a")
+	if _, err = s.Status(offer.ID); err == nil {
+		t.Fatal("cancelled transfer retained")
+	}
+}

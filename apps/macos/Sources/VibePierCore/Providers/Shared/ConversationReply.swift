@@ -345,7 +345,7 @@ enum ConversationReply {
         }
         throw CLIError(L10n.text("session.the_image_no_longer_exists_or_cannot_be_read"))
     }
-    static func jpeg(_ data: Data, maxPixel: Int) throws -> Data {
+    static func jpeg(_ data: Data, maxPixel: Int, maximumBytes: Int = 200_000) throws -> Data {
         guard data.count <= 32 * 1024 * 1024 else {
             throw CLIError(L10n.text("session.the_source_image_is_too_large_to_preview"))
         }
@@ -353,7 +353,7 @@ enum ConversationReply {
         let options =
             [
                 kCGImageSourceCreateThumbnailFromImageAlways: true,
-                kCGImageSourceThumbnailMaxPixelSize: max(64, min(maxPixel, 1600)),
+                kCGImageSourceThumbnailMaxPixelSize: max(64, min(maxPixel, 2048)),
                 kCGImageSourceCreateThumbnailWithTransform: true,
             ] as CFDictionary
         guard let image, let thumb = CGImageSourceCreateThumbnailAtIndex(image, 0, options),
@@ -368,14 +368,14 @@ enum ConversationReply {
         guard let flat = context.makeImage() else {
             throw CLIError(L10n.text("session.the_image_no_longer_exists_or_cannot_be_read"))
         }
-        for quality in [0.75, 0.55, 0.35] {
+        for quality in maximumBytes > 200_000 ? [0.9, 0.75, 0.55] : [0.75, 0.55, 0.35] {
             let out = NSMutableData()
             guard let destination = CGImageDestinationCreateWithData(out, "public.jpeg" as CFString, 1, nil) else {
                 break
             }
             CGImageDestinationAddImage(
                 destination, flat, [kCGImageDestinationLossyCompressionQuality: quality] as CFDictionary)
-            if CGImageDestinationFinalize(destination), out.length <= 240_000 { return out as Data }
+            if CGImageDestinationFinalize(destination), out.length <= maximumBytes { return out as Data }
         }
         throw CLIError(L10n.text("session.the_image_is_too_large_to_transfer_to_the_phone"))
     }

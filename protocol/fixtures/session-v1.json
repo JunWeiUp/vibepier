@@ -1,0 +1,91 @@
+{
+  "version": 1,
+  "durableMutations": [
+    "approve",
+    "codexUsageReset",
+    "interrupt",
+    "lockScreen",
+    "new",
+    "queueDelete",
+    "queueSteer",
+    "send",
+    "settings",
+    "unlockScreen"
+  ],
+  "timeoutUnknownOnly": [
+    "androidUpdateStage",
+    "unlockPassword"
+  ],
+  "providerPolicyExempt": [
+    "androidUpdateStage",
+    "apkBinary",
+    "apkChunk",
+    "apkOffer",
+    "apkProgress",
+    "apkStatus",
+    "appUsage",
+    "appUsageSet",
+    "appVersion",
+    "applicationShortcutSet",
+    "applications",
+    "close",
+    "codexUsageResetReceipt",
+    "fileCancel",
+    "interruptReceiptCheck",
+    "lockScreen",
+    "newReceiptCheck",
+    "notificationSubscribe",
+    "providers",
+    "queueReceiptCheck",
+    "receipt",
+    "receiptCheck",
+    "relaySetup",
+    "resend",
+    "settingsReceiptCheck",
+    "unlockPassword",
+    "unlockScreen",
+    "unlockStatus"
+  ],
+  "reads": [
+    "approvalDetails",
+    "browseFiles",
+    "composerOptions",
+    "contextUsage",
+    "fileChanges",
+    "fileDiff",
+    "history",
+    "image",
+    "list",
+    "message",
+    "parts",
+    "projects",
+    "readFile",
+    "readImageFile",
+    "readMarkdownFile",
+    "readVideoFile",
+    "searchFiles",
+    "sync"
+  ],
+  "requests": [
+    {
+      "id": "00000000-0000-4000-8000-000000000001",
+      "op": "send",
+      "provider": "codex",
+      "threadId": "synthetic-thread",
+      "text": "Synthetic fixture"
+    }
+  ],
+  "receipts": [
+    {
+      "id": "00000000-0000-4000-8000-000000000001",
+      "ok": false,
+      "unknown": true
+    },
+    {
+      "id": "00000000-0000-4000-8000-000000000001",
+      "ok": true,
+      "accepted": true,
+      "threadId": "synthetic-thread"
+    }
+  ]
+}

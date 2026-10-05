@@ -1,18 +1,17 @@
 package io.github.junweiup.vibepier.remote.features.sessions
 
 import io.github.junweiup.vibepier.remote.R
-import android.app.AlertDialog
+import io.github.junweiup.vibepier.remote.core.files.BinaryFileClient
+import io.github.junweiup.vibepier.remote.core.files.BinaryMediaClient
 import android.content.Context
 import android.graphics.Bitmap
 import android.os.Handler
 import android.os.Looper
 import android.view.Gravity
 import android.view.View
-import android.view.View.GONE
-import android.view.View.VISIBLE
 import android.widget.LinearLayout
-import android.widget.ScrollView
 import io.github.junweiup.vibepier.remote.core.ui.Ui
+import io.github.junweiup.vibepier.remote.core.ui.FullscreenImageDialog
 import io.github.junweiup.vibepier.remote.features.remote.Palette
 import org.json.JSONArray
 import org.json.JSONObject
@@ -24,7 +23,10 @@ internal class ConversationMedia(
     private val active: () -> Boolean,
     private val version: (String) -> String,
     private val request: (String, JSONObject, (JSONObject) -> Unit) -> Unit,
-    private val dialog: (String, View, LinearLayout, Boolean) -> AlertDialog,
+    private val imageViewer: (String) -> FullscreenImageDialog = { FullscreenImageDialog(context, it) },
+    private val readTimeoutMs: Long = 30_000L,
+    private val binaryHost: () -> String? = { null },
+    private val allowLegacyImages: Boolean = false,
 ) {
     data class Scope(val provider: String, val thread: String, val generation: Int, val authorization: String = "")
     private val ui = Handler(Looper.getMainLooper())
@@ -32,16 +34,38 @@ internal class ConversationMedia(
     private val imageCache = object : LinkedHashMap<String, CachedImage>(16, .75f, true) {
         override fun removeEldestEntry(eldest: MutableMap.MutableEntry<String, CachedImage>?) = size > 24
     }
-    private val imageWaiters = mutableMapOf<String, MutableList<(Bitmap?) -> Unit>>()
+    private class ImageRead(val callbacks: MutableList<(Bitmap?) -> Unit>) {
+        var timeout: Runnable? = null
+        var transfer: BinaryFileClient? = null
+        var start: (() -> Unit)? = null
+        var started = false
+    }
+    private val imageWaiters = mutableMapOf<String, ImageRead>()
+    private val queuedReads = mutableListOf<ImageRead>()
+    private var activeReads = 0
+    private fun drainReads() {
+        while (activeReads < 2 && queuedReads.isNotEmpty()) {
+            val read = queuedReads.removeAt(0)
+            read.started = true; activeReads++
+            read.start?.invoke()
+        }
+    }
     private var waitEpoch = 0
-    fun cancelReads() { waitEpoch++; imageWaiters.clear() }
-    fun clear() { cancelReads(); imageCache.clear() }
+    fun cancelReads() {
+        waitEpoch++
+        val cancelled = imageWaiters.values.toList()
+        imageWaiters.clear(); queuedReads.clear(); activeReads = 0
+        cancelled.forEach { read ->
+            read.timeout?.let(ui::removeCallbacks)
+            read.transfer?.cancel()
+            read.callbacks.toList().forEach { it(null) }
+        }
+    }
+    internal var previewDialog: FullscreenImageDialog? = null; private set
+    fun clear() { previewDialog?.dismiss(); previewDialog = null; cancelReads(); imageCache.clear() }
     private fun isCurrent(token: Scope, epoch: Int) = active() && token == scope() && epoch == waitEpoch
     private fun dp(value: Int) = Ui.dp(context, value)
     private fun row() = LinearLayout(context).apply { gravity = Gravity.CENTER_VERTICAL }
-    private fun column() = LinearLayout(context).apply { orientation = LinearLayout.VERTICAL }
-    private fun label(value: String, size: Float, color: Int) = Ui.label(context, value, size, color)
-    private fun button(value: String, action: () -> Unit) = Ui.button(context, value, Ui.Button.TONAL, action)
     /** A message's or step's images: one large tile, or a row of square ones that scrolls sideways; tap to view larger. */
     fun strip(images: JSONArray): View {
         val renderedScope = scope()
@@ -51,7 +75,7 @@ internal class ConversationMedia(
             val id = images.getJSONObject(i).optString("id")
             val tile = ConversationImage(context, if (single) dp(240) else dp(112), if (single) dp(180) else dp(112)).apply {
                 isFocusable = true; contentDescription = context.getString(R.string.image_open_description, i + 1)
-                setOnClickListener { if (active() && renderedScope == scope()) showImage(id) }
+                setOnClickListener { if (active() && renderedScope == scope()) showImage(id, bitmap) }
             }
             tiles.addView(tile, LinearLayout.LayoutParams(-2, -2).apply { if (i > 0) marginStart = dp(8) })
             fetchImage(id, "thumb") { bitmap -> if (bitmap == null) tile.placeholder = context.getString(R.string.image_unavailable) else tile.bitmap = bitmap }
@@ -66,44 +90,76 @@ internal class ConversationMedia(
         val key = imageKey(id, size)
         cachedImage(key)?.let { done(it); return }
         if (!active()) { done(null); return }
-        imageWaiters[key]?.let { it.add(done); return }
-        imageWaiters[key] = mutableListOf(done); val token = scope(); val epoch = waitEpoch
-        request("image", JSONObject().put("threadId", token.thread).put("imageId", id).put("size", size).put("cacheVersion", version(id))) { result ->
-            if (!isCurrent(token, epoch)) return@request
-            val encoded = result.optString("image")
-            imageDecoder.execute {
-                val bytes = try { android.util.Base64.decode(encoded, android.util.Base64.DEFAULT) } catch (_: Exception) { null }
-                val bitmap = bytes?.takeIf { it.isNotEmpty() }?.let { android.graphics.BitmapFactory.decodeByteArray(it, 0, it.size) }
-                ui.post {
-                    if (!isCurrent(token, epoch)) return@post
-                    if (bitmap != null) {
-                        imageCache[key] = CachedImage(bitmap)
-                        while (imageCache.values.sumOf { it.bitmap.byteCount.toLong() } > 8 * 1024 * 1024 && imageCache.isNotEmpty()) imageCache.remove(imageCache.keys.first())
-                    }
-                    imageWaiters.remove(key)?.forEach { it(bitmap) }
+        imageWaiters[key]?.let { it.callbacks.add(done); return }
+        if (imageWaiters.size >= 32) { done(null); return }
+        val read = ImageRead(mutableListOf(done))
+        imageWaiters[key] = read; val token = scope(); val epoch = waitEpoch
+        fun finish(bitmap: Bitmap?) {
+            if (imageWaiters[key] !== read) return
+            imageWaiters.remove(key)
+            queuedReads.remove(read)
+            if (read.started) activeReads--
+            read.timeout?.let(ui::removeCallbacks)
+            read.transfer?.cancel()
+            read.callbacks.toList().forEach { it(bitmap) }
+            drainReads()
+        }
+        val hardDeadline = android.os.SystemClock.elapsedRealtime() + maxOf(readTimeoutMs, 120_000L)
+        fun progress() {
+            ui.post {
+                if (imageWaiters[key] !== read) return@post
+                read.timeout?.let {
+                    ui.removeCallbacks(it)
+                    ui.postDelayed(it, minOf(readTimeoutMs, (hardDeadline - android.os.SystemClock.elapsedRealtime()).coerceAtLeast(0)))
                 }
             }
         }
+        read.timeout = Runnable { finish(null) }.also { ui.postDelayed(it, readTimeoutMs) }
+        read.start = { request("image", JSONObject().put("threadId", token.thread).put("imageId", id).put("size", size).put("cacheVersion", version(id)).put("binaryVersion", 1)) { result ->
+            if (imageWaiters[key] !== read) return@request
+            if (!isCurrent(token, epoch)) { finish(null); return@request }
+            val host = binaryHost()
+            val transfer = BinaryFileClient { isCurrent(token, epoch) }
+            read.transfer = transfer
+            imageDecoder.execute {
+                val bitmap = runCatching {
+                    if (result.has("binary")) BinaryMediaClient.image(result, host, transfer, ::progress)
+                    else {
+                        check(allowLegacyImages)
+                        val bytes = android.util.Base64.decode(result.optString("image"), android.util.Base64.DEFAULT)
+                        android.graphics.BitmapFactory.decodeByteArray(bytes, 0, bytes.size)
+                    }
+                }.getOrNull()
+                ui.post {
+                    if (token.authorization == scope().authorization) result.optJSONObject("binary")?.optString("id")?.takeIf { it.isNotEmpty() }?.let { request("fileCancel", JSONObject().put("ticket", it)) {} }
+                    if (imageWaiters[key] !== read) return@post
+                    if (!isCurrent(token, epoch)) { finish(null); return@post }
+                    if (bitmap != null) {
+                        imageCache[key] = CachedImage(bitmap)
+                        while (imageCache.values.sumOf { it.bitmap.byteCount.toLong() } > 16 * 1024 * 1024 && imageCache.isNotEmpty()) imageCache.remove(imageCache.keys.first())
+                    }
+                    finish(bitmap)
+                }
+            }
+        } }
+        val position = if (size == "large") 0 else queuedReads.size
+        queuedReads.add(position, read)
+        drainReads()
     }
-    private fun showImage(id: String) {
-        val body = column()
-        val footer = row(); val dialog = dialog(context.getString(R.string.image_title), ScrollView(context).apply { addView(body) }, footer, true)
-        footer.addView(button(context.getString(R.string.close)) { dialog.dismiss() }, LinearLayout.LayoutParams(-1, -2))
-        val status = label(context.getString(R.string.image_large_loading), 13f, Palette.muted)
-        cachedImage(imageKey(id, "thumb"), fresh = false)?.let { body.addView(AttachmentPreview(context, it, maximumHeightDp = null).apply { contentDescription = context.getString(R.string.image_title) }) }
-        body.addView(status, LinearLayout.LayoutParams(-1, -2).apply { topMargin = dp(8) })
-        val retry = button(context.getString(R.string.reload)) {}.apply { visibility = GONE }
-        footer.addView(retry, 0, LinearLayout.LayoutParams(0, -2, 1f))
-        footer.getChildAt(1).layoutParams = LinearLayout.LayoutParams(0, -2, 1f).apply { marginStart = dp(8) }
+    private fun showImage(id: String, thumbnail: Bitmap?) {
+        previewDialog?.dismiss()
+        val viewer = imageViewer(context.getString(R.string.image_title)).also { previewDialog = it }
+        viewer.show()
+        (thumbnail ?: cachedImage(imageKey(id, "thumb"), fresh = false))?.let(viewer::display)
         fun load() {
-            retry.visibility = GONE; status.text = context.getString(R.string.image_large_loading)
+            viewer.loading()
             fetchImage(id, "large") { bitmap ->
-                if (!dialog.isShowing) return@fetchImage
-                if (bitmap == null) { status.text = context.getString(R.string.image_large_failed); retry.visibility = VISIBLE; return@fetchImage }
-                body.removeAllViews(); body.addView(AttachmentPreview(context, bitmap, maximumHeightDp = null).apply { contentDescription = context.getString(R.string.image_title) })
+                if (!viewer.isShowing) return@fetchImage
+                if (bitmap == null) { viewer.failed(); return@fetchImage }
+                viewer.display(bitmap)
             }
         }
-        retry.setOnClickListener { load() }; load()
+        viewer.retry = ::load; load()
     }
-    companion object { private val imageDecoder = java.util.concurrent.Executors.newSingleThreadExecutor() }
+    companion object { private val imageDecoder = java.util.concurrent.Executors.newFixedThreadPool(2) }
 }

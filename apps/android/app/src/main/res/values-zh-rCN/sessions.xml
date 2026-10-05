@@ -282,7 +282,7 @@
     </plurals>
     <string name="session_retry_original_request">重试原请求</string>
     <string name="session_stop_waiting">停止等待</string>
-    <string name="session_stop_waiting_detail">停止等待只退出当前页面，Mac 可能仍在执行；草稿和待确认回执会保留。</string>
+    <string name="session_stop_waiting_detail">结束当前等待，保留草稿和回执供查询；能够确认当前任务时，会向 Mac 发送停止请求。</string>
     <string name="session_wait_disconnected">连接已中断，暂时无法确认执行结果。</string>
     <string name="session_wait_unknown">执行结果待确认，请先检查回执，不要重复提交。</string>
     <string name="session_wait_loading">正在等待 Mac 返回会话状态。</string>
@@ -292,4 +292,5 @@
     <string name="session_wait_blocked">服务商报告任务受阻或失败。</string>
     <string name="session_wait_slow">至少一分钟没有新进展。任务可能仍在运行，你可以手动取消。</string>
     <string name="session_wait_stopping">已请求取消，正在等待 Mac 确认任务停止。</string>
+    <string name="session_wait_stopped">已停止等待。待确认回执已保留，可以编写新的消息。</string>
 </resources>

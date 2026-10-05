@@ -18,18 +18,31 @@ This describes the checked-in adapters, not a guarantee that every listed deskto
 | Capability | Codex desktop | Claude Code sessions | ZCode desktop |
 | --- | --- | --- | --- |
 | List projects/sessions | Yes, local index | Yes, local transcripts | Yes, read-only native storage |
-| Read conversation / history / images | Compatible desktop subscription | Local transcript plus desktop state where available | Native history; supported local image references |
+| Read conversation / history / images | Compatible desktop subscription | Local transcript plus desktop state where available | Native history; local images and session-owned artifact attachments |
 | Reply | Conditional, original desktop owner | Conditional; desktop delivery, or CLI resume if no live owner/desktop is available | Conditional; text only, verified original session |
 | Start a session | Conditional, configured creation on builds 12553/12947; saved single-root project with a unique name; live creation acceptance pending | Known project; first turn through installed `claude` CLI | Conditional native workspace flow; only the supported built-in provider configuration |
 | Attach files/images | Yes, within selected session and size limits | New-session images use vision blocks; other files and existing-session attachments use file references | No |
 | Approval / questions | Recognized native requests and supported asynchronous questions | Recognized desktop requests; ambiguous/multiple pending requests refused | No |
 | Queue / steer / delete queued message | Supported native follow-up queue | No equivalent queue controls | No |
 | Model / effort / permission settings | Available choices from adapter | Desktop menus or subsequent phone-launched CLI requests | Verified native menus; supported choices only |
+| Phone Plan / Execute | Native collaboration mode on builds 12553/12947; independent permissions | Native plan permission mode; verified desktop settings and headless first-turn creation | No separate task-mode control; existing native permission menu remains |
 | Interrupt | Exact active-turn identity | Owned CLI run or verified busy desktop session | Exact observed active turn |
 | Context usage | Only when desktop supplies it | Accurate value only for a supported open desktop session | Unavailable |
 | Markdown / workspace browsing | Scoped to the open, trusted session | Scoped to the open, trusted session | Scoped to the open, trusted session |
 
 Lock/unlock, phone-side selection of installed Mac app shortcuts and phone APK delivery are shared Mac features, not provider-specific capabilities.
+
+## Phone plan mode / 手机计划模式
+
+The source adds **Task mode → Plan / Execute** beside the phone composer and in new-session options. An available `executionMode` capability and a complete native `executionModes` catalog are required. Changing an existing session requires a verified idle owner; an active turn is not switched mid-flight. These controls have English/Chinese emulator coverage with a synthetic encrypted Mac endpoint. Native desktop acceptance and production installation are still separate requirements.
+
+Codex desktop builds **12553/12947** use the packaged native `collaborationMode/list` catalog and owner-bound thread settings. The setter acknowledgment is insufficient: settings require fresh native readback, and creation requires the selected mode on the exact initial native turn. Permissions remain independent. The optional managed App Server backend supports future-turn mode settings only on its reviewed **0.159.0** experimental contract, with matching `thread/settings/updated` evidence. Older allowed desktop builds do not acquire plan support from their general session compatibility.
+
+Claude Code maps Plan to native `permissionMode: plan`. The phone hides the separate permission selector while Plan is selected. Returning to Execute uses the advertised safe default unless a nonplan permission was explicitly chosen; it does not restore full access automatically. Existing desktop settings require actual native selection readback. Saving settings for a future headless CLI launch does not establish this capability. Plan creation requires matching first-user-message permission evidence.
+
+A complete pending Claude `ExitPlanMode` request can be accepted once or rejected on the phone only when its native input contains the bounded full plan and no extra permissions, permission rules or nonempty `allowedPrompts`. File-only/incomplete plans and ambiguous approvals require the Mac. The adapter rechecks the original request, makes one verified click and waits for the matching native single-use answer; disappearance alone cannot confirm approval.
+
+手机已有会话及新建选项均提供独立「任务模式」。Mac 回读真实模式后才确认；缺少能力、目录或空闲原生持有方时不可切换，不通过提示词前缀模拟计划。Codex 计划模式与权限独立；Claude 计划模式绑定原生权限，退出时采用安全默认。Claude 仅允许对完整且无额外权限的原生计划审批作单次批准/拒绝；不完整计划须在 Mac 处理。未知设置/新建回执继续查询原操作，不自动补发。功能证据为隔离测试与中英文模拟器，安装与真实原生效果分别验收。
 
 ## Codex
 
@@ -69,6 +82,10 @@ Headless Claude output must provide one valid terminal result and reach EOF on b
 
 ## ZCode
 
+History images support native `zcode-artifact://<session>/tool-result-<UUID>` attachment references. The Mac resolves one matching `.txt` artifact under the selected session's CLI artifact directory and decodes its persisted image data URL on the bounded image workers. Cross-session references, ambiguous matches, symlinks, missing artifacts and non-image bodies are refused. The directory scan is capped at 10,000 entries and input at 48 MiB. This supports existing attachment previews; phone attachment submission remains unavailable. Other artifact layouts and binary tool artifacts are not supported by this reader.
+
+历史图片支持 ZCode 的 `zcode-artifact:` 附件地址：Mac 仅在当前会话的 CLI 附件目录中寻找唯一匹配的 `.txt` 文件，由有界图片工作线程解码其中的图片 data URL。跨会话地址、重复匹配、符号链接、文件缺失及非图片内容均拒绝；目录扫描最多 10,000 项，输入最多 48 MiB。此功能用于历史图片预览，手机向 ZCode 发送附件仍不支持；其他存储布局及二进制工具产物暂不支持。
+
 Configured creation reads the native model, reasoning and permission choices for the current phone/project/draft. Before the first message, it revalidates menu identity and selection, requires explicit full-access confirmation, and refuses changed or ambiguous native controls. These checks have synthetic coverage; actual native creation acceptance remains pending. Creation attachments are unsupported.
 
 新建配置读取原生模型、推理和权限菜单，按手机、项目和草稿绑定；首条发送前重新核对菜单及选中项，完全访问须明确确认。选项变化或控件不确定时拒绝执行。已有隔离测试，真实原生新建仍待验收；新建附件暂不支持。
@@ -97,6 +114,7 @@ Source authorities: [CodexBridge](../apps/macos/Sources/VibePierCore/Providers/C
 | --- | --- | --- | --- |
 | 列表、历史、图片、Markdown | 已接入，打开会话需兼容桌面版本 | 已接入本地记录与适配的桌面状态 | 已接入原生记录及受限本地图片 |
 | 回复、新建、设置、停止 | 校验桌面构建、会话归属与任务身份后执行 | 区分桌面、终端与本机 CLI；终端占用时不旁路续写 | 校验原生会话及菜单；新建仅支持指定原生 provider 配置 |
+| 手机计划/执行 | 12553/12947 原生计划模式，权限独立 | 原生计划权限模式；已有设置须桌面实读，新建核验首条权限 | 暂无独立任务模式入口；保留原生权限菜单 |
 | 附件 | 支持 | 新会话图片作为视觉内容发送；其他文件与已有会话附件作为文件引用 | 不支持 |
 | 审批与问答 | 支持识别出的原生/异步请求 | 仅适配且无歧义的桌面请求 | 不支持 |
 | 队列及引导 | 支持 | 不支持对应队列功能 | 不支持 |
@@ -134,9 +152,9 @@ Claude transcript API errors are shown as localized notices, with retries coales
 
 Claude 会话中的 API 错误会显示为本地化提示，同一轮重试合并展示，不转发网关原始错误。HTTP 429 表示上游账户限流阻碍了回复；创建成功回执仅确认会话和首条消息，不代表模型已完成回复。此提示不会自动重发。
 
-Android shows a persistent waiting banner for provider API/rate-limit errors, approvals, disconnected or unconfirmed requests, and active turns without visible progress for 60 seconds. Silence is a warning, not proof of failure. “Cancel current task” uses the existing verified turn-specific interrupt operation; a draft does not hide it. Without a fresh cancellable turn, “Stop waiting” only leaves the view, retaining drafts and unresolved receipts. It does not claim to stop an offline Mac or undo an unconfirmed creation. Claude API blockers clear on subsequent native assistant progress, a new prompt, or an interrupt marker; history retains the original failure.
+Android shows a persistent waiting banner for provider API/rate-limit errors, approvals, disconnected or unconfirmed requests, and active turns without visible progress for 60 seconds. Silence is a warning, not proof of failure. “Cancel current task” uses the existing verified turn-specific interrupt operation; a draft does not hide it. “Stop waiting” stays in the conversation: it interrupts a verified cancellable turn, or ends local waiting while retaining the draft and unresolved receipts for checking. Detached sends no longer block different messages; repeating their text or attachments remains blocked until the receipt is resolved. It does not claim to stop an offline Mac or undo an unconfirmed creation. Claude API blockers clear on subsequent native assistant progress, a new prompt, or an interrupt marker; history retains the original failure.
 
-安卓会持续提示服务商 API/限流错误、等待审批、连接中断、结果待确认，以及运行中超过 60 秒没有可见进展的情况；没有新进展不等于任务已失败。“取消当前任务”复用校验当前轮次的停止操作，有草稿也可使用。无法确认可停止的轮次时，“停止等待”仅退出页面并保留草稿与未知回执，不宣称已经停止离线 Mac 或撤销待确认的新建请求。Claude 的当前 API 阻塞提示在原生回复继续、新提示词或中断标记出现后清除，历史错误保留。
+安卓会持续提示服务商 API/限流错误、等待审批、连接中断、结果待确认，以及运行中超过 60 秒没有可见进展的情况；没有新进展不等于任务已失败。“取消当前任务”复用校验当前轮次的停止操作，有草稿也可使用。“停止等待”保留在聊天页：有可核验的轮次时发送停止请求，否则结束本地等待并保留草稿与未知回执供查询。已结束等待的发送不再阻塞不同的新消息，但原文或原附件仍须先确认回执；不宣称已经停止离线 Mac 或撤销待确认的新建请求。Claude 的当前 API 阻塞提示在原生回复继续、新提示词或中断标记出现后清除，历史错误保留。
 
 ### Configured creation on build 12947 / 构建 12947 配置式新建
 

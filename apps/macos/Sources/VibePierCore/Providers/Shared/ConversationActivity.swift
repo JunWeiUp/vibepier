@@ -90,7 +90,7 @@ struct ConversationActivityLedger: Codable, Equatable {
         else { return nil }
         let identity = [value.provider, value.id, completion].joined(separator: "\u{0}")
         let eventID = SHA256.hash(data: Data(identity.utf8)).map { String(format: "%02x", $0) }.joined()
-        return ["event": "taskCompleted", "eventId": eventID, "provider": value.provider]
+        return ["event": "taskCompleted", "eventId": eventID, "provider": value.provider, "threadId": value.id]
     }
 
     /// The captured revision matters when navigation overlaps a new completion.

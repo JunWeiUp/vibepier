@@ -1,6 +1,8 @@
 package io.github.junweiup.vibepier.remote.features.files
 
 import io.github.junweiup.vibepier.remote.R
+import io.github.junweiup.vibepier.remote.core.files.BinaryFileClient
+import io.github.junweiup.vibepier.remote.core.files.BinaryMediaClient
 import io.github.junweiup.vibepier.remote.core.ui.ControlView
 import io.github.junweiup.vibepier.remote.core.ui.IconControl
 import io.github.junweiup.vibepier.remote.core.ui.Ui
@@ -8,7 +10,7 @@ import io.github.junweiup.vibepier.remote.core.ui.protectControls
 import io.github.junweiup.vibepier.remote.core.ui.showProtected
 import io.github.junweiup.vibepier.remote.features.markdown.ChatMarkdownView
 import io.github.junweiup.vibepier.remote.features.remote.Palette
-import io.github.junweiup.vibepier.remote.features.sessions.AttachmentPreview
+import io.github.junweiup.vibepier.remote.core.ui.ZoomableImagePreview
 
 import android.app.AlertDialog
 import android.content.ClipData
@@ -37,12 +39,15 @@ import android.widget.ScrollView
 import org.json.JSONObject
 
 /** What the browser and viewer need from the open conversation. Every call is guarded by `isCurrent`. */
+private val mediaIO = java.util.concurrent.Executors.newFixedThreadPool(2)
+
 internal class ProjectFileHost(
     val context: Context, val threadId: String, val provider: String,
     val request: (String, JSONObject, (JSONObject) -> Unit) -> Unit,
     val isCurrent: () -> Boolean,
     val canQuote: () -> Boolean, val quote: (String, Int?) -> Unit,
     val canAttach: () -> Boolean, val attach: (String) -> Unit,
+    val binaryHost: () -> String? = { null }, val allowLegacyMedia: Boolean = false,
 ) {
     private val prefs = io.github.junweiup.vibepier.remote.core.security.PrivatePreferences.open(context, "project-files")
     var rootPath = ""
@@ -209,6 +214,8 @@ internal class ProjectFileViewer(
     private var diffState = ""; private var diffLoading = false; private var untracked = false; private var diffTruncated = false
     private var added = 0; private var removed = 0
     private var image: android.graphics.Bitmap? = null
+    private var imagePreview: ZoomableImagePreview? = null
+    private var imageTransfer: BinaryFileClient? = null
     private var videoPreview: VideoFilePreview? = null
     private var htmlPreview: HtmlFilePreview? = null
     private var mode = ""
@@ -235,6 +242,10 @@ internal class ProjectFileViewer(
         list.setOnItemClickListener { _, _, position, _ -> adapter.number(position)?.let { highlight = if (highlight == it) null else it; adapter.notifyDataSetChanged(); refreshBar() } }
         root = LinearLayout(context).apply {
             orientation = LinearLayout.VERTICAL; setBackgroundColor(Palette.background)
+            if (ProjectFiles.isImage(name)) setOnApplyWindowInsetsListener { view, insets ->
+                val safe = insets.getInsets(android.view.WindowInsets.Type.systemBars() or android.view.WindowInsets.Type.displayCutout())
+                view.setPadding(safe.left, safe.top, safe.right, safe.bottom); insets
+            }
             addView(LinearLayout(context).apply {
                 gravity = Gravity.CENTER_VERTICAL; setPadding(dp(4), dp(8), dp(6), dp(2))
                 addView(IconControl(context, IconControl.Icon.BACK, context.getString(R.string.files_back), Palette.text) { dismiss() }, LinearLayout.LayoutParams(dp(44), dp(48)))
@@ -257,7 +268,7 @@ internal class ProjectFileViewer(
             })
         }
         dialog = AlertDialog.Builder(context, R.style.Theme_VibePier_Dialog).create().apply {
-            setOnDismissListener { if (!closed) { closed = true; epoch++; releaseHtml(); releaseVideo(); onClose() } }
+            setOnDismissListener { if (!closed) { closed = true; epoch++; imageTransfer?.cancel(); releaseHtml(); releaseVideo(); onClose() } }
         }
     }
 
@@ -275,11 +286,13 @@ internal class ProjectFileViewer(
         dialog.window?.clearFlags(android.view.WindowManager.LayoutParams.FLAG_ALT_FOCUSABLE_IM)
         dialog.window?.apply {
             setBackgroundDrawable(ColorDrawable(Palette.background))
+            if (ProjectFiles.isImage(name)) setDecorFitsSystemWindows(false)
             setLayout(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT)
         }
+        if (ProjectFiles.isImage(name)) root.requestApplyInsets()
         reload()
     }
-    fun dismiss() { if (closed) return; closed = true; epoch++; releaseHtml(); releaseVideo(); dialog.dismiss(); onClose() }
+    fun dismiss() { if (closed) return; closed = true; epoch++; imageTransfer?.cancel(); releaseHtml(); releaseVideo(); dialog.dismiss(); onClose() }
     private fun current(token: Int) = !closed && host.isCurrent() && epoch == token
     private fun say(text: String) { notice.text = text; notice.visibility = if (text.isEmpty()) View.GONE else View.VISIBLE }
 
@@ -293,8 +306,9 @@ internal class ProjectFileViewer(
     private fun reload() {
         releaseVideo()
         releaseHtml()
+        imageTransfer?.cancel()
         epoch++; raw.setLength(0); version = ""; offset = 0; complete = false; error = ""; unavailable = ""; loading = false
-        diffRows = null; diffState = ""; diffLoading = false; diffTruncated = false; untracked = false; image = null; lines = emptyList()
+        diffRows = null; diffState = ""; diffLoading = false; diffTruncated = false; untracked = false; image = null; imagePreview = null; lines = emptyList()
         if (ProjectFiles.isVideo(name)) {
             mode = "preview"
             videoPreview = VideoFilePreview(host, target)
@@ -338,12 +352,27 @@ internal class ProjectFileViewer(
 
     private fun loadImage() {
         val token = epoch
-        host.call("readImageFile", JSONObject().put("path", target).put("size", "large")) { result ->
+        host.call("readImageFile", JSONObject().put("path", target).put("size", "large").put("binaryVersion", 1)) { result ->
             if (!current(token)) return@call
-            val bytes = try { android.util.Base64.decode(result.optString("image"), android.util.Base64.DEFAULT) } catch (_: Exception) { null }
-            image = bytes?.takeIf { it.isNotEmpty() }?.let { android.graphics.BitmapFactory.decodeByteArray(it, 0, it.size) }
-            if (image == null) error = result.optString("error", context.getString(R.string.files_image_preview_unavailable))
-            render()
+            val address = host.binaryHost()
+            val transfer = BinaryFileClient { current(token) }.also { imageTransfer = it }
+            mediaIO.execute {
+                val bitmap = runCatching {
+                    if (result.has("binary")) BinaryMediaClient.image(result, address, transfer)
+                    else {
+                        check(host.allowLegacyMedia)
+                        val bytes = android.util.Base64.decode(result.optString("image"), android.util.Base64.DEFAULT)
+                        android.graphics.BitmapFactory.decodeByteArray(bytes, 0, bytes.size)
+                    }
+                }.getOrNull()
+                root.post {
+                    result.optJSONObject("binary")?.optString("id")?.takeIf { it.isNotEmpty() }?.let { host.call("fileCancel", JSONObject().put("ticket", it)) {} }
+                    if (!current(token)) return@post
+                    image = bitmap
+                    if (image == null) error = result.optString("error", context.getString(R.string.files_image_preview_unavailable))
+                    render()
+                }
+            }
         }
     }
 
@@ -420,7 +449,10 @@ internal class ProjectFileViewer(
             unavailable == "tooLarge" -> state(context.getString(R.string.files_file_too_large), context.getString(R.string.files_1_exceeds_the_2_mb_preview_limit_open_it_on_the_mac_to_view ,ProjectFiles.size(size)))
             unavailable == "binary" -> state(context.getString(R.string.files_preview_unavailable), context.getString(R.string.files_this_is_a_binary_file_copy_its_path_or_show_it_in_finder))
             mode == "preview" && ProjectFiles.isImage(name) -> image?.let { bitmap ->
-                content.addView(ScrollView(context).apply { addView(AttachmentPreview(context, bitmap, maximumHeightDp = null).apply { contentDescription = name }) })
+                val preview = imagePreview ?: ZoomableImagePreview(context, bitmap).apply {
+                    contentDescription = context.getString(R.string.image_named_zoom_description, name)
+                }.also { imagePreview = it }
+                content.addView(preview, FrameLayout.LayoutParams(-1, -1))
             } ?: state(if (error.isNotEmpty()) context.getString(R.string.files_image_preview_unavailable) else context.getString(R.string.files_loading_image), error)
             error.isNotEmpty() -> state(context.getString(R.string.files_could_not_read), error, retry = true)
             !complete -> state(context.getString(R.string.files_reading_from_mac), if (offset > 0) context.getString(R.string.files_received_1 ,ProjectFiles.size(offset.toLong())) else "")

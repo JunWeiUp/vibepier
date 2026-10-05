@@ -1,0 +1,8 @@
+<resources>
+    <string name="image_zoom_description">图片预览。双指缩放，放大后拖动，双击放大或还原。</string>
+    <string name="image_named_zoom_description">%1$s。双指缩放，放大后拖动，双击放大或还原。</string>
+    <string name="image_zoom_level">缩放 %1$d%%</string>
+    <string name="image_toggle_zoom">放大或还原图片</string>
+    <string name="image_zoom_in">放大图片</string>
+    <string name="image_zoom_out">缩小图片</string>
+</resources>

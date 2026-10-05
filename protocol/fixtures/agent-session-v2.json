@@ -1,0 +1,175 @@
+{
+  "version": 2,
+  "vectors": [
+    {
+      "name": "part-sequence",
+      "request": {
+        "agentProtocol": 2,
+        "requestId": "00000000-0000-4000-8000-000000000001",
+        "method": "session.items",
+        "target": {
+          "sessionRef": "synthetic-ref",
+          "ownershipEpoch": "synthetic-owner",
+          "capabilityRevision": "synthetic-caps"
+        },
+        "params": {
+          "kind": "parts",
+          "messageId": "synthetic-message",
+          "before": 8,
+          "offset": 0,
+          "headersOnly": true,
+          "sequence": true
+        }
+      },
+      "canonical": "{\"agentProtocol\":2,\"method\":\"session.items\",\"params\":{\"before\":8,\"headersOnly\":true,\"kind\":\"parts\",\"messageId\":\"synthetic-message\",\"offset\":0,\"sequence\":true},\"target\":{\"capabilityRevision\":\"synthetic-caps\",\"ownershipEpoch\":\"synthetic-owner\",\"sessionRef\":\"synthetic-ref\"}}",
+      "fingerprint": "30651554f14b4e820e0fd397ea4a897f5bea8b480681c78866868ddf5af63219"
+    },
+    {
+      "name": "list",
+      "request": {
+        "agentProtocol": 2,
+        "requestId": "00000000-0000-4000-8000-000000000001",
+        "method": "session.list",
+        "target": {
+          "adapterId": "codex.currentV1"
+        },
+        "params": {
+          "search": "synthetic",
+          "offset": 0,
+          "limit": 20
+        }
+      },
+      "canonical": "{\"agentProtocol\":2,\"method\":\"session.list\",\"params\":{\"limit\":20,\"offset\":0,\"search\":\"synthetic\"},\"target\":{\"adapterId\":\"codex.currentV1\"}}",
+      "fingerprint": "d6761213558eff0dca4c2bcbc8437cf277067bfb6196c4a9f289281adf3af6c7"
+    },
+    {
+      "name": "configure-plan",
+      "request": {
+        "agentProtocol": 2,
+        "requestId": "00000000-0000-4000-8000-000000000001",
+        "operationId": "00000000-0000-4000-8000-000000000004",
+        "method": "session.configure",
+        "target": {
+          "sessionRef": "synthetic-ref",
+          "ownershipEpoch": "synthetic-owner",
+          "capabilityRevision": "synthetic-caps"
+        },
+        "controlLease": "00000000-0000-4000-8000-000000000003",
+        "params": {
+          "options": {
+            "executionMode": "plan"
+          }
+        }
+      },
+      "canonical": "{\"agentProtocol\":2,\"method\":\"session.configure\",\"operationId\":\"00000000-0000-4000-8000-000000000004\",\"params\":{\"options\":{\"executionMode\":\"plan\"}},\"target\":{\"capabilityRevision\":\"synthetic-caps\",\"ownershipEpoch\":\"synthetic-owner\",\"sessionRef\":\"synthetic-ref\"}}",
+      "fingerprint": "2df9cde742299fee8a373836ec87a68be60ec964b877835928124ac593a1444c"
+    },
+    {
+      "name": "empty-search-list",
+      "request": {
+        "agentProtocol": 2,
+        "requestId": "00000000-0000-4000-8000-000000000001",
+        "method": "session.list",
+        "target": {
+          "adapterId": "codex.currentV1"
+        },
+        "params": {
+          "search": "",
+          "offset": 0,
+          "limit": 8
+        }
+      },
+      "canonical": "{\"agentProtocol\":2,\"method\":\"session.list\",\"params\":{\"limit\":8,\"offset\":0,\"search\":\"\"},\"target\":{\"adapterId\":\"codex.currentV1\"}}",
+      "fingerprint": "a9314578a8b9641000938517f25d1488c5404bea827effda4324d240b50d851c"
+    },
+    {
+      "name": "submit",
+      "request": {
+        "agentProtocol": 2,
+        "requestId": "00000000-0000-4000-8000-000000000001",
+        "operationId": "00000000-0000-4000-8000-000000000002",
+        "method": "message.submit",
+        "target": {
+          "sessionRef": "synthetic-ref",
+          "ownershipEpoch": "synthetic-owner",
+          "capabilityRevision": "synthetic-caps"
+        },
+        "controlLease": "00000000-0000-4000-8000-000000000003",
+        "params": {
+          "mode": "start",
+          "content": [
+            {
+              "type": "text",
+              "text": "Synthetic 中文\nfixture"
+            }
+          ],
+          "expectedTurnId": null
+        }
+      },
+      "canonical": "{\"agentProtocol\":2,\"method\":\"message.submit\",\"operationId\":\"00000000-0000-4000-8000-000000000002\",\"params\":{\"content\":[{\"text\":\"Synthetic 中文\\nfixture\",\"type\":\"text\"}],\"expectedTurnId\":null,\"mode\":\"start\"},\"target\":{\"capabilityRevision\":\"synthetic-caps\",\"ownershipEpoch\":\"synthetic-owner\",\"sessionRef\":\"synthetic-ref\"}}",
+      "fingerprint": "6d9c1db0aaf25e26cc6dd00b33192422b586a0e0512a2d76fe5c4ef47f6652da"
+    }
+  ],
+  "confirmed": {
+    "agentProtocol": 2,
+    "requestId": "00000000-0000-4000-8000-000000000001",
+    "operationId": "00000000-0000-4000-8000-000000000002",
+    "status": "confirmed",
+    "effect": "message.submitted",
+    "target": {
+      "sessionRef": "synthetic-ref",
+      "ownershipEpoch": "synthetic-owner",
+      "capabilityRevision": "synthetic-caps"
+    },
+    "result": {
+      "messageId": "synthetic-message",
+      "nativeMessageId": "synthetic-message",
+      "turnId": "synthetic-turn",
+      "turnIdentityKind": "nativeTurn"
+    }
+  },
+  "unknown": {
+    "agentProtocol": 2,
+    "requestId": "00000000-0000-4000-8000-000000000001",
+    "operationId": "00000000-0000-4000-8000-000000000002",
+    "status": "unknown",
+    "effect": "message.submitted",
+    "target": {
+      "sessionRef": "synthetic-ref",
+      "ownershipEpoch": "synthetic-owner",
+      "capabilityRevision": "synthetic-caps"
+    },
+    "code": "receipt_unknown",
+    "result": {}
+  },
+  "event": {
+    "agentProtocol": 2,
+    "subscriptionId": "synthetic-observer",
+    "sessionRef": "synthetic-ref",
+    "streamEpoch": "synthetic-stream",
+    "sequence": 1,
+    "entityRevision": 1,
+    "event": "session.stateChanged",
+    "data": {
+      "dirty": true
+    }
+  },
+  "configured": {
+    "agentProtocol": 2,
+    "requestId": "00000000-0000-4000-8000-000000000001",
+    "operationId": "00000000-0000-4000-8000-000000000004",
+    "status": "confirmed",
+    "effect": "session.configured",
+    "target": {
+      "sessionRef": "synthetic-ref",
+      "ownershipEpoch": "synthetic-owner",
+      "capabilityRevision": "synthetic-caps"
+    },
+    "result": {
+      "effectiveOptions": {
+        "executionMode": "plan",
+        "mode": "auto"
+      }
+    }
+  }
+}

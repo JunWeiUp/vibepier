@@ -1,0 +1,8 @@
+<resources>
+    <string name="image_zoom_description">Image preview. Pinch to zoom, drag while enlarged, and double-tap to enlarge or reset.</string>
+    <string name="image_named_zoom_description">%1$s. Pinch to zoom, drag while enlarged, and double-tap to enlarge or reset.</string>
+    <string name="image_zoom_level">Zoom %1$d%%</string>
+    <string name="image_toggle_zoom">Enlarge or reset image</string>
+    <string name="image_zoom_in">Zoom in</string>
+    <string name="image_zoom_out">Zoom out</string>
+</resources>

@@ -26,12 +26,13 @@ enum CodexConfiguredCreation {
         private struct Bound: Sendable {
             let thread: CodexThreadBootstrap.Created
             let nativeID: String
+            let executionMode: String?
         }
         private let lock = NSLock()
         private var bound: Bound?
         private var submitted = false
-        func bind(_ thread: CodexThreadBootstrap.Created, nativeID: String) {
-            lock.withLock { bound = Bound(thread: thread, nativeID: nativeID) }
+        func bind(_ thread: CodexThreadBootstrap.Created, nativeID: String, executionMode: String? = nil) {
+            lock.withLock { bound = Bound(thread: thread, nativeID: nativeID, executionMode: executionMode) }
         }
         func arm() { lock.withLock { submitted = true } }
         func receipt(view: (String) throws -> View) throws -> [String: Any]? {
@@ -40,12 +41,23 @@ enum CodexConfiguredCreation {
             guard current.state["cwd"] as? String == bound.thread.cwd,
                 CodexQuestions.acceptedMessage(current.state, operation: bound.nativeID)
             else { return nil }
-            return ["ok": true, "accepted": true, "threadId": bound.thread.id, "cwd": bound.thread.cwd]
+            var result: [String: Any] = [
+                "ok": true, "accepted": true, "threadId": bound.thread.id, "cwd": bound.thread.cwd,
+                "nativeMessageId": bound.nativeID,
+            ]
+            if let mode = bound.executionMode {
+                guard let turn = CodexExecutionMode.messageTurn(current.state, messageID: bound.nativeID),
+                    CodexExecutionMode.turnSelection(current.state, turnID: turn) == mode
+                else { return nil }
+                result["executionModeVerified"] = true
+                result["effectiveExecutionMode"] = mode
+                result["nativeTurnId"] = turn
+                result["composer"] = CodexConversation.composer(current.state)
+            }
+            return result
         }
         func nativeReceipt() throws -> [String: Any]? {
-            let ipc = CodexIPC()
-            defer { ipc.close() }
-            return try receipt { try CodexConfiguredCreation.view($0, ipc: ipc) }
+            return try receipt { try CodexConfiguredCreation.freshView($0) }
         }
     }
 
@@ -58,7 +70,8 @@ enum CodexConfiguredCreation {
             let created = try CodexThreadBootstrap.verified(started, project: input.project, settings: settings)
             let identity = try CodexMessageIdentity(
                 client: input.client, thread: created.id, operation: input.operation)
-            observation.bind(created, nativeID: identity.nativeID)
+            let executionMode = (settings["collaborationMode"] as? [String: Any])?["mode"] as? String
+            observation.bind(created, nativeID: identity.nativeID, executionMode: executionMode)
             try services.open(created.id)
             let current = try services.view(created.id)
             guard current.state["cwd"] as? String == created.cwd, emptyHistory(current.state), !current.owner.isEmpty
@@ -66,7 +79,8 @@ enum CodexConfiguredCreation {
                 throw CLIError(L10n.text("session.codex_creation_composer_unverified"))
             }
             var request = settings.filter {
-                ["model", "effort", "permissions", "approvalPolicy", "approvalsReviewer"].contains($0.key)
+                ["model", "effort", "permissions", "approvalPolicy", "approvalsReviewer", "collaborationMode"].contains(
+                    $0.key)
             }
             let text: [[String: Any]] =
                 input.text.isEmpty ? [] : [["type": "text", "text": input.text, "text_elements": []]]
@@ -94,10 +108,28 @@ enum CodexConfiguredCreation {
                 let turn = response["turn"] as? [String: Any], let turnID = turn["id"] as? String,
                 UUID(uuidString: turnID) != nil
             else { throw CLIError(L10n.text("core.invalid_receipt")) }
-            return try JSONSerialization.data(withJSONObject: [
+            var confirmed: [String: Any] = [
                 "ok": true, "accepted": true, "threadId": created.id, "cwd": created.cwd,
                 "title": String(input.text.prefix(80)), "nativeTurnId": turnID,
-            ])
+                "nativeMessageId": identity.nativeID,
+            ]
+            if let executionMode {
+                let actual = try? services.view(created.id)
+                guard let actual, actual.owner == current.owner, actual.state["cwd"] as? String == created.cwd,
+                    CodexExecutionMode.selected(actual.state) == executionMode,
+                    CodexExecutionMode.turnSelection(actual.state, turnID: turnID) == executionMode
+                else {
+                    confirmed["ok"] = false
+                    confirmed["accepted"] = false
+                    confirmed["unknown"] = true
+                    confirmed["executionModeVerified"] = false
+                    return try JSONSerialization.data(withJSONObject: confirmed)
+                }
+                confirmed["executionModeVerified"] = true
+                confirmed["effectiveExecutionMode"] = executionMode
+                confirmed["composer"] = CodexConversation.composer(actual.state)
+            }
+            return try JSONSerialization.data(withJSONObject: confirmed)
         }
     }
 
@@ -122,9 +154,10 @@ enum CodexConfiguredCreation {
                         DispatchQueue.main.sync(execute: { NSWorkspace.shared.open(url) })
                     else { throw CLIError(L10n.text("session.could_not_open_codex")) }
                 },
-                view: { try view($0, ipc: ipc) },
+                view: { try freshView($0) },
                 send: { owner, parameters in
-                    try ipc.request("thread-follower-start-turn", parameters, version: 2, target: owner)
+                    try ipc.connect()
+                    return try ipc.request("thread-follower-start-turn", parameters, version: 2, target: owner)
                 }), observation: observation, arm: arm)
     }
 
@@ -147,6 +180,16 @@ enum CodexConfiguredCreation {
             change["type"] as? String == "snapshot", let state = change["conversationState"] as? [String: Any]
         else { return nil }
         return View(owner: owner, state: state)
+    }
+
+    static func freshView(_ thread: String, expectedOwner: String? = nil) throws -> View {
+        let ipc = CodexIPC()
+        defer { ipc.close() }
+        let result = try view(thread, ipc: ipc)
+        guard expectedOwner == nil || expectedOwner == result.owner else {
+            throw CLIError(L10n.text("session.the_session_view_changed"))
+        }
+        return result
     }
 
     private static func view(_ thread: String, ipc: CodexIPC) throws -> View {

@@ -763,6 +763,9 @@ enum ZCodeDesktop {
         guard wait(3, { frontmost(app) }) else {
             throw CLIError(L10n.text("provider.could_not_activate_zcode_no_action_was_taken"))
         }
+        guard wait(3, { role(window(app)) == "AXWindow" }) else {
+            throw CLIError(L10n.text("provider.open_zcode_and_grant_vibepier_accessibility_permission_first"))
+        }
         guard dismissNavigation(app), wait(2, { composer(app) != nil }) else {
             throw CLIError(L10n.text("provider.the_zcode_navigation_view_is_still_open_check_on_the_mac"))
         }
@@ -1428,7 +1431,9 @@ enum ZCodeDesktop {
             || (attribute(element, kAXSelectedAttribute) as? NSNumber)?.boolValue == true
     }
     private static func window(_ app: AXUIElement) -> AXUIElement {
-        elementAttribute(app, kAXFocusedWindowAttribute) ?? app
+        if let focused = elementAttribute(app, kAXFocusedWindowAttribute) { return focused }
+        let windows = attribute(app, kAXWindowsAttribute) as? [AXUIElement] ?? []
+        return windows.count == 1 ? windows[0] : app
     }
     private static func frontmost(_ app: AXUIElement) -> Bool { attribute(app, kAXFrontmostAttribute) as? Bool == true }
     private static func find(

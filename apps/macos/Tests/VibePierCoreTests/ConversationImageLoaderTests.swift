@@ -11,7 +11,7 @@ final class ConversationImageLoaderTests: XCTestCase {
         let entered = expectation(description: "worker entered")
         let returned = expectation(description: "worker returned")
         let release = DispatchSemaphore(value: 0)
-        let loader = ConversationImageLoader(limit: 1, timeout: 0.05) { _ in
+        let loader = ConversationImageLoader(limit: 1, timeout: 0.05, queueLimit: 0) { _ in
             entered.fulfill()
             _ = release.wait(timeout: .now() + 3)
             returned.fulfill()
@@ -39,6 +39,50 @@ final class ConversationImageLoaderTests: XCTestCase {
         let drained = expectation(description: "late completion has drained")
         DispatchQueue.global().asyncAfter(deadline: .now() + 0.1) { drained.fulfill() }
         wait(for: [drained], timeout: 1)
+    }
+
+    func testLargeImageQueuesAheadOfThumbnailsWithoutExceedingWorkerLimit() {
+        final class Order: @unchecked Sendable {
+            let lock = NSLock()
+            var ids: [String] = []
+        }
+        let order = Order()
+        let release = DispatchSemaphore(value: 0)
+        let started = expectation(description: "occupied worker")
+        let done = expectation(description: "all queued images")
+        done.expectedFulfillmentCount = 3
+        let loader = ConversationImageLoader(limit: 1, timeout: 2, queueLimit: 2) { request in
+            order.lock.withLock { order.ids.append(request.id) }
+            if request.id == "first" {
+                started.fulfill()
+                _ = release.wait(timeout: .now() + 2)
+            }
+            return Data([7])
+        }
+        func submit(_ id: String, size: Int) {
+            loader.perform(
+                .init(thread: "thread", id: id, source: "synthetic", cwd: "/", maxPixel: size),
+                provider: "codex"
+            ) { bytes in
+                let value = try? JSONSerialization.jsonObject(with: bytes) as? [String: Any]
+                XCTAssertEqual(value?["ok"] as? Bool, true)
+                done.fulfill()
+            }
+        }
+        submit("first", size: 480)
+        wait(for: [started], timeout: 1)
+        submit("thumb", size: 480)
+        submit("large", size: 1280)
+        let rejected = expectation(description: "bounded queue")
+        loader.perform(request, provider: "codex") { bytes in
+            let value = try? JSONSerialization.jsonObject(with: bytes) as? [String: Any]
+            XCTAssertEqual(value?["ok"] as? Bool, false)
+            rejected.fulfill()
+        }
+        wait(for: [rejected], timeout: 1)
+        release.signal()
+        wait(for: [done], timeout: 2)
+        XCTAssertEqual(order.lock.withLock { order.ids }, ["first", "large", "thumb"])
     }
 
     func testSlowImageDoesNotBlockAnotherPreviewAndPreservesIdentity() {

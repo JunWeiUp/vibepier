@@ -1,0 +1,907 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "VibePier Agent Session request profile 2",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "agentProtocol",
+    "requestId",
+    "method",
+    "target",
+    "params"
+  ],
+  "properties": {
+    "agentProtocol": {
+      "const": 2
+    },
+    "requestId": {
+      "type": "string",
+      "format": "uuid",
+      "pattern": "^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$"
+    },
+    "operationId": {
+      "type": "string",
+      "format": "uuid",
+      "pattern": "^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$"
+    },
+    "method": {
+      "enum": [
+        "agent.describe",
+        "workspace.list",
+        "session.list",
+        "session.open",
+        "session.snapshot",
+        "session.items",
+        "session.observe",
+        "session.unobserve",
+        "session.creationOptions",
+        "session.create",
+        "session.configure",
+        "message.submit",
+        "queue.cancel",
+        "turn.interrupt",
+        "approval.resolve",
+        "question.answer",
+        "operation.get"
+      ]
+    },
+    "target": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "adapterId": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 4096
+        },
+        "sessionRef": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 4096
+        },
+        "ownershipEpoch": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 4096
+        },
+        "capabilityRevision": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 4096
+        },
+        "workspaceRef": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 4096
+        },
+        "draftId": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 4096
+        },
+        "optionsRevision": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 4096
+        }
+      }
+    },
+    "controlLease": {
+      "type": "string",
+      "format": "uuid",
+      "pattern": "^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$"
+    },
+    "params": {
+      "type": "object"
+    }
+  },
+  "description": "Profile 2 request body inside the authenticated agentRequest wrapper. Native adapters separately validate capabilities, target scope, leases and effects.",
+  "$defs": {
+    "options": {
+      "type": "object",
+      "minProperties": 1,
+      "additionalProperties": false,
+      "properties": {
+        "model": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 256
+        },
+        "mode": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 256
+        },
+        "effort": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 256
+        },
+        "confirmation": {
+          "type": "boolean"
+        },
+        "executionMode": {
+          "enum": [
+            "default",
+            "plan"
+          ]
+        }
+      }
+    },
+    "content": {
+      "type": "array",
+      "minItems": 1,
+      "maxItems": 64,
+      "items": {
+        "oneOf": [
+          {
+            "type": "object",
+            "additionalProperties": false,
+            "required": [
+              "type",
+              "text"
+            ],
+            "properties": {
+              "type": {
+                "const": "text"
+              },
+              "text": {
+                "type": "string",
+                "maxLength": 120000
+              }
+            }
+          },
+          {
+            "type": "object",
+            "additionalProperties": false,
+            "required": [
+              "type",
+              "attachmentId"
+            ],
+            "properties": {
+              "type": {
+                "const": "attachment"
+              },
+              "attachmentId": {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 1024
+              }
+            }
+          }
+        ]
+      }
+    }
+  },
+  "allOf": [
+    {
+      "if": {
+        "properties": {
+          "method": {
+            "const": "agent.describe"
+          }
+        }
+      },
+      "then": {
+        "properties": {
+          "params": {
+            "type": "object",
+            "additionalProperties": false,
+            "properties": {}
+          }
+        },
+        "not": {
+          "anyOf": [
+            {
+              "required": [
+                "operationId"
+              ]
+            },
+            {
+              "required": [
+                "controlLease"
+              ]
+            }
+          ]
+        }
+      }
+    },
+    {
+      "if": {
+        "properties": {
+          "method": {
+            "const": "workspace.list"
+          }
+        }
+      },
+      "then": {
+        "properties": {
+          "params": {
+            "type": "object",
+            "additionalProperties": false,
+            "properties": {
+              "search": {
+                "type": "string",
+                "maxLength": 200
+              },
+              "offset": {
+                "type": "integer",
+                "minimum": 0,
+                "maximum": 1000000
+              },
+              "limit": {
+                "type": "integer",
+                "minimum": 0,
+                "maximum": 1000000
+              }
+            }
+          }
+        },
+        "not": {
+          "anyOf": [
+            {
+              "required": [
+                "operationId"
+              ]
+            },
+            {
+              "required": [
+                "controlLease"
+              ]
+            }
+          ]
+        }
+      }
+    },
+    {
+      "if": {
+        "properties": {
+          "method": {
+            "const": "session.list"
+          }
+        }
+      },
+      "then": {
+        "properties": {
+          "params": {
+            "type": "object",
+            "additionalProperties": false,
+            "properties": {
+              "search": {
+                "type": "string",
+                "maxLength": 200
+              },
+              "offset": {
+                "type": "integer",
+                "minimum": 0,
+                "maximum": 1000000
+              },
+              "limit": {
+                "type": "integer",
+                "minimum": 0,
+                "maximum": 1000000
+              },
+              "workspaceRef": {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 1024
+              }
+            }
+          }
+        },
+        "not": {
+          "anyOf": [
+            {
+              "required": [
+                "operationId"
+              ]
+            },
+            {
+              "required": [
+                "controlLease"
+              ]
+            }
+          ]
+        }
+      }
+    },
+    {
+      "if": {
+        "properties": {
+          "method": {
+            "const": "session.open"
+          }
+        }
+      },
+      "then": {
+        "properties": {
+          "params": {
+            "type": "object",
+            "additionalProperties": false,
+            "properties": {}
+          }
+        },
+        "not": {
+          "anyOf": [
+            {
+              "required": [
+                "operationId"
+              ]
+            },
+            {
+              "required": [
+                "controlLease"
+              ]
+            }
+          ]
+        }
+      }
+    },
+    {
+      "if": {
+        "properties": {
+          "method": {
+            "const": "session.snapshot"
+          }
+        }
+      },
+      "then": {
+        "properties": {
+          "params": {
+            "type": "object",
+            "additionalProperties": false,
+            "properties": {}
+          }
+        },
+        "not": {
+          "anyOf": [
+            {
+              "required": [
+                "operationId"
+              ]
+            },
+            {
+              "required": [
+                "controlLease"
+              ]
+            }
+          ]
+        }
+      }
+    },
+    {
+      "if": {
+        "properties": {
+          "method": {
+            "const": "session.items"
+          }
+        }
+      },
+      "then": {
+        "properties": {
+          "params": {
+            "type": "object",
+            "additionalProperties": false,
+            "properties": {
+              "kind": {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 1024
+              },
+              "messageId": {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 1024
+              },
+              "before": {
+                "anyOf": [
+                  {
+                    "type": "string",
+                    "minLength": 1,
+                    "maxLength": 1024
+                  },
+                  {
+                    "type": "integer",
+                    "minimum": 0,
+                    "maximum": 1000000
+                  }
+                ]
+              },
+              "offset": {
+                "type": "integer",
+                "minimum": 0,
+                "maximum": 1000000
+              },
+              "limit": {
+                "type": "integer",
+                "minimum": 0,
+                "maximum": 1000000
+              },
+              "headersOnly": {
+                "type": "boolean"
+              },
+              "sequence": {
+                "type": "boolean"
+              }
+            },
+            "allOf": [
+              {
+                "if": {
+                  "required": [
+                    "kind"
+                  ],
+                  "properties": {
+                    "kind": {
+                      "const": "parts"
+                    }
+                  }
+                },
+                "then": {
+                  "properties": {
+                    "before": {
+                      "type": "integer",
+                      "minimum": 0,
+                      "maximum": 1000000
+                    }
+                  }
+                },
+                "else": {
+                  "properties": {
+                    "before": {
+                      "type": "string",
+                      "minLength": 1,
+                      "maxLength": 1024
+                    }
+                  }
+                }
+              }
+            ]
+          }
+        },
+        "not": {
+          "anyOf": [
+            {
+              "required": [
+                "operationId"
+              ]
+            },
+            {
+              "required": [
+                "controlLease"
+              ]
+            }
+          ]
+        }
+      }
+    },
+    {
+      "if": {
+        "properties": {
+          "method": {
+            "const": "session.observe"
+          }
+        }
+      },
+      "then": {
+        "properties": {
+          "params": {
+            "type": "object",
+            "additionalProperties": false,
+            "properties": {
+              "subscriptionId": {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 1024
+              },
+              "streamEpoch": {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 1024
+              },
+              "afterSequence": {
+                "type": "integer",
+                "minimum": 0,
+                "maximum": 1000000
+              }
+            }
+          }
+        },
+        "not": {
+          "anyOf": [
+            {
+              "required": [
+                "operationId"
+              ]
+            },
+            {
+              "required": [
+                "controlLease"
+              ]
+            }
+          ]
+        }
+      }
+    },
+    {
+      "if": {
+        "properties": {
+          "method": {
+            "const": "session.unobserve"
+          }
+        }
+      },
+      "then": {
+        "properties": {
+          "params": {
+            "type": "object",
+            "additionalProperties": false,
+            "properties": {
+              "subscriptionId": {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 1024
+              }
+            }
+          }
+        },
+        "not": {
+          "anyOf": [
+            {
+              "required": [
+                "operationId"
+              ]
+            },
+            {
+              "required": [
+                "controlLease"
+              ]
+            }
+          ]
+        }
+      }
+    },
+    {
+      "if": {
+        "properties": {
+          "method": {
+            "const": "session.creationOptions"
+          }
+        }
+      },
+      "then": {
+        "properties": {
+          "params": {
+            "type": "object",
+            "additionalProperties": false,
+            "properties": {
+              "workspaceRef": {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 1024
+              },
+              "draftId": {
+                "type": "string",
+                "format": "uuid",
+                "pattern": "^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$"
+              }
+            }
+          }
+        },
+        "not": {
+          "anyOf": [
+            {
+              "required": [
+                "operationId"
+              ]
+            },
+            {
+              "required": [
+                "controlLease"
+              ]
+            }
+          ]
+        }
+      }
+    },
+    {
+      "if": {
+        "properties": {
+          "method": {
+            "const": "session.create"
+          }
+        }
+      },
+      "then": {
+        "properties": {
+          "params": {
+            "type": "object",
+            "additionalProperties": false,
+            "properties": {
+              "initialMessage": {
+                "type": "object",
+                "additionalProperties": false,
+                "required": [
+                  "content"
+                ],
+                "properties": {
+                  "content": {
+                    "$ref": "#/$defs/content"
+                  }
+                }
+              },
+              "options": {
+                "$ref": "#/$defs/options"
+              }
+            }
+          }
+        },
+        "required": [
+          "operationId",
+          "controlLease"
+        ]
+      }
+    },
+    {
+      "if": {
+        "properties": {
+          "method": {
+            "const": "session.configure"
+          }
+        }
+      },
+      "then": {
+        "properties": {
+          "params": {
+            "type": "object",
+            "additionalProperties": false,
+            "properties": {
+              "options": {
+                "$ref": "#/$defs/options"
+              }
+            }
+          }
+        },
+        "required": [
+          "operationId",
+          "controlLease"
+        ]
+      }
+    },
+    {
+      "if": {
+        "properties": {
+          "method": {
+            "const": "message.submit"
+          }
+        }
+      },
+      "then": {
+        "properties": {
+          "params": {
+            "type": "object",
+            "additionalProperties": false,
+            "properties": {
+              "mode": {
+                "enum": [
+                  "start",
+                  "queue",
+                  "steer"
+                ]
+              },
+              "content": {
+                "$ref": "#/$defs/content"
+              },
+              "expectedTurnId": {
+                "anyOf": [
+                  {
+                    "type": "string",
+                    "minLength": 1,
+                    "maxLength": 1024
+                  },
+                  {
+                    "type": "null"
+                  }
+                ]
+              }
+            }
+          }
+        },
+        "required": [
+          "operationId",
+          "controlLease"
+        ]
+      }
+    },
+    {
+      "if": {
+        "properties": {
+          "method": {
+            "const": "queue.cancel"
+          }
+        }
+      },
+      "then": {
+        "properties": {
+          "params": {
+            "type": "object",
+            "additionalProperties": false,
+            "properties": {
+              "queueId": {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 1024
+              }
+            }
+          }
+        },
+        "required": [
+          "operationId",
+          "controlLease"
+        ]
+      }
+    },
+    {
+      "if": {
+        "properties": {
+          "method": {
+            "const": "turn.interrupt"
+          }
+        }
+      },
+      "then": {
+        "properties": {
+          "params": {
+            "type": "object",
+            "additionalProperties": false,
+            "properties": {
+              "expectedTurnId": {
+                "anyOf": [
+                  {
+                    "type": "string",
+                    "minLength": 1,
+                    "maxLength": 1024
+                  },
+                  {
+                    "type": "null"
+                  }
+                ]
+              }
+            }
+          }
+        },
+        "required": [
+          "operationId",
+          "controlLease"
+        ]
+      }
+    },
+    {
+      "if": {
+        "properties": {
+          "method": {
+            "const": "approval.resolve"
+          }
+        }
+      },
+      "then": {
+        "properties": {
+          "params": {
+            "type": "object",
+            "additionalProperties": false,
+            "properties": {
+              "approvalId": {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 1024
+              },
+              "fingerprint": {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 1024
+              },
+              "revision": {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 1024
+              },
+              "decision": {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 1024
+              }
+            }
+          }
+        },
+        "required": [
+          "operationId",
+          "controlLease"
+        ]
+      }
+    },
+    {
+      "if": {
+        "properties": {
+          "method": {
+            "const": "question.answer"
+          }
+        }
+      },
+      "then": {
+        "properties": {
+          "params": {
+            "type": "object",
+            "additionalProperties": false,
+            "properties": {
+              "questionId": {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 1024
+              },
+              "fingerprint": {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 1024
+              },
+              "revision": {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 1024
+              },
+              "answers": {
+                "type": "object",
+                "minProperties": 1,
+                "maxProperties": 128,
+                "additionalProperties": {
+                  "type": "string",
+                  "maxLength": 32000
+                }
+              }
+            }
+          }
+        },
+        "required": [
+          "operationId",
+          "controlLease"
+        ]
+      }
+    },
+    {
+      "if": {
+        "properties": {
+          "method": {
+            "const": "operation.get"
+          }
+        }
+      },
+      "then": {
+        "properties": {
+          "params": {
+            "type": "object",
+            "additionalProperties": false,
+            "properties": {
+              "operationId": {
+                "type": "string",
+                "format": "uuid",
+                "pattern": "^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$"
+              }
+            }
+          }
+        },
+        "not": {
+          "anyOf": [
+            {
+              "required": [
+                "operationId"
+              ]
+            },
+            {
+              "required": [
+                "controlLease"
+              ]
+            }
+          ]
+        }
+      }
+    }
+  ]
+}

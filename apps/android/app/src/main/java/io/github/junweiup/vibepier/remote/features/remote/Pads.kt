@@ -256,6 +256,7 @@ open class Pad(
 /** A tactile voice dial; animation runs only while the user holds it. */
 @SuppressLint("ViewConstructor")
 class TalkPad(context: Context) : Pad(context, R.drawable.ic_mic, context.getString(R.string.hold_to_talk), Palette.accent) {
+    override val usesSharedInteraction = false
     var microphoneHint: String = context.getString(R.string.mac_microphone)
         set(value) { field = value; invalidate() }
     private val disc = Paint(Paint.ANTI_ALIAS_FLAG)
@@ -311,6 +312,11 @@ class TalkPad(context: Context) : Pad(context, R.drawable.ic_mic, context.getStr
     }
     override fun onDraw(canvas: Canvas) {
         val (cx, cy, r) = geometry()
+        if (isEnabled && (isHovered || isFocused)) {
+            ring.strokeWidth = (if (isFocused) 3 else 2) * density
+            ring.color = withAlpha(Palette.accent, if (isFocused) .9f else .55f)
+            canvas.drawCircle(cx, cy, r + 4 * density, ring)
+        }
         val color = if (held) Palette.red else Palette.accent
         // Gradients depend only on the dial's geometry and whether it is held; rebuild them when either changes.
         if (shaderHeld != held || shaderGeometry[0] != cx || shaderGeometry[1] != cy || shaderGeometry[2] != r) {

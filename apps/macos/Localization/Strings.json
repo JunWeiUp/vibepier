@@ -1,4 +1,16 @@
 {
+  "mac.app_version": {
+    "en": "Version {0} · Build {1}",
+    "zh-Hans": "版本 {0} · 构建 {1}"
+  },
+  "mac.app_version_unavailable": {
+    "en": "Version unavailable",
+    "zh-Hans": "版本信息不可用"
+  },
+  "mac.app_version_help": {
+    "en": "Version of this running Mac app.",
+    "zh-Hans": "当前运行的 Mac 应用版本。"
+  },
   "common.close": {
     "en": "Close",
     "zh-Hans": "关闭"
@@ -2312,8 +2324,8 @@
     "zh-Hans": "未知命令“{0}”。运行 vibepier help 查看帮助。"
   },
   "cli.help": {
-    "en": "vibepier: Mac controls, phone connections and Ulanzi Vibe Key (AU05) driver\n\nDevice information\n  vibepier info [--json]                 Show dongle, mic, battery and settings\n  vibepier monitor                       Print key presses, battery and link events\n  vibepier battery                       Show the mic battery\n\nSettings\n  vibepier settings [--json]             Show all device settings\n  vibepier set sleep <off|1h|2h|3h|4h|seconds>\n  vibepier set vibration <on|off|0-255>\n  vibepier set denoise <on|off>\n  vibepier set light-mode <off|on|work>\n  vibepier set brightness <0-20>\n  vibepier set led <0-3> <type|time|breathe-level|breathe-brightness|brightness> <value>\n  vibepier set hooks-mode <on|off>\n  vibepier set standby-time <seconds>\n  vibepier set audio-button-mode <n>\n  vibepier set mic <on|off>\n\nButtons (stored in the Vibe Key firmware; they work without vibepier running)\n  vibepier buttons [--json]              Show what each control sends\n  vibepier bind <control> <binding>      Controls: talk, confirm, cancel, knob-press,\n                                      knob-left, knob-right\n                                      Bindings: a hotkey such as \"cmd+shift+4\",\n                                      \"fixed:<media key>\", or \"factory\"\n  vibepier reset-buttons                 Restore the factory functions\n  vibepier keys                          List key names and media keys\n\nConfiguration and daemon\n  vibepier config init|show|path         Manage ~/Library/Application Support/vibepier/config.json\n  vibepier preferences export <file>     Export portable settings without credentials\n  vibepier preferences import <file> [--dry-run]\n                                      Validate/merge settings into the running Mac app\n  vibepier apply                         Push the configuration file to the device\n  vibepier daemon [--verbose]            Run in the foreground\n  vibepier service install|uninstall|status\n                                      Run the daemon at login with launchd\n  vibepier status                        Ask the running daemon for its state\n  vibepier reload                        Tell the daemon to reload its configuration\n  vibepier relay status|disable          Show or disable the configured cloud relay\n  vibepier relay configure --url <wss-url> --room <room> --secret-file <path>\n                                      [--dns-recovery system|alidns]\n                                      Save credentials in the running Mac app's Keychain\n  vibepier android-update <apk>          Register the available Android update\n  vibepier phone-install --list           List authorized APK recipients\n  vibepier phone-install <apk> [device]    Send an APK without ADB\n  vibepier phone-install --status [device]\n  vibepier phone-install --cancel [device]\n\nAI agent hooks (LED status from Claude Code, Codex, Gemini CLI, Cursor, Copilot CLI)\n  vibepier hooks install [--agent <id>] [--config <file>] [--dry-run]\n  vibepier hooks uninstall [--agent <id>] [--config <file>] [--dry-run]\n  vibepier hooks status\n  vibepier hook --agent <id> --event <name>   Called by the agent (reads JSON on stdin)\n\nMaintenance\n  vibepier reboot <device|dongle>\n  vibepier firmware check                Ask Ulanzi's update server (sends the dongle serial)\n  vibepier firmware update --target <device|dongle> --file <image> --yes\n  vibepier raw <hex bytes> [--wait <ms>] Send one AU05 USB frame and print replies\n  vibepier test leds|vibration           Cycle LED work types or try the motor, then restore\n\nGlobal options\n  --verbose                           Log every frame\n  --pid <hex>                         Use another product ID (default 00DD)",
-    "zh-Hans": "vibepier：Mac 控制、手机连接与 Ulanzi Vibe Key（AU05）驱动\n\n设备信息\n  vibepier info [--json]                 显示接收器、麦克风、电量与设置\n  vibepier monitor                       输出按键、电量与连接事件\n  vibepier battery                       显示麦克风电量\n\n设置\n  vibepier settings [--json]             显示全部设备设置\n  vibepier set sleep <off|1h|2h|3h|4h|seconds>\n  vibepier set vibration <on|off|0-255>\n  vibepier set denoise <on|off>\n  vibepier set light-mode <off|on|work>\n  vibepier set brightness <0-20>\n  vibepier set led <0-3> <type|time|breathe-level|breathe-brightness|brightness> <value>\n  vibepier set hooks-mode <on|off>\n  vibepier set standby-time <seconds>\n  vibepier set audio-button-mode <n>\n  vibepier set mic <on|off>\n\n按键（保存在 Vibe Key 固件中，无需运行 vibepier 也能生效）\n  vibepier buttons [--json]              显示每个按键发送的内容\n  vibepier bind <control> <binding>      按键：talk, confirm, cancel, knob-press,\n                                      knob-left, knob-right\n                                      绑定：快捷键（如 \"cmd+shift+4\"）、\n                                      \"fixed:<media key>\" 或 \"factory\"\n  vibepier reset-buttons                 恢复出厂按键功能\n  vibepier keys                          列出普通按键与媒体键名称\n\n配置与后台服务\n  vibepier config init|show|path         管理 ~/Library/Application Support/vibepier/config.json\n  vibepier preferences export <file>     导出可迁移设置，不包含凭据\n  vibepier preferences import <file> [--dry-run]\n                                      校验设置并合并到正在运行的 Mac 应用\n  vibepier apply                         将配置文件应用到设备\n  vibepier daemon [--verbose]            以前台进程运行\n  vibepier service install|uninstall|status\n                                      通过 launchd 在登录时运行后台服务\n  vibepier status                        查询正在运行的后台服务状态\n  vibepier reload                        通知后台服务重新加载配置\n  vibepier relay status|disable          查看或关闭已配置的云中继\n  vibepier relay configure --url <wss-url> --room <room> --secret-file <path>\n                                      [--dns-recovery system|alidns]\n                                      将凭据保存在正在运行的 Mac 应用钥匙串中\n  vibepier android-update <apk>          登记可用的 Android 更新\n  vibepier phone-install --list           列出已授权的 APK 接收设备\n  vibepier phone-install <apk> [device]    无需 ADB 即可发送 APK\n  vibepier phone-install --status [device]\n  vibepier phone-install --cancel [device]\n\nAI 代理钩子（显示 Claude Code、Codex、Gemini CLI、Cursor、Copilot CLI 的 LED 状态）\n  vibepier hooks install [--agent <id>] [--config <file>] [--dry-run]\n  vibepier hooks uninstall [--agent <id>] [--config <file>] [--dry-run]\n  vibepier hooks status\n  vibepier hook --agent <id> --event <name>   由代理调用（从标准输入读取 JSON）\n\n维护\n  vibepier reboot <device|dongle>\n  vibepier firmware check                查询 Ulanzi 更新服务器（会发送接收器序列号）\n  vibepier firmware update --target <device|dongle> --file <image> --yes\n  vibepier raw <hex bytes> [--wait <ms>] 发送一帧 AU05 USB 数据并输出回复\n  vibepier test leds|vibration           循环测试 LED 模式或振动马达，然后恢复\n\n全局选项\n  --verbose                           记录每帧数据\n  --pid <hex>                         使用其他产品 ID（默认 00DD）"
+    "en": "vibepier: Mac controls, phone connections and Ulanzi Vibe Key (AU05) driver\n\nDevice information\n  vibepier info [--json]                 Show dongle, mic, battery and settings\n  vibepier monitor                       Print key presses, battery and link events\n  vibepier battery                       Show the mic battery\n\nSettings\n  vibepier settings [--json]             Show all device settings\n  vibepier set sleep <off|1h|2h|3h|4h|seconds>\n  vibepier set vibration <on|off|0-255>\n  vibepier set denoise <on|off>\n  vibepier set light-mode <off|on|work>\n  vibepier set brightness <0-20>\n  vibepier set led <0-3> <type|time|breathe-level|breathe-brightness|brightness> <value>\n  vibepier set hooks-mode <on|off>\n  vibepier set standby-time <seconds>\n  vibepier set audio-button-mode <n>\n  vibepier set mic <on|off>\n\nButtons (stored in the Vibe Key firmware; they work without vibepier running)\n  vibepier buttons [--json]              Show what each control sends\n  vibepier bind <control> <binding>      Controls: talk, confirm, cancel, knob-press,\n                                      knob-left, knob-right\n                                      Bindings: a hotkey such as \"cmd+shift+4\",\n                                      \"fixed:<media key>\", or \"factory\"\n  vibepier reset-buttons                 Restore the factory functions\n  vibepier keys                          List key names and media keys\n\nConfiguration and daemon\n  vibepier config init|show|path         Manage ~/Library/Application Support/vibepier/config.json\n  vibepier preferences export <file>     Export portable settings without credentials\n  vibepier preferences import <file> [--dry-run]\n                                      Validate/merge settings into the running Mac app\n  vibepier apply                         Push the configuration file to the device\n  vibepier daemon [--verbose]            Run in the foreground\n  vibepier service install|uninstall|status\n                                      Run the daemon at login with launchd\n  vibepier status                        Ask the running daemon for its state\n  vibepier reload                        Tell the daemon to reload its configuration\n  vibepier relay status|disable          Show or disable the configured cloud relay\n  vibepier relay configure --url <wss-url> --room <room> --secret-file <path>\n                                      [--dns-recovery system|alidns]\n                                      Save credentials in the running Mac app's Keychain\n  vibepier android-update <apk>          Register the available Android update\n  vibepier phone-install --list           List authorized APK recipients\n  vibepier phone-install <apk> [device]    Send an APK without ADB\n  vibepier phone-install --status [device]\n  vibepier phone-install --cancel [device]\n\nAI agent hooks (LED status from Claude Code, Codex, Gemini CLI, Cursor, Copilot CLI)\n  vibepier hooks install [--agent <id>] [--config <file>] [--dry-run]\n  vibepier hooks uninstall [--agent <id>] [--config <file>] [--dry-run]\n  vibepier hooks status\n  vibepier hook --agent <id> --event <name>   Called by the agent (reads JSON on stdin)\n\nMaintenance\n  vibepier reboot <device|dongle>\n  vibepier firmware check                Ask Ulanzi's update server (sends the dongle serial)\n  vibepier firmware update --target <device|dongle> --file <image> --yes\n  vibepier raw <hex bytes> [--wait <ms>] Send one AU05 USB frame and print replies\n  vibepier test leds|vibration           Cycle LED work types or try the motor, then restore\n\nGlobal options\n  --verbose                           Log every frame\n  --pid <hex>                         Use another product ID (default 00DD)\n  session-provider-set <codex|claude|zcode> <on|off>\n\n  Usage: vibepier agents status | codex enable --executable /absolute/codex --workspace /absolute/project | codex disable | claude-mods enable --reviewed-version VERSION | claude-mods disable | claude-mods bind --session ID --workspace /absolute/project --runtime-version VERSION --contract-digest SHA256",
+    "zh-Hans": "vibepier：Mac 控制、手机连接与 Ulanzi Vibe Key（AU05）驱动\n\n设备信息\n  vibepier info [--json]                 显示接收器、麦克风、电量与设置\n  vibepier monitor                       输出按键、电量与连接事件\n  vibepier battery                       显示麦克风电量\n\n设置\n  vibepier settings [--json]             显示全部设备设置\n  vibepier set sleep <off|1h|2h|3h|4h|seconds>\n  vibepier set vibration <on|off|0-255>\n  vibepier set denoise <on|off>\n  vibepier set light-mode <off|on|work>\n  vibepier set brightness <0-20>\n  vibepier set led <0-3> <type|time|breathe-level|breathe-brightness|brightness> <value>\n  vibepier set hooks-mode <on|off>\n  vibepier set standby-time <seconds>\n  vibepier set audio-button-mode <n>\n  vibepier set mic <on|off>\n\n按键（保存在 Vibe Key 固件中，无需运行 vibepier 也能生效）\n  vibepier buttons [--json]              显示每个按键发送的内容\n  vibepier bind <control> <binding>      按键：talk, confirm, cancel, knob-press,\n                                      knob-left, knob-right\n                                      绑定：快捷键（如 \"cmd+shift+4\"）、\n                                      \"fixed:<media key>\" 或 \"factory\"\n  vibepier reset-buttons                 恢复出厂按键功能\n  vibepier keys                          列出普通按键与媒体键名称\n\n配置与后台服务\n  vibepier config init|show|path         管理 ~/Library/Application Support/vibepier/config.json\n  vibepier preferences export <file>     导出可迁移设置，不包含凭据\n  vibepier preferences import <file> [--dry-run]\n                                      校验设置并合并到正在运行的 Mac 应用\n  vibepier apply                         将配置文件应用到设备\n  vibepier daemon [--verbose]            以前台进程运行\n  vibepier service install|uninstall|status\n                                      通过 launchd 在登录时运行后台服务\n  vibepier status                        查询正在运行的后台服务状态\n  vibepier reload                        通知后台服务重新加载配置\n  vibepier relay status|disable          查看或关闭已配置的云中继\n  vibepier relay configure --url <wss-url> --room <room> --secret-file <path>\n                                      [--dns-recovery system|alidns]\n                                      将凭据保存在正在运行的 Mac 应用钥匙串中\n  vibepier android-update <apk>          登记可用的 Android 更新\n  vibepier phone-install --list           列出已授权的 APK 接收设备\n  vibepier phone-install <apk> [device]    无需 ADB 即可发送 APK\n  vibepier phone-install --status [device]\n  vibepier phone-install --cancel [device]\n\nAI 代理钩子（显示 Claude Code、Codex、Gemini CLI、Cursor、Copilot CLI 的 LED 状态）\n  vibepier hooks install [--agent <id>] [--config <file>] [--dry-run]\n  vibepier hooks uninstall [--agent <id>] [--config <file>] [--dry-run]\n  vibepier hooks status\n  vibepier hook --agent <id> --event <name>   由代理调用（从标准输入读取 JSON）\n\n维护\n  vibepier reboot <device|dongle>\n  vibepier firmware check                查询 Ulanzi 更新服务器（会发送接收器序列号）\n  vibepier firmware update --target <device|dongle> --file <image> --yes\n  vibepier raw <hex bytes> [--wait <ms>] 发送一帧 AU05 USB 数据并输出回复\n  vibepier test leds|vibration           循环测试 LED 模式或振动马达，然后恢复\n\n全局选项\n  --verbose                           记录每帧数据\n  --pid <hex>                         使用其他产品 ID（默认 00DD）\n  session-provider-set <codex|claude|zcode> <on|off>\n\n  用法：vibepier agents status | codex enable --executable /absolute/codex --workspace /absolute/project | codex disable | claude-mods enable --reviewed-version VERSION | claude-mods disable | claude-mods bind --session ID --workspace /absolute/project --runtime-version VERSION --contract-digest SHA256"
   },
   "cli.firmware_confirmation": {
     "en": "this writes new firmware to the {0}. The protocol was reverse engineered and\nhas not been tested against a real update. An interrupted or wrong image can leave the\n{0} unusable. Keep the dongle plugged in and the mic charged. Add --yes to continue.",
@@ -3702,5 +3714,165 @@
   "files.video_size_limit": {
     "en": "Video preview supports non-empty MP4 files up to 128 MB.",
     "zh-Hans": "视频预览支持非空且不超过 128 MB 的 MP4 文件。"
+  },
+  "mac.permissions_title": {
+    "en": "Mac permissions",
+    "zh-Hans": "Mac 权限访问"
+  },
+  "mac.disk_access_title": {
+    "en": "Enable Full Disk Access",
+    "zh-Hans": "开启完全磁盘访问"
+  },
+  "mac.disk_access_reason": {
+    "en": "VibePier reads project files, attachments and images. macOS manages access to Downloads, Documents, Desktop and other protected folders. Full Disk Access is the default setup step after installation.",
+    "zh-Hans": "VibePier 需要读取项目文件、附件和图片。下载、文稿、桌面及其他受限目录的访问权限由 macOS 管理，安装后默认引导开启完全磁盘访问。"
+  },
+  "mac.disk_access_steps": {
+    "en": "1. Open Full Disk Access in System Settings.\n2. Click +, select the current VibePier in Applications and enable its switch.\n3. If access still fails after reinstalling, remove the old VibePier entry and add the current installed copy again.\n4. Quit and reopen VibePier after authorization, then retry the operation.",
+    "zh-Hans": "1. 打开系统设置中的「完全磁盘访问」。\n2. 点击 +，选择「应用程序」中当前安装的 VibePier，并开启开关。\n3. 重装后若开关已开启仍无法访问，请移除旧 VibePier 项，重新添加当前安装副本。\n4. 授权后退出并重新打开 VibePier，再重试当前操作。"
+  },
+  "mac.disk_access_system_status": {
+    "en": "Authorization is managed by macOS. Confirm the VibePier switch in System Settings; opening this page does not grant access.",
+    "zh-Hans": "授权状态由 macOS 管理。请在系统设置中确认 VibePier 开关；打开本页面不代表已授权。"
+  },
+  "mac.open_disk_settings": {
+    "en": "Open Full Disk Access",
+    "zh-Hans": "打开完全磁盘访问设置"
+  },
+  "mac.reveal_installed_app": {
+    "en": "Show VibePier in Finder",
+    "zh-Hans": "在 Finder 中显示 VibePier"
+  },
+  "mac.accessibility_setup": {
+    "en": "Accessibility for desktop controls",
+    "zh-Hans": "桌面控制的辅助功能权限"
+  },
+  "mac.accessibility_setup_detail": {
+    "en": "Enable Accessibility separately to use remote keys and desktop actions. Microphone permission is requested when voice features are used.",
+    "zh-Hans": "遥控按键和桌面操作仍需单独开启辅助功能权限。麦克风权限在使用语音功能时请求。"
+  },
+  "mac.open_accessibility_settings": {
+    "en": "Open Accessibility settings",
+    "zh-Hans": "打开辅助功能设置"
+  },
+  "mac.permissions_settings_failed": {
+    "en": "Could not open System Settings. Open Privacy & Security manually.",
+    "zh-Hans": "无法打开系统设置，请手动进入「隐私与安全性」。"
+  },
+  "providers.title": {
+    "en": "AI coding assistants",
+    "zh-Hans": "AI 编程助手"
+  },
+  "providers.enabled_count": {
+    "en": "{0} enabled",
+    "zh-Hans": "{0} 个已启用"
+  },
+  "providers.enabled": {
+    "en": "Enabled",
+    "zh-Hans": "已启用"
+  },
+  "providers.disabled": {
+    "en": "Disabled",
+    "zh-Hans": "已关闭"
+  },
+  "providers.help": {
+    "en": "Only enabled assistants appear on the phone. Turning one off does not stop its desktop tasks.",
+    "zh-Hans": "只有启用的助手会在手机上显示。关闭不会停止桌面端任务。"
+  },
+  "providers.toggle_access": {
+    "en": "Show {0} on phone",
+    "zh-Hans": "在手机上显示 {0}"
+  },
+  "providers.disabled_on_mac": {
+    "en": "This assistant is disabled on the Mac. Enable it in the Mac menu to continue.",
+    "zh-Hans": "此助手已在 Mac 上关闭，请在 Mac 菜单中启用后继续。"
+  },
+  "providers.invalid_setting": {
+    "en": "Invalid assistant setting",
+    "zh-Hans": "助手设置无效"
+  },
+  "mac.file_access_denied": {
+    "en": "macOS refused file access. Review VibePier in Files and Folders or Full Disk Access; after reinstalling, you may need to add the current app again.",
+    "zh-Hans": "macOS 已拒绝文件访问。请检查 VibePier 的「文件与文件夹」或「完全磁盘访问」设置；重装后可能需要重新添加当前应用。"
+  },
+  "mac.file_access_review": {
+    "en": "Review Mac file permissions",
+    "zh-Hans": "检查 Mac 文件访问权限"
+  },
+  "mac.open_folder_settings": {
+    "en": "Open Files and Folders settings",
+    "zh-Hans": "打开文件与文件夹设置"
+  },
+  "mac.file_access_unknown": {
+    "en": "Not verified · Check access",
+    "zh-Hans": "尚未验证 · 点击检查"
+  },
+  "mac.file_access_checking": {
+    "en": "Checking file access…",
+    "zh-Hans": "正在检查文件访问…"
+  },
+  "mac.file_access_confirmed": {
+    "en": "File accessible · Check again",
+    "zh-Hans": "已可访问 · 再次检查"
+  },
+  "mac.file_access_required": {
+    "en": "Authorization required · Check again",
+    "zh-Hans": "需要授权 · 再次检查"
+  },
+  "mac.file_access_unknown_detail": {
+    "en": "This checks only the most recent file VibePier attempted to read. First open a project image or file on the phone, then click Check. Without a recent file, access remains unverified.",
+    "zh-Hans": "这里只检查 VibePier 最近尝试读取的文件。请先在手机打开项目图片或文件，再点击检查；没有近期文件时会保持尚未验证。"
+  },
+  "mac.file_access_check_detail": {
+    "en": "Rechecking the most recent file in the background. No other folders are scanned.",
+    "zh-Hans": "正在后台重新读取最近的文件，不会扫描其他目录。"
+  },
+  "mac.file_access_confirmed_detail": {
+    "en": "The most recent file read succeeded. This does not verify access to every folder or the Full Disk Access switch. Click to recheck that file.",
+    "zh-Hans": "最近的文件读取已成功。这不代表所有目录均可访问，也不代表已验证「完全磁盘访问」系统开关；点击可再次检查该文件。"
+  },
+  "mac.file_access_required_detail": {
+    "en": "The actual file read was refused. Check System Settings, add the current VibePier again if needed, and quit and reopen the app after authorization.",
+    "zh-Hans": "实际文件读取被系统拒绝。请检查系统设置，必要时重新添加当前 VibePier，并在授权后退出重启应用。"
+  },
+  "mac.file_access_check_timeout": {
+    "en": "The check has not finished, so access is unverified. Wait for this check to finish; after changing authorization, quit and reopen VibePier before trying again.",
+    "zh-Hans": "检查暂未完成，访问状态仍未验证。请等待本次检查结束；修改授权后退出并重新打开 VibePier，再重试。"
+  },
+  "agent.upgrade_required": {
+    "en": "Update the phone and Mac, then reopen the session.",
+    "zh-Hans": "请同步更新手机与 Mac，并刷新会话后再操作。"
+  },
+  "agent.capability_unavailable": {
+    "en": "The action is unavailable or the session state could not be verified.",
+    "zh-Hans": "此操作暂不可用，或尚未能核验会话状态。"
+  },
+  "agent.runtime_unavailable": {
+    "en": "The optional agent runtime is unavailable. Check its local configuration.",
+    "zh-Hans": "可选 Agent 运行时不可用，请检查本机配置。"
+  },
+  "agent.cli_usage": {
+    "en": "Usage: vibepier agents status | codex enable --executable /absolute/codex --workspace /absolute/project | codex disable | claude-mods enable --reviewed-version VERSION | claude-mods disable | claude-mods bind --session ID --workspace /absolute/project --runtime-version VERSION --contract-digest SHA256",
+    "zh-Hans": "用法：vibepier agents status | codex enable --executable /absolute/codex --workspace /absolute/project | codex disable | claude-mods enable --reviewed-version VERSION | claude-mods disable | claude-mods bind --session ID --workspace /absolute/project --runtime-version VERSION --contract-digest SHA256"
+  },
+  "agent.option.default_model": {
+    "en": "Runtime default",
+    "zh-Hans": "运行时默认模型"
+  },
+  "agent.option.read_only": {
+    "en": "Read only",
+    "zh-Hans": "只读"
+  },
+  "agent.execution_mode.default": {
+    "en": "Execute",
+    "zh-Hans": "执行模式"
+  },
+  "agent.execution_mode.plan": {
+    "en": "Plan",
+    "zh-Hans": "计划模式"
+  },
+  "agent.execution_mode.default_permission": {
+    "en": "Execute · ask before changes",
+    "zh-Hans": "执行模式 · 改动前询问"
   }
 }

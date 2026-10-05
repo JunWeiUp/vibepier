@@ -6,6 +6,7 @@ Start with [installation](SETUP.md) if you want to use VibePier, or [development
 | --- | --- |
 | Product purpose and scope / 产品范围 | [PROJECT-SPEC](PROJECT-SPEC.md) |
 | Install and grant permissions / 安装与权限 | [SETUP](SETUP.md) |
+| Mac updates and permission status / Mac 更新与权限状态 | [MACOS-UPDATES](MACOS-UPDATES.md) |
 | Pair a phone and diagnose connection / 配对与连接 | [CONNECTIONS](CONNECTIONS.md) |
 | Provider support and limits / 会话来源能力 | [COMPATIBILITY](COMPATIBILITY.md) |
 | Background connection behavior / 后台连接 | [BACKGROUND-CONNECTION](BACKGROUND-CONNECTION.md) |
@@ -13,6 +14,7 @@ Start with [installation](SETUP.md) if you want to use VibePier, or [development
 | Upgrade or migrate / 升级与迁移 | [MIGRATION](MIGRATION.md), [SETTINGS-TRANSFER](SETTINGS-TRANSFER.md) |
 | Data, credentials and reports / 隐私与安全 | [PRIVACY](PRIVACY.md), [SECURITY](../SECURITY.md) |
 | Source modules and ownership / 架构与职责 | [ARCHITECTURE](ARCHITECTURE.md) |
+| Unified agent control / 统一 Agent 控制 | [Agent architecture](AGENT-CONTROL-ARCHITECTURE.md), [Session API](../protocol/specs/agent-session.md) |
 | Visual and interaction rules / 设计规范 | [DESIGN](../DESIGN.md), [PAGE-STRUCTURE](PAGE-STRUCTURE.md) |
 | Build components and verify changes / 组件与开发 | [COMPONENT-GUIDELINES](COMPONENT-GUIDELINES.md), [DEVELOPMENT](DEVELOPMENT.md), [ANDROID-LINT](ANDROID-LINT.md) |
 | Translate interface text / 界面本地化 | [LOCALIZATION](LOCALIZATION.md) |
@@ -34,3 +36,5 @@ Protocol maintainers should read the [secure control contract](../protocol/specs
 - [Attachment transfer / 附件传输](ATTACHMENT-TRANSFER.md) — Wi-Fi upload, background processing, encryption and completion.
 
 - [Binary file transfer / 二进制文件传输](BINARY-FILE-TRANSFER.md)
+
+- [Phone assistant visibility / 手机助手可见范围](PROVIDER-VISIBILITY.md)

@@ -6,7 +6,7 @@ import Foundation
 /// bootstraps an empty thread; model turns remain owned by the desktop coordinator.
 final class CodexStdioRPC {
     enum Purpose {
-        case account, creation
+        case account, creation, catalog
         func allows(_ method: String, mutable: Bool) -> Bool {
             if method == "initialize" { return !mutable }
             switch self {
@@ -16,6 +16,8 @@ final class CodexStdioRPC {
             case .creation:
                 return ["thread/start", "thread/name/set", "thread/archive", "thread/unarchive"].contains(method)
                     && mutable
+            case .catalog:
+                return method == "collaborationMode/list" && !mutable
             }
         }
     }
@@ -26,18 +28,21 @@ final class CodexStdioRPC {
     private var buffer = Data()
     private var sequence = 0
     private var closed = false
-    private let deadline = ProcessInfo.processInfo.systemUptime + 40
+    private let deadline: TimeInterval
 
     init(executable: URL? = nil, purpose: Purpose) throws {
         self.purpose = purpose
+        self.deadline = ProcessInfo.processInfo.systemUptime + (purpose == .catalog ? 8 : 40)
         let bundle =
             NSRunningApplication.runningApplications(withBundleIdentifier: "com.openai.codex").first?.bundleURL
             ?? NSWorkspace.shared.urlForApplication(withBundleIdentifier: "com.openai.codex")
-        let candidates = [
-            executable,
-            bundle?.appendingPathComponent("Contents/Resources/codex-cli/bin/codex"),
-            URL(fileURLWithPath: "/opt/homebrew/bin/codex"), URL(fileURLWithPath: "/usr/local/bin/codex"),
-        ].compactMap { $0 }
+        let candidates =
+            purpose == .catalog
+            ? [executable].compactMap { $0 }
+            : [
+                executable, bundle?.appendingPathComponent("Contents/Resources/codex-cli/bin/codex"),
+                URL(fileURLWithPath: "/opt/homebrew/bin/codex"), URL(fileURLWithPath: "/usr/local/bin/codex"),
+            ].compactMap { $0 }
         guard let executable = candidates.first(where: { FileManager.default.isExecutableFile(atPath: $0.path) }) else {
             throw CLIError(L10n.text("usage.codex_missing"))
         }

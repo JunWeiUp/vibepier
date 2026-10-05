@@ -331,7 +331,7 @@ final class CodexBridgeTests: XCTestCase {
         let once = Once()
         let opened = expectation(description: "bridge open accepted")
         let snapshot = expectation(description: "real messages passed compatibility gate")
-        let bridge = CodexBridge()
+        let bridge = CodexBridge(executionModeCatalog: { [] })
         let client = "readonly-test-" + UUID().uuidString
         defer { bridge.stop(client) }
         bridge.event = { recipient, data in

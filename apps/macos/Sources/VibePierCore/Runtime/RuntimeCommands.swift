@@ -7,6 +7,16 @@ enum RuntimeCommands {
         _ req: [String: Any], runtime: ([String: Any]) async -> [String: Any]
     ) async -> [String: Any] {
         switch req["cmd"] as? String ?? "" {
+        case "agent-runtime":
+            guard let request = req["request"] as? [String: Any] else {
+                return ["ok": false, "code": "invalid_request"]
+            }
+            let bytes: Data = await withCheckedContinuation { continuation in
+                SessionRemote.shared.agentRuntimeCommand(request) { continuation.resume(returning: $0) }
+            }
+            return (try? JSONSerialization.jsonObject(with: bytes) as? [String: Any]) ?? [
+                "ok": false, "code": "invalid_result",
+            ]
         case "task-open":
             guard let provider = req["provider"] as? String, let id = req["id"] as? String else {
                 return ["ok": false, "error": L10n.text("core.missing_task_session")]

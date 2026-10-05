@@ -6,6 +6,8 @@ import android.widget.FrameLayout
 import android.widget.MediaController
 import android.widget.VideoView
 import io.github.junweiup.vibepier.remote.R
+import io.github.junweiup.vibepier.remote.core.files.BinaryFileClient
+import io.github.junweiup.vibepier.remote.core.files.BinaryMediaClient
 import io.github.junweiup.vibepier.remote.core.ui.Ui
 import io.github.junweiup.vibepier.remote.features.remote.Palette
 import org.json.JSONObject
@@ -22,6 +24,7 @@ internal class VideoFilePreview(private val host: ProjectFileHost, private val p
     private var version = ""
     private var total = 0
     private var ready = false
+    private var binaryTransfer: BinaryFileClient? = null
     private val video = VideoView(context)
     private val status = Ui.label(context, context.getString(R.string.video_loading), Ui.BODY, Palette.muted).apply {
         gravity = Gravity.CENTER; setPadding(host.dp(16), host.dp(16), host.dp(16), host.dp(16))
@@ -48,13 +51,35 @@ internal class VideoFilePreview(private val host: ProjectFileHost, private val p
     private fun load() {
         if (!current()) { release(); return }
         val expected = offset
-        val fields = JSONObject().put("path", path).put("offset", expected)
+        val fields = JSONObject().put("path", path).put("offset", expected).put("binaryVersion", 1)
         if (version.isNotEmpty()) fields.put("version", version)
         host.call("readVideoFile", fields) { result ->
             if (!current()) { release(); return@call }
             if (!result.optBoolean("ok")) {
                 status.text = result.optString("error", context.getString(R.string.video_download_failed)); return@call
             }
+            if (result.has("binary")) {
+                val address = host.binaryHost()
+                val transfer = BinaryFileClient { current() }.also { binaryTransfer = it }
+                io.execute {
+                    val downloaded = runCatching {
+                        BinaryMediaClient.video(result, address, transfer, file) { received, size ->
+                            ui.post { if (current()) status.text = context.getString(R.string.video_progress, (received * 100 / size).toInt()) }
+                        }
+                    }
+                    ui.post {
+                        result.optJSONObject("binary")?.optString("id")?.takeIf { it.isNotEmpty() }?.let { host.call("fileCancel", JSONObject().put("ticket", it)) {} }
+                        if (!current()) { release(); return@post }
+                        if (downloaded.isFailure) {
+                            file.delete(); status.text = context.getString(R.string.video_download_failed)
+                        } else {
+                            ready = true; video.setVideoURI(android.net.Uri.fromFile(file))
+                        }
+                    }
+                }
+                return@call
+            }
+            if (!host.allowLegacyMedia) { status.text = context.getString(R.string.video_download_failed); return@call }
             val revision = result.optString("version")
             val size = result.optInt("size")
             val next = result.optInt("nextOffset", -2)
@@ -99,7 +124,7 @@ internal class VideoFilePreview(private val host: ProjectFileHost, private val p
     override fun onDetachedFromWindow() { pause(); super.onDetachedFromWindow() }
     fun release() {
         if (closed) return
-        closed = true; controller.hide(); video.stopPlayback()
+        closed = true; binaryTransfer?.cancel(); controller.hide(); video.stopPlayback()
         io.execute { file.delete() }
     }
     companion object {

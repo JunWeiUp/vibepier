@@ -1,9 +1,9 @@
 import AppKit
 import SwiftUI
-import VibePierCore
 import XCTest
 
 @testable import VibePierApp
+@testable import VibePierCore
 
 /// Native views with synthetic status and an injected CLI; no service, Keychain or hardware access.
 @MainActor
@@ -67,5 +67,45 @@ final class LocalizationPreviewTests: XCTestCase {
             try render(RelayView(model: model), width: 520, name: "relay", dark: dark)
             model.stopMonitoring()
         }
+    }
+
+    func testLocalizedPermissionsGuideLayout() throws {
+        let requested = ProcessInfo.processInfo.environment["VIBEPIER_PREVIEW_APPEARANCE"]
+        for dark in requested.map({ [$0 == "dark"] }) ?? [false, true] {
+            for (status, name) in [
+                (FileAccessStatus.unknown, "unknown"), (.permissionRequired, "required"),
+                (.accessConfirmed, "confirmed"),
+            ] {
+                let monitor = FileAccessMonitor(notifications: NotificationCenter())
+                if status == .permissionRequired { monitor.recordPermissionRequired() }
+                if status == .accessConfirmed { monitor.recordAccessConfirmed() }
+                let guide = MacPermissionsGuide(fileAccessMonitor: monitor)
+                if status == .permissionRequired {
+                    guide.handleFileAccessDenied(
+                        bundleURL: URL(fileURLWithPath: "/Applications/VibePier.app"), present: {})
+                }
+                try render(MacPermissionsView(guide: guide), width: 520, name: "permissions-\(name)", dark: dark)
+            }
+        }
+    }
+
+    func testSessionProviderMenuLayout() async throws {
+        let model = model()
+        await model.refreshStatus()
+        model.sessionProviders = ["codex": true, "claude": true, "zcode": false]
+        try render(
+            SessionProviderSection(model: model).padding(12).frame(width: 340), width: 340, name: "providers",
+            dark: true)
+    }
+
+    func testAppVersionBadgeLayout() throws {
+        let version = AppVersion(info: ["CFBundleShortVersionString": "0.1.0", "CFBundleVersion": "26"])
+        try render(
+            VStack(alignment: .leading, spacing: 2) {
+                Text("VibePier").font(.headline)
+                AppVersionBadge(version: version)
+            }
+            .padding(12).frame(width: 340, height: 112, alignment: .topLeading),
+            width: 340, name: "app-version", dark: true)
     }
 }

@@ -1,0 +1,16 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="provider_disabled_on_mac">This assistant is disabled on the Mac. Enable it in the Mac menu to continue.</string>
+    <string name="providers_none_enabled">No assistants are enabled. Turn one on in the Mac’s AI coding assistants menu.</string>
+    <string name="providers_loading">Loading enabled assistants from the Mac…</string>
+    <string name="agent_upgrade_required">Update VibePier on both the Mac and phone to control this assistant. Existing results can still be checked.</string>
+    <string name="agent_capability_unavailable">This action is unavailable or the session is not ready yet.</string>
+    <string name="agent_protocol_invalid">The assistant’s control response could not be verified. Keep the original request and check its result.</string>
+    <string name="agent_choose_backend">Choose session connection</string>
+    <string name="agent_backend_current">Current sessions</string>
+    <string name="agent_backend_managed">Managed runtime</string>
+    <string name="agent_backend_extension">Desktop extension</string>
+    <string name="agent_backend_explanation">Choose the Mac connection for new browsing and actions. Existing requests keep their original connection and receipt.</string>
+    <string name="agent_state_changed">The task, approval or selected options changed. Review the latest state and try again; your draft is kept.</string>
+    <string name="agent_state_not_ready">The session state could not be verified yet. Try again shortly; your draft is kept.</string>
+</resources>

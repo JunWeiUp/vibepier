@@ -79,6 +79,24 @@ final class SessionProviderReplyTests: XCTestCase {
         }
     }
 
+    func testExecutionSettingsAndCreationRequireMatchingNativeModeEvidence() throws {
+        for operation in ["settings", "new"] {
+            for (mode, verified, confirmed) in [("default", true, false), ("plan", false, false), ("plan", true, true)]
+            {
+                let value: [String: Any] = [
+                    "ok": true, "accepted": true, "threadId": "thread", "cwd": "/demo",
+                    "effectiveExecutionMode": mode, "executionModeVerified": verified,
+                ]
+                let normalized = try reply(value, op: operation, extra: ["executionMode": "plan"])
+                XCTAssertEqual(normalized.definitive, confirmed)
+                let lookup = SessionProviderReply.resolvedLookup(
+                    try JSONSerialization.data(withJSONObject: value),
+                    thread: "thread", operation: operation, cwd: "/demo", executionMode: "plan")
+                XCTAssertEqual(lookup != nil, confirmed)
+            }
+        }
+    }
+
     func testPersistenceFailureCannotBecomeAConfirmedResponse() throws {
         let success = try reply(["ok": true, "accepted": true, "threadId": "thread"])
         let unsaved = success.saving { _ in throw POSIXError(.ENOSPC) }

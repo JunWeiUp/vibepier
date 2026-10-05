@@ -138,7 +138,7 @@ func main() {
 				result["ok"] = false
 				break
 			}
-			profile := map[string]any{"version": 1, "encoding": "raw", "id": t.ID, "kind": t.Kind, "size": t.Size, "offset": t.Offset, "port": port, "pin": hex.EncodeToString(pin[:]), "readToken": t.Read, "writeToken": t.Write}
+			profile := map[string]any{"version": 1, "encoding": "raw", "id": t.ID, "kind": t.Kind, "size": t.Size, "offset": t.Offset, "port": port, "pin": hex.EncodeToString(pin[:]), "readToken": t.Read, "writeToken": t.Write, "directHosts": directHosts()}
 			if config.url != "" {
 				profile["relayURL"] = config.url + "/" + t.ID
 				cfg := config
@@ -213,4 +213,38 @@ func relayFile(client *http.Client, cfg relayConfig, store *filetransfer.Store, 
 			_ = resp.Body.Close()
 		}
 	}
+}
+
+// IPv4 LAN and public IPv6 candidates are authenticated in the offer; reachability
+// and the exact certificate pin are verified before the phone chooses a body route.
+func directHosts() []string {
+	addresses, err := net.InterfaceAddrs()
+	if err != nil {
+		return nil
+	}
+	var ipv4, ipv6 []string
+	for _, address := range addresses {
+		ip, _, err := net.ParseCIDR(address.String())
+		if err != nil || !ip.IsGlobalUnicast() || ip.IsLoopback() {
+			continue
+		}
+		if ip.To4() != nil {
+			ipv4 = append(ipv4, ip.String())
+		} else if len(ip) == 16 && ip[0]&0xe0 == 0x20 {
+			ipv6 = append(ipv6, ip.String())
+		}
+	}
+	var result []string
+	for i := 0; i < 4; i++ {
+		if i < len(ipv6) {
+			result = append(result, ipv6[i])
+		}
+		if i < len(ipv4) {
+			result = append(result, ipv4[i])
+		}
+		if len(result) >= 4 {
+			return result[:4]
+		}
+	}
+	return result
 }

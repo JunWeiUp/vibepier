@@ -128,12 +128,210 @@ final class CodexIPCReceiptTests: XCTestCase {
             XCTAssertThrowsError(try CodexNativeReceipt.validate([:], method: method, params: [:]))
         }
     }
+
+    func testPatchHydrationRequiresOneFreshFollowAtTheAcknowledgedRevision() throws {
+        let initial = try JSONSerialization.data(
+            withJSONObject: CodexHistoryReadbackTests.packet(
+                state: CodexHistoryReadbackTests.state([3], complete: false), revision: 1))
+        let hydrated = try JSONSerialization.data(
+            withJSONObject: CodexHistoryReadbackTests.packet(
+                state: CodexHistoryReadbackTests.state([0, 1, 2, 3]), revision: 5))
+        let method = "thread-follower-load-complete-history"
+        let server = try NativeIPCFixture { request in
+            if request["method"] as? String == method {
+                return .replies([
+                    (try! JSONSerialization.jsonObject(with: initial)) as! [String: Any],
+                    [
+                        "type": "broadcast", "method": "thread-stream-state-changed", "version": 11,
+                        "sourceClientId": "owner",
+                        "params": [
+                            "hostId": "local", "conversationId": "native-thread",
+                            "change": ["type": "patch", "baseRevision": 1, "revision": 4, "patches": []],
+                        ],
+                    ],
+                    NativeIPCFixture.success(request, result: ["revision": 4]),
+                ])
+            }
+            XCTAssertEqual(request["method"] as? String, "thread-stream-following-changed")
+            XCTAssertEqual(request["type"] as? String, "broadcast")
+            XCTAssertEqual(request["targetClientIds"] as? [String], ["owner"])
+            XCTAssertEqual((request["params"] as? [String: Any])?["following"] as? Bool, true)
+            return .reply((try! JSONSerialization.jsonObject(with: hydrated)) as! [String: Any])
+        }
+        let ipc = CodexIPC(path: server.path)
+        defer {
+            ipc.close()
+            server.stop()
+        }
+        try ipc.connect()
+        let reply = try ipc.request(method, ["conversationId": "native-thread"], version: 1, target: "owner")
+        let revision = try CodexHistoryReadback.acknowledgedRevision(reply)
+        XCTAssertNil(
+            CodexHistoryReadback.snapshot(
+                try XCTUnwrap(ipc.latestSnapshot("native-thread")), thread: "native-thread", owner: "owner",
+                minimumRevision: revision))
+        let fresh = try ipc.freshSnapshot("native-thread", owner: "owner", minimumRevision: revision, timeout: 1)
+        XCTAssertEqual(fresh.revision, 5, "A subsequent native revision is valid; exact equality is not required")
+        let window = try XCTUnwrap(
+            ConversationReply.older(CodexConversation.turns(fresh.state).map(CodexConversation.messages), before: "u3"))
+        XCTAssertEqual(window.rows.compactMap { $0["id"] as? String }, ["u0", "u1", "u2"])
+        XCTAssertFalse(window.start > 0 || !CodexHistoryReadback.complete(fresh.state))
+        XCTAssertEqual(
+            server.methods, [method, "thread-stream-following-changed"],
+            "One hydration and one read; no write or automatic retry")
+    }
+
+    func testFreshReadRejectsOldCachedArrivalWrongScopeAndStaleRevisionWithoutResending() throws {
+        let cached = try JSONSerialization.data(
+            withJSONObject: CodexHistoryReadbackTests.packet(state: CodexHistoryReadbackTests.state([0]), revision: 4))
+        for scenario in ["silent", "owner", "thread", "body", "stale"] {
+            var packet = CodexHistoryReadbackTests.packet(state: CodexHistoryReadbackTests.state([0]), revision: 4)
+            var params = packet["params"] as? [String: Any] ?? [:]
+            var change = params["change"] as? [String: Any] ?? [:]
+            switch scenario {
+            case "owner": packet["sourceClientId"] = "wrong-owner"
+            case "thread": params["conversationId"] = "wrong-thread"
+            case "body": change["conversationState"] = ["id": "wrong-thread"]
+            case "stale": change["revision"] = 3
+            default: break
+            }
+            params["change"] = change
+            packet["params"] = params
+            let invalid = try JSONSerialization.data(withJSONObject: packet)
+            let server = try NativeIPCFixture { request in
+                if request["method"] as? String == "fixture-cache" {
+                    return .replies([
+                        (try! JSONSerialization.jsonObject(with: cached)) as! [String: Any],
+                        NativeIPCFixture.success(request, result: [:]),
+                    ])
+                }
+                return scenario == "silent"
+                    ? .silent : .reply((try! JSONSerialization.jsonObject(with: invalid)) as! [String: Any])
+            }
+            let ipc = CodexIPC(path: server.path)
+            defer {
+                ipc.close()
+                server.stop()
+            }
+            try ipc.connect()
+            _ = try ipc.request("fixture-cache", [:], version: 1, target: "owner")
+            XCTAssertNotNil(ipc.latestSnapshot("native-thread"))
+            XCTAssertThrowsError(
+                try ipc.freshSnapshot("native-thread", owner: "owner", minimumRevision: 4, timeout: 0.05)
+            ) {
+                XCTAssertFalse($0 is UnconfirmedDesktopMutation, "Only reads were performed")
+            }
+            XCTAssertEqual(server.methods, ["fixture-cache", "thread-stream-following-changed"], scenario)
+        }
+    }
+
+    func testBridgeSameViewWithMissingStateRefollowsOnlyItsSelectedThreadWithoutOpeningDesktopAgain() throws {
+        final class Counts: @unchecked Sendable {
+            let lock = NSLock()
+            var follows = 0
+            var opens: [String] = []
+            func nextFollow() -> Int {
+                lock.withLock {
+                    follows += 1
+                    return follows
+                }
+            }
+            func open(_ thread: String) { lock.withLock { opens.append(thread) } }
+        }
+        let counts = Counts()
+        let thread = "00000000-0000-4000-8000-000000000010"
+        var nativeState = CodexHistoryReadbackTests.state([3])
+        nativeState["id"] = thread
+        var packet = CodexHistoryReadbackTests.packet(state: nativeState, revision: 1)
+        var params = packet["params"] as! [String: Any]
+        params["conversationId"] = thread
+        packet["params"] = params
+        let snapshot = try JSONSerialization.data(withJSONObject: packet)
+        let server = try NativeIPCFixture { request in
+            let method = request["method"] as? String
+            if method == "thread-owner-discovery" {
+                XCTAssertEqual((request["params"] as? [String: Any])?["conversationId"] as? String, thread)
+                return .reply(NativeIPCFixture.success(request, result: [:]))
+            }
+            XCTAssertEqual(
+                method, "thread-stream-following-changed", "Recovery never sends a native turn or other mutation")
+            if (request["params"] as? [String: Any])?["following"] as? Bool == false { return .silent }
+            return counts.nextFollow() == 1
+                ? .silent : .reply((try! JSONSerialization.jsonObject(with: snapshot)) as! [String: Any])
+        }
+        let root = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+        try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
+        let ipc = CodexIPC(path: server.path)
+        let bridge = CodexBridge(
+            ipc: ipc, followUps: CodexFollowUps(file: root.appendingPathComponent("synthetic-queues.json")),
+            attachments: nil, executionModeCatalog: { [] }, desktopBuild: { "12947" },
+            openNativeThread: { counts.open($0) })
+        defer {
+            bridge.stopAll()
+            ipc.close()
+            server.stop()
+            try? FileManager.default.removeItem(at: root)
+        }
+        let client = "synthetic-phone"
+        let first = expectation(description: "initial subscription has no native state")
+        let recovered = expectation(description: "same-view retry receives authoritative native state")
+        bridge.event = { recipient, data in
+            let page = try? JSONSerialization.jsonObject(with: data) as? [String: Any]
+            if recipient == client, page?["event"] as? String == "snapshot" {
+                XCTAssertEqual(page?["threadId"] as? String, thread)
+                XCTAssertEqual(page?["viewVersion"] as? Int, 7)
+                recovered.fulfill()
+            }
+        }
+        let open = try JSONSerialization.data(withJSONObject: ["op": "open", "threadId": thread, "viewVersion": 7])
+        bridge.perform(open, client: client) { data in
+            let reply = try? JSONSerialization.jsonObject(with: data) as? [String: Any]
+            XCTAssertEqual(reply?["opening"] as? Bool, true)
+            first.fulfill()
+        }
+        wait(for: [first], timeout: 3)
+        let retried = expectation(description: "same view can restart native observation")
+        bridge.perform(open, client: client) { data in
+            let reply = try? JSONSerialization.jsonObject(with: data) as? [String: Any]
+            XCTAssertEqual(reply?["ok"] as? Bool, true)
+            retried.fulfill()
+        }
+        wait(for: [retried, recovered], timeout: 3)
+        let ready = expectation(description: "restored same view can be read without refresh")
+        bridge.perform(open, client: client) { data in
+            let reply = try? JSONSerialization.jsonObject(with: data) as? [String: Any]
+            XCTAssertEqual(reply?["viewVersion"] as? Int, 7)
+            XCTAssertEqual(reply?["canSend"] as? Bool, true)
+            XCTAssertNotNil(reply?["nativeOwnerEpoch"])
+            XCTAssertEqual((reply?["messages"] as? [[String: Any]])?.first?["id"] as? String, "u3")
+            ready.fulfill()
+        }
+        wait(for: [ready], timeout: 3)
+        let denied = expectation(description: "same view cannot redirect recovery to another thread")
+        let other = try JSONSerialization.data(withJSONObject: [
+            "op": "open", "threadId": UUID().uuidString, "viewVersion": 7,
+        ])
+        bridge.perform(other, client: client) { data in
+            let reply = try? JSONSerialization.jsonObject(with: data) as? [String: Any]
+            XCTAssertEqual(reply?["ok"] as? Bool, false)
+            denied.fulfill()
+        }
+        wait(for: [denied], timeout: 3)
+        XCTAssertEqual(counts.lock.withLock { counts.opens }, [thread])
+        XCTAssertEqual(
+            server.methods,
+            [
+                "thread-owner-discovery", "thread-stream-following-changed", "thread-owner-discovery",
+                "thread-stream-following-changed",
+            ])
+    }
 }
 
 /// A private temporary Unix socket exercises framing and the production client without running a provider.
 private final class NativeIPCFixture: @unchecked Sendable {
     enum Response {
         case reply([String: Any])
+        case replies([[String: Any]])
         case disconnect, silent
     }
     let path: String
@@ -226,10 +424,14 @@ private final class NativeIPCFixture: @unchecked Sendable {
                 lock.withLock { received.append(request["method"] as? String ?? "") }
                 response = respond(request)
             }
+            let messages: [[String: Any]]
             switch response {
             case .disconnect: return
             case .silent: continue
-            case .reply(let object):
+            case .reply(let object): messages = [object]
+            case .replies(let objects): messages = objects
+            }
+            for object in messages {
                 guard let body = try? JSONSerialization.data(withJSONObject: object) else { return }
                 var size = UInt32(body.count).littleEndian
                 var frame = Data(bytes: &size, count: 4)

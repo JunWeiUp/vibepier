@@ -73,7 +73,7 @@ final class SessionMarkdownBridgeTests: XCTestCase {
         bridge.stopAll()
     }
     func testCodexRejectsUnopenedThreadForBothReadOnlyFileOperations() throws {
-        let bridge = CodexBridge()
+        let bridge = CodexBridge(executionModeCatalog: { [] })
         let thread = UUID().uuidString
         let perform: (Data, @escaping @Sendable (Data) -> Void) -> Void = { data, completion in
             bridge.perform(data, client: "phone", completion: completion)
@@ -157,7 +157,7 @@ final class SessionMarkdownBridgeTests: XCTestCase {
                 }
             }
         }
-        let bridge = CodexBridge()
+        let bridge = CodexBridge(executionModeCatalog: { [] })
         let client = "readonly-md-qa-" + UUID().uuidString
         let once = Once()
         let ready = expectation(description: "native Codex snapshot ready")

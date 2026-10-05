@@ -32,6 +32,7 @@ internal object ConversationImagesProbe {
         fun tiles() = views(process).filterIsInstance<ConversationImage>()
         val imageIDs = (1..3).map { "generation-$it#0" }
         try {
+            ConversationMediaProbe.run(test, activity as MainActivity)
             main {
                 val rows = JSONArray().put(JSONObject().put("id", "before").put("kind", "text").put("index", 0).put("text", "下面是三个设计方案").put("bodyVersion", "before"))
                 for (i in 1..3) rows.put(JSONObject().put("id", "generation-$i").put("kind", "tool").put("title", "生成图片").put("groupType", "image-generation")
@@ -100,7 +101,7 @@ internal object ConversationImagesProbe {
                 java.io.File(activity.externalCacheDir!!, "conversation-design-images.png").outputStream().use { bitmap.compress(android.graphics.Bitmap.CompressFormat.PNG, 100, it) }
                 bitmap.recycle()
             }
-            return "PASS: all three native design previews visible with group folded, output bodies remain lazy, expanding/collapsing does not duplicate images, individual tool preview, cached header restore, long image full-width scrolling\n"
+            return "PASS: image cancellation/retry/late reply/timeout and thumbnail fallback; all three native design previews visible with group folded, output bodies remain lazy, expanding/collapsing does not duplicate images, individual tool preview, cached header restore, long image full-width scrolling\n"
         } finally {
             main { activity.finish() }
             bitmaps.forEach { it.recycle() }

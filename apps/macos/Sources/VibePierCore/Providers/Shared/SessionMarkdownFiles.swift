@@ -175,12 +175,17 @@ final class SessionMarkdownFiles: @unchecked Sendable {
             throw CLIError(L10n.text("session.the_session_directory_is_unavailable_check_on_the_mac"))
         }
         guard let actual = realpath(cwd, nil) else {
-            throw CLIError(L10n.text("session.the_session_directory_no_longer_exists_check_on_the_mac"))
+            throw SessionFileAccess.failure(
+                errno: errno, fallback: L10n.text("session.the_session_directory_no_longer_exists_check_on_the_mac"))
         }
         defer { free(actual) }
         let root = URL(fileURLWithPath: String(cString: actual))
         var info = stat()
-        guard lstat(root.path, &info) == 0, info.st_mode & S_IFMT == S_IFDIR else {
+        guard lstat(root.path, &info) == 0 else {
+            throw SessionFileAccess.failure(
+                errno: errno, fallback: L10n.text("session.the_session_directory_no_longer_exists_check_on_the_mac"))
+        }
+        guard info.st_mode & S_IFMT == S_IFDIR else {
             throw CLIError(L10n.text("session.the_session_directory_no_longer_exists_check_on_the_mac"))
         }
         return root
@@ -194,7 +199,8 @@ final class SessionMarkdownFiles: @unchecked Sendable {
         }
         let candidate = path.hasPrefix("/") ? URL(fileURLWithPath: path) : root.appendingPathComponent(path)
         guard let actual = realpath(candidate.path, nil) else {
-            throw CLIError(L10n.text("session.the_file_does_not_exist_or_cannot_be_read"))
+            throw SessionFileAccess.failure(
+                errno: errno, fallback: L10n.text("session.the_file_does_not_exist_or_cannot_be_read"))
         }
         defer { free(actual) }
         let url = URL(fileURLWithPath: String(cString: actual))
@@ -219,21 +225,29 @@ final class SessionMarkdownFiles: @unchecked Sendable {
         guard contains(url.path, root: root.path) else { return url.path }
         return String(url.path.dropFirst(root.path == "/" ? 1 : root.path.count + 1))
     }
-    private static func descriptorPath(_ fd: Int32) throws -> String {
+    private static func descriptorPath(_ fd: Int32, reportPermissionFailures: Bool = true) throws -> String {
         var buffer = [CChar](repeating: 0, count: Int(MAXPATHLEN))
         guard fcntl(fd, F_GETPATH, &buffer) == 0 else {
-            throw CLIError(L10n.text("session.could_not_verify_the_file_location_retry"))
+            throw SessionFileAccess.failure(
+                errno: errno, fallback: L10n.text("session.could_not_verify_the_file_location_retry"),
+                report: reportPermissionFailures)
         }
         return String(decoding: buffer.prefix(while: { $0 != 0 }).map { UInt8(bitPattern: $0) }, as: UTF8.self)
     }
     /// Resolve first to allow in-project symlinks, then walk with openat/O_NOFOLLOW.
     /// Every component remains beneath the opened root if a symlink is replaced
     /// between validation and reading; FIFOs/devices cannot block the bridge.
-    static func openSafe(_ url: URL, root: URL, directory: Bool = false) throws -> Int32 {
+    static func openSafe(
+        _ url: URL, root: URL, directory: Bool = false, reportPermissionFailures: Bool = true
+    ) throws -> Int32 {
         var current = Darwin.open(root.path, O_RDONLY | O_DIRECTORY | O_NOFOLLOW | O_CLOEXEC)
-        guard current >= 0 else { throw CLIError(L10n.text("session.could_not_read_the_session_directory")) }
+        guard current >= 0 else {
+            throw SessionFileAccess.failure(
+                errno: errno, fallback: L10n.text("session.could_not_read_the_session_directory"),
+                report: reportPermissionFailures)
+        }
         do {
-            guard try descriptorPath(current) == root.path else {
+            guard try descriptorPath(current, reportPermissionFailures: reportPermissionFailures) == root.path else {
                 throw CLIError(L10n.text("session.the_session_directory_changed_reopen_the_file"))
             }
             let parts = relative(url, root: root).split(separator: "/").map(String.init)
@@ -242,12 +256,14 @@ final class SessionMarkdownFiles: @unchecked Sendable {
                 let next = openat(
                     current, part, O_RDONLY | O_NOFOLLOW | O_NONBLOCK | O_CLOEXEC | (isDirectory ? O_DIRECTORY : 0))
                 guard next >= 0 else {
-                    throw CLIError(L10n.text("session.the_file_is_missing_unreadable_or_has_moved"))
+                    throw SessionFileAccess.failure(
+                        errno: errno, fallback: L10n.text("session.the_file_is_missing_unreadable_or_has_moved"),
+                        report: reportPermissionFailures)
                 }
                 Darwin.close(current)
                 current = next
             }
-            guard try descriptorPath(current) == url.path else {
+            guard try descriptorPath(current, reportPermissionFailures: reportPermissionFailures) == url.path else {
                 throw CLIError(L10n.text("session.the_file_location_changed_reopen_it"))
             }
             return current
@@ -256,11 +272,36 @@ final class SessionMarkdownFiles: @unchecked Sendable {
             throw error
         }
     }
-    private static func read(_ url: URL, root: URL, maximumBytes: Int) throws -> Data {
-        let fd = try openSafe(url, root: root)
+    private static func read(
+        _ url: URL, root: URL, maximumBytes: Int, monitor: FileAccessMonitor? = .shared
+    ) throws -> Data {
+        let token = monitor?.recordProbe {
+            _ = try readContents(url, root: root, maximumBytes: maximumBytes)
+        }
+        do {
+            let bytes = try readContents(url, root: root, maximumBytes: maximumBytes)
+            if let token { monitor?.record(.accessConfirmed, for: token) }
+            return bytes
+        } catch {
+            if let token {
+                monitor?.record(
+                    error is SessionFileAccess.PermissionDenied ? .permissionRequired : .unknown, for: token)
+            }
+            throw error
+        }
+    }
+    /// State/notifications are committed by the owning read token or explicit
+    /// check, so an obsolete worker cannot publish an old refusal as current.
+    private static func readContents(_ url: URL, root: URL, maximumBytes: Int) throws -> Data {
+        let fd = try openSafe(url, root: root, reportPermissionFailures: false)
         defer { Darwin.close(fd) }
         var before = stat()
-        guard fstat(fd, &before) == 0, before.st_mode & S_IFMT == S_IFREG else {
+        guard fstat(fd, &before) == 0 else {
+            throw SessionFileAccess.failure(
+                errno: errno, fallback: L10n.text("session.could_not_read_the_file_retry"),
+                report: false)
+        }
+        guard before.st_mode & S_IFMT == S_IFREG else {
             throw CLIError(L10n.text("session.only_regular_files_are_supported"))
         }
         guard before.st_size >= 0, before.st_size <= maximumBytes else {
@@ -271,8 +312,11 @@ final class SessionMarkdownFiles: @unchecked Sendable {
         while data.count <= maximumBytes {
             let count = Darwin.read(fd, &buffer, min(buffer.count, maximumBytes + 1 - data.count))
             if count < 0 {
-                if errno == EINTR { continue }
-                throw CLIError(L10n.text("session.could_not_read_the_file_retry"))
+                let failure = errno
+                if failure == EINTR { continue }
+                throw SessionFileAccess.failure(
+                    errno: failure, fallback: L10n.text("session.could_not_read_the_file_retry"),
+                    report: false)
             }
             if count == 0 { break }
             data.append(contentsOf: buffer.prefix(count))
@@ -281,7 +325,12 @@ final class SessionMarkdownFiles: @unchecked Sendable {
             throw CLIError(L10n.text("session.the_file_exceeds_the_preview_size_limit"))
         }
         var after = stat()
-        guard fstat(fd, &after) == 0, before.st_size == after.st_size,
+        guard fstat(fd, &after) == 0 else {
+            throw SessionFileAccess.failure(
+                errno: errno, fallback: L10n.text("session.could_not_read_the_file_retry"),
+                report: false)
+        }
+        guard before.st_size == after.st_size,
             before.st_mtimespec.tv_sec == after.st_mtimespec.tv_sec,
             before.st_mtimespec.tv_nsec == after.st_mtimespec.tv_nsec,
             before.st_ctimespec.tv_sec == after.st_ctimespec.tv_sec,
@@ -299,6 +348,15 @@ final class SessionMarkdownFiles: @unchecked Sendable {
         return try read(
             url, root: contains(url.path, root: root.path) ? root : URL(fileURLWithPath: "/"),
             maximumBytes: maximumBytes)
+    }
+    /// Read an exact provider-owned path without resolving symlinks to a different attachment.
+    static func readContainedFile(_ url: URL, root: URL, maximumBytes: Int) throws -> Data {
+        guard contains(url.path, root: root.path),
+            !url.path.split(separator: "/").contains(where: { $0 == "." || $0 == ".." })
+        else {
+            throw CLIError(L10n.text("session.invalid_file_path"))
+        }
+        return try read(url, root: root, maximumBytes: maximumBytes)
     }
     func reply(
         _ request: [String: Any], cwd: String, device: String, thread: String, referencedPaths: Set<String> = [],
@@ -393,8 +451,10 @@ final class SessionMarkdownFiles: @unchecked Sendable {
         let url = try resolve(folder, root: root)
         let fd = try openSafe(url, root: root, directory: true)
         guard let directory = fdopendir(fd) else {
+            let failure = errno
             Darwin.close(fd)
-            throw CLIError(L10n.text("session.could_not_browse_this_directory"))
+            throw SessionFileAccess.failure(
+                errno: failure, fallback: L10n.text("session.could_not_browse_this_directory"))
         }
         defer { closedir(directory) }
         var names: [String] = []

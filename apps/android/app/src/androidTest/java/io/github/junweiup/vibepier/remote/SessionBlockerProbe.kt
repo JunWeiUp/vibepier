@@ -50,7 +50,7 @@ object SessionBlockerProbe {
             test.runOnMainSync {
                 val button = label("stopButton"); val bounds = android.graphics.Rect()
                 check(button.getGlobalVisibleRect(bounds) && bounds.height() >= button.height - 1) { "Cancel button clipped" }
-                button.performClick()
+                label("waitCancel").performClick()
                 checkMessage(R.string.session_wait_stopping)
                 check(!label("stopButton").isEnabled) { "Duplicate stop remained enabled" }
             }
@@ -68,7 +68,38 @@ object SessionBlockerProbe {
                 checkMessage(R.string.session_wait_loading)
                 check(label("waitCancel").text.toString() == activity.getString(R.string.session_stop_waiting))
                 label("waitCancel").performClick()
-                check(field(panel, "drawer").getBoolean(panel)) { "Stop waiting did not return to session list" }
+                check(!field(panel, "drawer").getBoolean(panel)) { "Stop waiting left the conversation" }
+                check((field(panel, "waitBanner").get(panel) as View).visibility == View.GONE)
+                render.invoke(panel)
+                check((field(panel, "waitBanner").get(panel) as View).visibility == View.GONE) { "Periodic render restarted the same wait" }
+                check((field(panel, "editor").get(panel) as EditText).text.toString() == "Keep my draft")
+                // Exercise durable wait detachment using synthetic receipts in the isolated review package.
+                val client = field(panel, "client").get(panel) as io.github.junweiup.vibepier.remote.core.session.SessionClient
+                val prefs = io.github.junweiup.vibepier.remote.core.security.PrivatePreferences.open(activity, "sessions")
+                val id = java.util.UUID.randomUUID().toString()
+                val other = java.util.UUID.randomUUID().toString()
+                val target = "wait-detach-$id"
+                val original = JSONObject().put("id", id).put("op", "send").put("threadId", target)
+                    .put("provider", client.provider).put("text", "synthetic original").put("attachments", JSONArray().put("synthetic-file"))
+                val separate = JSONObject(original.toString()).put("id", other).put("threadId", "other-$id")
+                check(prefs.edit().putString("pending.$id", original.toString()).putString("pending.$other", separate.toString()).commit())
+                try {
+                    check(client.waitingOperations(target).size == 1)
+                    check(client.stopWaiting(target))
+                    check(client.waitingOperations(target).isEmpty())
+                    check(client.uncertain(target).single().toString() == original.toString()) { "Stop waiting modified the receipt" }
+                    check(client.waitingOperations("other-$id").size == 1) { "Stop waiting affected another session" }
+                    check(client.duplicateUnconfirmedSend(target, "synthetic original", JSONArray()))
+                    check(!client.duplicateUnconfirmedSend(target, "synthetic new", JSONArray()))
+                    check(prefs.getStringSet("stoppedWaiting.${client.sessionScope(target)}", emptySet()) == setOf(id))
+                    val next = java.util.UUID.randomUUID().toString()
+                    check(prefs.edit().putString("pending.$next", JSONObject(original.toString()).put("id", next).toString()).commit())
+                    check(client.waitingOperations(target).single().optString("id") == next) { "A new operation inherited the stopped wait" }
+                    client.clearReceipt(next)
+                } finally {
+                    client.clearReceipt(id); client.clearReceipt(other)
+                    prefs.edit().remove("stoppedWaiting.${client.sessionScope(target)}").commit()
+                }
             }
             return "PASS: rate-limit banner, visible cancellation with draft, confirmed fixture stop, slow/idle reset, local stop-waiting. Synthetic UI only."
         } finally { test.runOnMainSync { activity.finish() } }

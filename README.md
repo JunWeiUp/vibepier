@@ -61,7 +61,7 @@ Codex currently allows desktop builds **11645, 12404, 12553 and 12947**; its con
 
 You need **macOS 14+ on Apple silicon** and **Android 13+**. Keep the Mac app running; remote operation does not power on a shut-down Mac or bypass FileVault's pre-login screen.
 
-1. Install and open **VibePier.app** on the Mac, then install the signed Android APK.
+1. Install **VibePier.app** in `/Applications` and open it. The first installed launch opens the Full Disk Access guide and System Settings. Add/enable VibePier, quit and reopen it, then install the signed Android APK.
 2. Allow the Bluetooth/nearby-device permissions needed for discovery. On a fresh installation the phone starts with Bluetooth.
 3. The phone requests access automatically. Confirm **Allow this phone** on the Mac. You do not need to open the conversation list to request access.
 4. Allow macOS Accessibility for desktop key/application controls when prompted. Grant microphone access only when using voice features.
@@ -220,8 +220,9 @@ Every control path requires device authorization. Control traffic uses authentic
 | Start here | Guides |
 | --- | --- |
 | Use VibePier | [Setup](docs/SETUP.md) · [Connections](docs/CONNECTIONS.md) · [Compatibility](docs/COMPATIBILITY.md) |
-| Operate or move it | [Deployment](docs/DEPLOYMENT.md) · [Migration](docs/MIGRATION.md) · [Portable settings](docs/SETTINGS-TRANSFER.md) |
+| Operate or move it | [Deployment](docs/DEPLOYMENT.md) · [Mac updates and permissions](docs/MACOS-UPDATES.md) · [Migration](docs/MIGRATION.md) · [Portable settings](docs/SETTINGS-TRANSFER.md) |
 | Understand the project | [Product scope](docs/PROJECT-SPEC.md) · [Architecture](docs/ARCHITECTURE.md) · [Design](DESIGN.md) · [Screens](docs/PAGE-STRUCTURE.md) |
+| Agent protocol and optional runtimes | [Unified control](docs/AGENT-CONTROL-ARCHITECTURE.md) · [Session API](protocol/specs/agent-session.md) |
 | Contribute | [Contribution guide](CONTRIBUTING.md) · [Components](docs/COMPONENT-GUIDELINES.md) · [Development](docs/DEVELOPMENT.md) · [AGENTS.md](AGENTS.md) |
 | Review a release | [Artifacts and distribution](docs/REGISTRY.md) · [Changelog](CHANGELOG.md) · [Release gates](TODO.md) |
 
@@ -238,3 +239,17 @@ MIT. VibePier builds on the AU05 driver work in `ihavespoons/vibed`. The origina
 Task completion alerts are available on connected Android phones, including in the background. Enable **Task completion notifications** in phone settings. [Behavior and limitations](docs/TASK-NOTIFICATIONS.md).
 
 - [Android versions and update indicators / Android 版本与更新红点](docs/ANDROID-UPDATES.md)
+
+Conversation/project images and MP4 previews use the raw HTTPS binary file channel shared with uploads and APKs; see [binary file transfers](docs/BINARY-FILE-TRANSFER.md). LAN/public IPv6 candidates and relay are probed concurrently; automatic IPv4 NAT traversal is unsupported.
+
+Assistant visibility is configured in the Mac menu’s **AI coding assistants** card. Only enabled providers appear on the updated phone app; running desktop tasks and saved drafts remain intact. [Details](docs/PROVIDER-VISIBILITY.md).
+
+### Agent control development
+
+The development source uses a typed Agent Session profile over the existing authorized encrypted channel. Capability negotiation controls which actions are available, and desktop and optional runtime backends keep separate targets and pending operations. Mac and Android require a coordinated update for fresh Agent writes; existing unknown receipts keep their original lookup path.
+
+The phone composer now offers **Task mode → Plan / Execute**, including in new-session options. Codex uses native collaboration modes; Claude Code uses its native plan permission mode. The phone displays a confirmed change only after native readback. Availability depends on the selected backend, compatible native interface and idle session. [Plan mode support and limits](docs/COMPATIBILITY.md#phone-plan-mode--手机计划模式).
+
+New conversation actions automatically verify current state before submission, including sending, stopping, approvals, queue changes, settings and creation. If the original target or selected options changed, the action stops and keeps the draft; uncertain submissions retain their original receipt without automatic resend.
+
+Optional backends are configured locally with `vibepier agents status` and explicit enable commands. The Codex App Server driver uses a private socket and separate `CODEX_HOME`; the desktop must explicitly connect to this runtime. The Claude Code Mods prototype remains observation-only until its exact runtime contract and native delivery evidence are accepted. Local installation and actual native delivery are verified separately; optional backends remain disabled until explicitly configured. See [setup and acceptance boundaries](docs/AGENT-CONTROL-ARCHITECTURE.md#本地可选运行时--optional-local-runtime-setup).

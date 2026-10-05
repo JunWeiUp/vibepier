@@ -2,6 +2,10 @@
 
 This directory owns cross-platform contracts and synthetic interoperability fixtures.
 
+- [Agent Session API / Agent 会话 API](specs/agent-session.md): development profile 2 commands, capabilities, ownership, receipts and observation. See the [implementation and rollout](../docs/AGENT-CONTROL-ARCHITECTURE.md) for migration and desktop/runtime boundaries.
+- [Current Session operation manifest](contracts/session-v1.json): 70 shared operation classifications generated for Swift/Kotlin; `python3 scripts/dev/generate-session-contract.py --check` verifies outputs.
+- [Agent request schema](schemas/agent-session-v2.schema.json) and [cross-platform fixtures](fixtures/agent-session-v2.json): strict request shapes, canonical fingerprints and outcome/event vectors.
+
 - [Authenticated control channel](specs/secure-control.md): device enrollment keys, transport handshake, encryption, and replay behavior.
 - `fixtures/control-v1.properties`: independently generated HKDF, HMAC, and AES-GCM vectors consumed by Swift and JVM tests.
 - [Relay routing](specs/relay.md): admission, peer addressing, bounds, and lifecycle.

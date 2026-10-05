@@ -26,11 +26,25 @@ final class ClaudeCreationReceiptTests: XCTestCase {
         let value = try XCTUnwrap(read([entry("full body")]))
         XCTAssertEqual(value["threadId"] as? String, "native-session")
         XCTAssertEqual(value["nativeMessageId"] as? String, "native-message")
-        for extra: [String: Any] in [["sessionId": "other"], ["cwd": "/other"], ["uuid": ""]] {
+        XCTAssertEqual(value["turnId"] as? String, "transcript:native-session:native-message")
+        XCTAssertEqual(value["turnIdentityKind"] as? String, "nativeMessageAnchor")
+        for extra: [String: Any] in [["sessionId": "other"], ["cwd": "/other"], ["uuid": ""], ["uuid": "bad\0message"]]
+        {
             XCTAssertNil(try read([entry("full body", extra: extra)]))
         }
         XCTAssertNil(try read([entry("full")]))
         XCTAssertNil(try read([entry("earlier different input"), entry("full body")]))
+    }
+
+    func testTranscriptTurnAnchorIsStableAndBoundToOriginalNativeHuman() throws {
+        let initial = try XCTUnwrap(read([entry("full body")]))
+        let late = try XCTUnwrap(read([entry("full body"), entry("later prompt", extra: ["uuid": "later-message"])]))
+        XCTAssertEqual(initial["turnId"] as? String, late["turnId"] as? String)
+        let other = try XCTUnwrap(read([entry("full body", extra: ["uuid": "other-first-message"])]))
+        XCTAssertNotEqual(initial["turnId"] as? String, other["turnId"] as? String)
+        XCTAssertEqual(other["turnId"] as? String, "transcript:native-session:other-first-message")
+        XCTAssertNil(
+            try read([entry("earlier unrelated human", extra: ["uuid": "other-first-message"]), entry("full body")]))
     }
 
     func testMetadataOrIncompleteFileCannotConfirmNewSubmission() throws {

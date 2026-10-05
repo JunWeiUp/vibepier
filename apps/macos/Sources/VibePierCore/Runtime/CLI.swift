@@ -637,6 +637,16 @@ public func runVibePierCLI() async {
         do { try PreferencesCommand.run(args) { ControlSocket.request($0, timeout: 15) } } catch {
             fail(String(describing: error))
         }
+    case "agents":
+        do {
+            let payload = try AgentRuntimeCommand.payload(args)
+            guard let reply = ControlSocket.request(payload, timeout: 30) else { fail(L10n.text("cli.start_app")) }
+            guard reply["ok"] as? Bool == true else {
+                fail(reply["error"] as? String ?? L10n.text("agent.runtime_unavailable"))
+            }
+            let data = try JSONSerialization.data(withJSONObject: reply, options: [.prettyPrinted, .sortedKeys])
+            print(String(decoding: data, as: UTF8.self))
+        } catch { fail(String(describing: error)) }
     case "relay":
         do {
             let payload = try RelayCommand.payload(args)
@@ -693,6 +703,22 @@ public func runVibePierCLI() async {
             print(text)
         }
         if reply["ok"] as? Bool != true { fail(reply["error"] as? String ?? L10n.text("core.transfer_failed")) }
+    case "session-provider-set":
+        guard args.count == 2 else { fail(L10n.text("providers.invalid_setting")) }
+        do {
+            guard
+                let reply = ControlSocket.request(
+                    [
+                        "cmd": command, "provider": args[0], "enabled": try parseBool(args[1]),
+                    ], timeout: 5)
+            else { fail(L10n.text("cli.daemon_unavailable", Paths.socket.path)) }
+            guard reply["ok"] as? Bool == true else {
+                fail(reply["error"] as? String ?? L10n.text("providers.invalid_setting"))
+            }
+            if let data = try? JSONSerialization.data(withJSONObject: reply) {
+                print(String(decoding: data, as: UTF8.self))
+            }
+        } catch { fail(String(describing: error)) }
     case "status", "reload":
         guard let reply = ControlSocket.request(["cmd": command], timeout: 2) else {
             fail(L10n.text("cli.daemon_unavailable", Paths.socket.path))

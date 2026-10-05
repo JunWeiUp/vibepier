@@ -35,10 +35,10 @@ if [ -n "${MACOS_SIGN_IDENTITY:-}" ]; then
         "Developer ID Application:"*) ;;
         *) echo "Public distribution requires a Developer ID Application identity; omit MACOS_SIGN_IDENTITY for an ad-hoc preview." >&2; exit 1 ;;
     esac
-    codesign --force --timestamp --options runtime --sign "$MACOS_SIGN_IDENTITY" "$stage/Contents/MacOS/VibePierFileServer"
+    codesign --force --timestamp --options runtime --identifier VibePierFileServer --sign "$MACOS_SIGN_IDENTITY" "$stage/Contents/MacOS/VibePierFileServer"
     codesign --force --timestamp --options runtime --entitlements "$macos/Resources/VibePier.entitlements" --sign "$MACOS_SIGN_IDENTITY" "$stage"
 else
-    codesign --force --sign - "$stage/Contents/MacOS/VibePierFileServer"
+    codesign --force --identifier VibePierFileServer --sign - "$stage/Contents/MacOS/VibePierFileServer"
     codesign --force --sign - "$stage"
 fi
 codesign --verify --deep --strict "$stage"

@@ -1,0 +1,11 @@
+<resources>
+    <string name="session_execution_mode">Task mode</string>
+    <string name="session_execution_plan">Plan</string>
+    <string name="session_execution_run">Execute</string>
+    <string name="session_choose_execution_mode">Choose mode</string>
+    <string name="session_execution_selection">Task mode: %1$s</string>
+    <string name="session_execution_description">Plan uses the agent’s native planning mode. Execute allows the agent to work with the selected permissions. Changes appear after the Mac confirms them.</string>
+    <string name="session_execution_unavailable">The Mac has not provided verified task modes for this session.</string>
+    <string name="session_execution_coupled_description">Plan uses the agent’s native planning mode. Switching to Execute uses the default permissions provided by the Mac: %1$s. The confirmed permissions will appear after the change.</string>
+    <string name="session_execution_default_permissions">%1$s · Default permissions: %2$s</string>
+</resources>

@@ -1,6 +1,7 @@
 package io.github.junweiup.vibepier.remote.features.sessions
 
 import io.github.junweiup.vibepier.remote.R
+import io.github.junweiup.vibepier.remote.BuildConfig
 import io.github.junweiup.vibepier.remote.core.session.SessionClient
 import io.github.junweiup.vibepier.remote.core.session.SessionCreationDraft
 
@@ -19,7 +20,7 @@ import java.security.MessageDigest
 import java.util.UUID
 import java.util.concurrent.Executors
 
-/** System-selected content is copied to this app's private storage, then encrypted by SessionClient. */
+/** System-selected content is copied to this app's private storage, transferred through the authenticated raw HTTPS file channel. */
 internal object CodexFileUpload {
     private val worker = Executors.newSingleThreadExecutor()
     private val main = Handler(Looper.getMainLooper())
@@ -96,13 +97,13 @@ internal object CodexFileUpload {
                 if (stopped()) { stop(); return@post }
                 watchCancellation()
                 val start = fields().put("name", name).put("mime", mime).put("size", size)
-                if (!client.bluetooth) start.put("binaryVersion", 1).put("uploadVersion", 1).put("uploadFragmentChars", client.attachmentFragmentChars)
+                start.put("binaryVersion", 1).put("uploadVersion", 1).put("uploadFragmentChars", client.attachmentFragmentChars)
                 client.request(operation("attachmentStart"), start) { response ->
                     if (finished) return@request
                     if (stopped()) { stop(); return@request }
                     if (!response.optBoolean("ok")) { finish(response); return@request }
                     val binary = response.optJSONObject("binary")
-                    if (binary != null && !client.bluetooth) {
+                    if (binary != null) {
                         val transfer = BinaryFileClient { !finished && !stopped() }; binaryTransfer = transfer; binaryTicket = binary.getString("id")
                         val host = client.binaryHost
                         worker.execute {
@@ -131,6 +132,7 @@ internal object CodexFileUpload {
                         }
                         return@request
                     }
+                    if (!BuildConfig.DESIGN_REVIEW) { finish(JSONObject().put("ok", false).put("error", resources.getString(R.string.file_binary_required))); return@request }
                     val profile = response.optJSONObject("upload")
                     val fast = !client.bluetooth && profile?.optInt("version") == 1 && profile.optString("token") == id &&
                         profile.optInt("fragmentChars") == start.optInt("uploadFragmentChars") && profile.optInt("chunkBytes") == 64 * 1024 && profile.optInt("window") == 3

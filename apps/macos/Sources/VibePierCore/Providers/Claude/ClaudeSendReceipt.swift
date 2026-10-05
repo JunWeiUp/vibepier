@@ -69,7 +69,10 @@ enum ClaudeCreationReceipt {
         guard let prompt = try? ClaudePrompt(text: text) else { return nil }
         return read(url, session: session, cwd: cwd, proof: prompt.proof)
     }
-    static func read(_ url: URL, session: String, cwd: String, proof: ClaudePrompt.Proof) -> [String: Any]? {
+    static func read(
+        _ url: URL, session: String, cwd: String, proof: ClaudePrompt.Proof,
+        executionMode: String? = nil, permissionMode: String? = nil
+    ) -> [String: Any]? {
         guard let before = try? FileManager.default.attributesOfItem(atPath: url.path),
             before[.type] as? FileAttributeType == .typeRegular,
             let inode = before[.systemFileNumber] as? NSNumber,
@@ -96,9 +99,30 @@ enum ClaudeCreationReceipt {
                 continue
             }
             guard entry["sessionId"] as? String == session, entry["cwd"] as? String == cwd,
-                id.utf8.count <= 256, proof.matches(content)
+                id.utf8.count <= 256, !id.contains("\0"), proof.matches(content)
             else { return nil }
-            return ["ok": true, "accepted": true, "threadId": session, "cwd": cwd, "nativeMessageId": id]
+            var result: [String: Any] = [
+                "ok": true, "accepted": true, "threadId": session, "cwd": cwd, "nativeMessageId": id,
+                // Claude's transcript has no turn UUID. This exact native human record
+                // is the verified turn anchor; it remains stable after the CLI exits.
+                "turnId": "transcript:" + session + ":" + id, "turnIdentityKind": "nativeMessageAnchor",
+            ]
+            if let executionMode {
+                let actual = entry["permissionMode"] as? String
+                guard ClaudeSessionConfiguration.executionMode(permissionMode: actual) == executionMode,
+                    actual == permissionMode
+                else {
+                    result["ok"] = false
+                    result["accepted"] = false
+                    result["unknown"] = true
+                    result["executionModeVerified"] = false
+                    return result
+                }
+                result["executionModeVerified"] = true
+                result["effectiveExecutionMode"] = executionMode
+                result["composer"] = ["mode": actual!, "executionMode": executionMode]
+            }
+            return result
         }
         return nil
     }

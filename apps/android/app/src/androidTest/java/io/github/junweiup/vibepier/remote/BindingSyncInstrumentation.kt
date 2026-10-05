@@ -70,9 +70,12 @@ class BindingSyncInstrumentation : Instrumentation() {
             check(probeName in setOf("binding-sync", "session-response", "private-storage", "controls-localization",
                 "screen-controls", "new-session-receipts", "new-session-composer", "relay-store", "enrollment", "background-connection",
                 "protocol-negotiation", "relay-framing", "apk", "composer", "microphone", "controls", "dock",
-                "codex", "codex-panel", "providers", "tool-groups", "markdown", "app-usage", "conversation-images", "codex-usage", "application-picker", "brand-icons", "codec-compatibility", "readme-previews", "session-blocker", "voice-layout", "conversation-scroll", "binary-files", "attachment-upload", "attachment-network-upload", "task-notifications", "app-versions", "html-preview", "video-preview", "audit-runtime", "audit-conversation")) {
+                "codex", "codex-panel", "providers", "provider-access", "tool-groups", "markdown", "app-usage", "conversation-images", "codex-usage", "application-picker", "brand-icons", "codec-compatibility", "readme-previews", "session-blocker", "voice-layout", "conversation-scroll", "binary-files", "binary-media", "attachment-upload", "attachment-network-upload", "task-notifications", "app-versions", "html-preview", "video-preview", "audit-runtime", "audit-conversation", "plan-mode", "agent-open", "image-zoom")) {
                 "Unknown instrumentation probe"
             }
+            if (probeName == "plan-mode") { result.putString("stream", PlanModeProbe.run(this)); finish(Activity.RESULT_OK, result); return }
+            if (probeName == "agent-open") { result.putString("stream", AgentOpenProbe.run(this)); finish(Activity.RESULT_OK, result); return }
+            if (probeName == "image-zoom") { result.putString("stream", ImageZoomProbe.run(this)); finish(Activity.RESULT_OK, result); return }
             if (probeName == "codec-compatibility") { result.putString("stream", CodecCompatibilityProbe.run()); finish(Activity.RESULT_OK, result); return }
             if (probeName == "video-preview") { result.putString("stream", VideoPreviewProbe.run(this)); finish(Activity.RESULT_OK, result); return }
             if (probeName == "html-preview") { result.putString("stream", HtmlPreviewProbe.run(this)); finish(Activity.RESULT_OK, result); return }
@@ -81,6 +84,7 @@ class BindingSyncInstrumentation : Instrumentation() {
             if (probeName == "session-blocker") { result.putString("stream", SessionBlockerProbe.run(this)); finish(Activity.RESULT_OK, result); return }
             if (probeName == "attachment-network-upload") { result.putString("stream", AttachmentNetworkUploadProbe.run(this, uploadPort)); finish(Activity.RESULT_OK, result); return }
             if (probeName == "attachment-upload") { result.putString("stream", AttachmentUploadProbe.run(this)); finish(Activity.RESULT_OK, result); return }
+            if (probeName == "binary-media") { result.putString("stream", BinaryMediaProbe.run(this)); finish(Activity.RESULT_OK, result); return }
             if (probeName == "binary-files") { result.putString("stream", BinaryFileProbe.run(this)); finish(Activity.RESULT_OK, result); return }
             if (probeName == "conversation-scroll") { result.putString("stream", ConversationScrollProbe.run(this)); finish(Activity.RESULT_OK, result); return }
             if (probeName == "voice-layout") { result.putString("stream", VoiceLayoutProbe.run(this)); finish(Activity.RESULT_OK, result); return }
@@ -103,6 +107,7 @@ class BindingSyncInstrumentation : Instrumentation() {
             if (relayFramingOnly) { result.putString("stream", RelayFramingProbe.run(this)); finish(Activity.RESULT_OK, result); return }
             if (imagesOnly) { result.putString("stream", ConversationImagesProbe.run(this)); finish(Activity.RESULT_OK, result); return }
             if (apkOnly) { result.putString("stream", ApkReceiverProbe.run(this)); finish(Activity.RESULT_OK, result); return }
+            if (probeName == "provider-access") { result.putString("stream", ProviderAccessProbe.run(this)); finish(Activity.RESULT_OK, result); return }
             if (providersOnly) { result.putString("stream", SessionProviderProbe.run(this)); finish(Activity.RESULT_OK, result); return }
             if (toolGroupsOnly) { result.putString("stream", ToolGroupingProbe.run(this)); finish(Activity.RESULT_OK, result); return }
             if (markdownOnly) { result.putString("stream", MarkdownFileViewerProbe.run(this)); finish(Activity.RESULT_OK, result); return }

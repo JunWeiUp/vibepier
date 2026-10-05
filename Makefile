@@ -17,7 +17,7 @@ build-android:
 build-relay:
 	cd services/relay && go build ./...
 
-test: test-macos test-android test-relay
+test: test-macos test-android test-relay test-agent-plugin
 
 test-macos:
 	swift test --package-path $(MACOS)
@@ -60,7 +60,13 @@ brand-assets:
 
 .PHONY: lint-repository
 lint-repository:
+	python3 scripts/dev/generate-session-contract.py --check
 	python3 scripts/check/repository.py
 	python3 scripts/check/localization.py
 	python3 scripts/dev/localize-macos.py --check
 	python3 scripts/check/release-provenance.py
+	python3 scripts/install/test_macos.py
+
+.PHONY: test-agent-plugin
+test-agent-plugin:
+	node --test plugins/claude-vibepier/tests/*.test.mjs

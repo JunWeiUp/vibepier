@@ -373,7 +373,14 @@ enum ClaudeDesktop {
     /// "Accept" keeps the current mode, unlike "Accept and auto mode"; its Esc means "Revise…", not reject.
     static func permissionButton(_ label: String, allow: Bool, plan: Bool = false) -> Bool {
         let text = label.trimmingCharacters(in: .whitespacesAndNewlines)
-        if plan { return allow ? text.hasPrefix("Accept") && !text.hasPrefix("Accept and") : text.hasPrefix("Reject") }
+        if plan {
+            let name = allow ? "Accept" : "Reject"
+            if text == name { return true }
+            guard text.hasPrefix(name + " ") else { return false }
+            let shortcut = text.dropFirst(name.count).trimmingCharacters(in: .whitespacesAndNewlines)
+            let allowed = CharacterSet(charactersIn: "⇧⌘⌥⌃↵⏎").union(.whitespaces)
+            return !shortcut.isEmpty && shortcut.unicodeScalars.allSatisfy { allowed.contains($0) }
+        }
         return allow
             ? text.hasPrefix("Allow once") || text == "Allow" || text.hasPrefix("允许一次")
             : text.hasPrefix("Deny") || text.hasPrefix("Decline") || text.hasPrefix("拒绝")

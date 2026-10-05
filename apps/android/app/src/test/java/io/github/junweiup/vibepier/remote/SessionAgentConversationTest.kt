@@ -1,0 +1,323 @@
+package io.github.junweiup.vibepier.remote
+
+import io.github.junweiup.vibepier.remote.core.session.*
+import org.json.JSONArray
+import org.json.JSONObject
+import org.junit.Assert.*
+import org.junit.Test
+
+class SessionAgentConversationTest {
+    private class Store : SessionAgentClient.Storage {
+        val rows = linkedMapOf<String, String>()
+        override fun pending() = rows.toMap()
+        override fun save(operationId: String, original: String): Boolean {
+            if (rows.containsKey(operationId)) return false
+            rows[operationId] = original
+            return true
+        }
+        override fun remove(operationId: String) = rows.remove(operationId) != null
+    }
+    private class Harness {
+        var identity = "host"
+        var provider = "codex"
+        var view = 7L
+        var adapter = "codex.currentV1"
+        val store = Store()
+        val wires = mutableListOf<JSONObject>()
+        val held = mutableListOf<Pair<JSONObject, (JSONObject) -> Unit>>()
+        var holdReads = false
+        var holdObservation = false
+        var capabilityRemembered: () -> Unit = {}
+        var dirtyNotifications = 0
+        var beforeSnapshot: (() -> Unit)? = null
+        val draft = "00000000-0000-4000-8000-000000000099"
+        var creationOptions = JSONObject().put("creationVersion", 1).put("draftId", draft).put("cwd", "/synthetic")
+            .put("composer", JSONObject().put("model", "model-a").put("mode", "auto").put("effort", "medium").put("executionMode", "default"))
+            .put("models", JSONArray().put(JSONObject().put("id", "model-a").put("efforts", JSONArray().put("medium"))))
+            .put("permissionModes", JSONArray().put(JSONObject().put("id", "auto")))
+            .put("executionModes", JSONArray().put(JSONObject().put("id", "default")).put(JSONObject().put("id", "plan")))
+        var page = JSONObject().put("provider", "codex").put("threadId", "thread").put("contentState", "complete")
+            .put("status", "idle").put("canSend", true).put("messages", JSONArray()).put("approvals", JSONArray())
+            .put("queuedMessages", JSONArray()).put("composer", JSONObject().put("model", "model-a").put("mode", "auto")
+                .put("effort", "medium").put("executionMode", "default"))
+            .put("agentCapabilities", JSONObject().put("actions", JSONObject().put("queue", JSONObject().put("available", true))))
+        val client = SessionAgentClient({ identity }, { wire, done ->
+            val copy = JSONObject(wire.toString()); wires.add(copy)
+            val method = copy.getJSONObject("body").getString("method")
+            if (holdReads && method in setOf("session.list", "workspace.list", "session.snapshot", "session.open", "session.creationOptions") || holdObservation && method == "session.observe") held.add(copy to done)
+            else answer(copy, done)
+        }, store, { source, selected -> source == "codex" && selected == adapter }, { adapter })
+        val conversation = SessionAgentConversation(client, { provider }, { view }, { ++view }, { adapter }, { _, _ -> false },
+            { _, _ -> capabilityRemembered() }, { _, _ -> true }, { it })
+        init {
+            client.discover(JSONObject().put("versions", JSONArray().put(2)).put("minimumClientVersion", 2)
+                .put("methods", JSONArray(SessionAgentProtocol.Method.entries.map { it.wire })))
+            client.rememberSession("codex", descriptor("old-owner", "old-caps"), "expired-lease")
+            client.rememberSnapshot("codex", "thread", page)
+            client.rememberWorkspace("codex", JSONObject().put("adapterId", adapter).put("cwd", "/synthetic").put("workspaceRef", "workspace"))
+            client.onDirty = { dirtyNotifications++ }
+        }
+        fun descriptor(owner: String = "new-owner", caps: String = "new-caps") = JSONObject()
+            .put("adapterId", adapter).put("nativeThreadId", "thread").put("sessionRef", "session")
+            .put("ownershipEpoch", owner).put("capabilityRevision", caps)
+        fun readReply(wire: JSONObject, result: JSONObject): JSONObject {
+            val body = wire.getJSONObject("body")
+            return JSONObject().put("id", body.getString("requestId")).put("ok", true)
+                .put("body", JSONObject().put("agentProtocol", 2).put("requestId", body.getString("requestId")).put("result", result))
+        }
+        fun answer(wire: JSONObject, done: (JSONObject) -> Unit) {
+            val body = wire.getJSONObject("body")
+            when (body.getString("method")) {
+                "session.list" -> done(readReply(wire, JSONObject().put("sessions", JSONArray().put(descriptor("old-owner", "old-caps")))))
+                "workspace.list" -> done(readReply(wire, JSONObject().put("workspaces", JSONArray().put(JSONObject().put("adapterId", adapter)
+                    .put("cwd", "/another-project").put("workspaceRef", "discovered-workspace")))))
+                "session.observe" -> done(readReply(wire, JSONObject().put("streamEpoch", "stream").put("throughSequence", 1)
+                    .put("resyncRequired", true).put("events", JSONArray())))
+                "session.snapshot", "session.open" -> {
+                    beforeSnapshot?.invoke()
+                    done(readReply(wire, JSONObject().put("session", descriptor()).put("controlLease", "fresh-lease")
+                        .put("snapshot", JSONObject(page.toString()))))
+                }
+                "operation.get" -> {
+                    val original = wires.first { it.getJSONObject("body").optString("operationId").isNotBlank() }.getJSONObject("body")
+                    done(readReply(wire, JSONObject().put("operation", unknownBody(original))))
+                }
+                "session.creationOptions" -> done(readReply(wire, JSONObject().put("options", JSONObject(creationOptions.toString()))
+                    .put("creationLease", JSONObject().put("target", JSONObject().put("adapterId", adapter).put("workspaceRef", "workspace")
+                        .put("draftId", draft).put("optionsRevision", "fresh-options")).put("controlLease", "fresh-creation-lease"))))
+                else -> done(JSONObject().put("id", body.getString("requestId")).put("ok", false).put("unknown", true)
+                    .put("body", unknownBody(body)))
+            }
+        }
+        private fun unknownBody(original: JSONObject) = JSONObject().put("agentProtocol", 2)
+            .put("requestId", original.getString("requestId")).put("operationId", original.getString("operationId"))
+            .put("status", "unknown").put("target", original.getJSONObject("target")).put("result", JSONObject())
+        fun fields() = JSONObject().put("provider", "codex").put("threadId", "thread").put("text", "same intended message")
+        fun creationFields() = JSONObject().put("provider", "codex").put("cwd", "/synthetic").put("draftId", draft).put("text", "original first message")
+        fun methods() = wires.map { it.getJSONObject("body").getString("method") }
+    }
+
+    @Test fun expiredLeaseIsRenewedBeforeOnlyOneFirstSubmissionAndReadonlyPreparationDoesNotJournal() {
+        val harness = Harness()
+        var prepared: JSONObject? = null
+        harness.conversation.prepareSessionControl(harness.fields()) { prepared = it }
+        assertTrue(prepared!!.optBoolean("ok"))
+        assertEquals(listOf("session.snapshot"), harness.methods())
+        assertTrue(harness.store.rows.isEmpty())
+        assertEquals("fresh-lease", harness.client.session("codex", "thread")!!.controlLease)
+        var response: JSONObject? = null
+        harness.conversation.request("send", harness.fields()) { response = it }
+        assertEquals(listOf("session.snapshot", "session.snapshot", "message.submit"), harness.methods())
+        val body = harness.wires.last().getJSONObject("body")
+        assertEquals("fresh-lease", body.getString("controlLease"))
+        assertEquals("new-owner", body.getJSONObject("target").getString("ownershipEpoch"))
+        assertEquals("start", body.getJSONObject("params").getString("mode"))
+        assertTrue(response!!.optBoolean("unknown"))
+        assertEquals(1, harness.store.rows.size)
+    }
+    @Test fun dirtyDuringPreparationIsRereadOnceAndRevokesOnlyControlNotReadIdentity() {
+        val harness = Harness()
+        var reads = 0
+        harness.beforeSnapshot = { if (++reads == 1) harness.client.invalidateControl("session") }
+        harness.conversation.request("send", harness.fields()) { }
+        assertEquals(listOf("session.snapshot", "session.snapshot", "message.submit"), harness.methods())
+        harness.client.invalidateControl("session")
+        assertEquals("session", harness.client.session("codex", "thread")!!.target.sessionRef)
+        assertNull(harness.client.session("codex", "thread")!!.controlLease)
+        assertFalse(harness.client.controlReady("codex", "thread"))
+    }
+    @Test fun constantlyDirtyPreparationIsBoundedAndNeverReservesOrSubmits() {
+        val harness = Harness()
+        harness.beforeSnapshot = { harness.client.invalidateControl("session") }
+        var response: JSONObject? = null
+        harness.conversation.request("send", harness.fields()) { response = it }
+        assertEquals(listOf("session.snapshot", "session.snapshot"), harness.methods())
+        assertFalse(response!!.optBoolean("ok"))
+        assertTrue(harness.store.rows.isEmpty())
+    }
+    @Test fun olderViewSyncReplyCannotReplaceCurrentTypedLeaseSnapshotOrAuthorizeAMutation() {
+        val harness = Harness(); harness.holdReads = true
+        var response: JSONObject? = null
+        harness.conversation.request("sync", harness.fields()) { response = it }
+        harness.view++
+        val current = harness.descriptor("current-owner", "current-caps")
+        harness.client.rememberSession("codex", current, "current-lease")
+        harness.client.rememberSnapshot("codex", "thread", JSONObject(harness.page.toString()).put("status", "active"))
+        val held = harness.held.single(); harness.answer(held.first, held.second)
+        assertEquals("stale_state", response!!.getString("code"))
+        assertEquals("current-lease", harness.client.session("codex", "thread")!!.controlLease)
+        assertEquals("active", harness.client.snapshot("codex", "thread")!!.getString("status"))
+        assertTrue(harness.store.rows.isEmpty())
+    }
+    @Test fun originalUnknownOperationOnlyQueriesReceiptWithoutAnotherPreparationOrSubmission() {
+        val harness = Harness(); val id = SessionAgentProtocol.id()
+        val fields = harness.fields().put("id", id)
+        harness.conversation.request("send", fields) { }
+        val original = harness.store.rows.getValue(id)
+        harness.conversation.request("send", fields) { }
+        assertEquals(listOf("session.snapshot", "message.submit", "operation.get"), harness.methods())
+        assertEquals(original, harness.store.rows.getValue(id))
+    }
+    @Test fun freshDifferentTurnAndDifferentStartModeCannotExecuteOldIntent() {
+        for (op in listOf("send", "interrupt")) {
+            val harness = Harness(); harness.holdReads = true
+            harness.page.put("status", if (op == "send") "idle" else "active").put("activeTurnId", "original-turn")
+            harness.client.rememberSnapshot("codex", "thread", harness.page)
+            var response: JSONObject? = null
+            harness.conversation.request(op, harness.fields().put("expectedTurnId", "original-turn")) { response = it }
+            harness.page.put("status", "active").put("activeTurnId", "another-turn")
+            val held = harness.held.single(); harness.answer(held.first, held.second)
+            assertFalse(response!!.optBoolean("ok"))
+            assertEquals(listOf("session.snapshot"), harness.methods())
+            assertTrue(harness.store.rows.isEmpty())
+        }
+    }
+    @Test fun prepareCannotContinueAfterAuthorizationProviderAdapterOrViewChanges() {
+        for (change in 0..3) {
+            val harness = Harness(); harness.holdReads = true
+            var response: JSONObject? = null
+            harness.conversation.request("send", harness.fields()) { response = it }
+            when (change) { 0 -> harness.identity = "another-host"; 1 -> harness.provider = "claude"; 2 -> harness.adapter = "codex.managed"; else -> harness.view++ }
+            val held = harness.held.single(); harness.answer(held.first, held.second)
+            assertFalse(response!!.optBoolean("ok"))
+            assertEquals(listOf("session.snapshot"), harness.methods())
+            assertTrue(harness.store.rows.isEmpty())
+        }
+    }
+    @Test fun everyExistingSessionMutationPreparesBeforeExactlyOneWriteAndKeepsItsOriginalObject() {
+        for ((op, method) in mapOf("settings" to "session.configure", "interrupt" to "turn.interrupt", "approve" to "approval.resolve", "queueDelete" to "queue.cancel")) {
+            val harness = Harness()
+            val fields = harness.fields()
+            when (op) {
+                "settings" -> fields.put("model", "model-a")
+                "interrupt" -> { harness.page.put("status", "active").put("activeTurnId", "original-turn"); fields.put("expectedTurnId", "original-turn") }
+                "approve" -> {
+                    harness.page.put("approvals", JSONArray().put(JSONObject().put("id", "approval").put("fingerprint", "fingerprint")
+                        .put("revision", "revision").put("canDecide", true).put("allowedDecisions", JSONArray().put("allow").put("deny"))))
+                    fields.put("fingerprint", "fingerprint").put("expectedApprovalRevision", "revision").put("allow", true)
+                }
+                "queueDelete" -> {
+                    harness.page.put("queuedMessages", JSONArray().put(JSONObject().put("id", "original-queue").put("text", "original body").put("canDelete", true)))
+                    fields.put("messageId", "original-queue")
+                }
+            }
+            harness.client.rememberSnapshot("codex", "thread", harness.page)
+            harness.conversation.request(op, fields) { }
+            assertEquals(listOf("session.snapshot", method), harness.methods())
+            assertEquals(1, harness.store.rows.size)
+            val params = harness.wires.last().getJSONObject("body").getJSONObject("params")
+            when (op) {
+                "settings" -> assertEquals("model-a", params.getJSONObject("options").getString("model"))
+                "interrupt" -> assertEquals("original-turn", params.getString("expectedTurnId"))
+                "approve" -> assertEquals("revision", params.getString("revision"))
+                "queueDelete" -> assertEquals("original-queue", params.getString("queueId"))
+            }
+        }
+    }
+    @Test fun newerApprovalComposerOrQueueContentCannotAuthorizeTheEarlierClick() {
+        for (op in listOf("settings", "approve", "queueDelete")) {
+            val harness = Harness(); harness.holdReads = true
+            val fields = harness.fields().put("model", "model-a")
+            harness.page.put("approvals", JSONArray().put(JSONObject().put("id", "approval").put("fingerprint", "fingerprint")
+                .put("revision", "old-revision").put("canDecide", true).put("allowedDecisions", JSONArray().put("allow"))))
+                .put("queuedMessages", JSONArray().put(JSONObject().put("id", "queue").put("text", "reviewed text").put("canDelete", true)))
+            if (op == "approve") fields.put("fingerprint", "fingerprint").put("expectedApprovalRevision", "old-revision").put("allow", true)
+            if (op == "queueDelete") fields.put("messageId", "queue")
+            harness.client.rememberSnapshot("codex", "thread", harness.page)
+            var response: JSONObject? = null
+            harness.conversation.request(op, fields) { response = it }
+            when (op) {
+                "settings" -> harness.page.getJSONObject("composer").put("mode", "full-access")
+                "approve" -> harness.page.getJSONArray("approvals").getJSONObject(0).put("revision", "new-revision")
+                "queueDelete" -> harness.page.getJSONArray("queuedMessages").getJSONObject(0).put("text", "unreviewed replacement")
+            }
+            val held = harness.held.single(); harness.answer(held.first, held.second)
+            assertFalse(response!!.optBoolean("ok"))
+            assertEquals(listOf("session.snapshot"), harness.methods())
+            assertTrue(harness.store.rows.isEmpty())
+        }
+    }
+    @Test fun newSessionRenewsCreationAuthorityButFreezesReviewedDefaultOptions() {
+        val harness = Harness()
+        harness.conversation.request("newOptions", harness.creationFields()) { }
+        harness.creationOptions.getJSONObject("composer").put("model", "model-b").put("mode", "full-access")
+        harness.creationOptions.getJSONArray("models").put(JSONObject().put("id", "model-b").put("efforts", JSONArray().put("medium")))
+        harness.conversation.request("new", harness.creationFields()) { }
+        assertEquals(listOf("session.creationOptions", "session.creationOptions", "session.create"), harness.methods())
+        val body = harness.wires.last().getJSONObject("body")
+        assertEquals("fresh-creation-lease", body.getString("controlLease"))
+        assertEquals(harness.draft, body.getJSONObject("target").getString("draftId"))
+        assertEquals("model-a", body.getJSONObject("params").getJSONObject("options").getString("model"))
+        assertEquals("auto", body.getJSONObject("params").getJSONObject("options").getString("mode"))
+    }
+    @Test fun removedCreationChoiceAndObsoleteCreationReplyNeverCreateOrReplaceDefaults() {
+        val harness = Harness()
+        harness.conversation.request("newOptions", harness.creationFields()) { }
+        harness.creationOptions.put("models", JSONArray().put(JSONObject().put("id", "other-model").put("efforts", JSONArray().put("medium"))))
+        var response: JSONObject? = null
+        harness.conversation.request("new", harness.creationFields()) { response = it }
+        assertFalse(response!!.optBoolean("ok"))
+        assertEquals(listOf("session.creationOptions", "session.creationOptions"), harness.methods())
+        assertTrue(harness.store.rows.isEmpty())
+        harness.holdReads = true
+        harness.conversation.request("newOptions", harness.creationFields()) { response = it }
+        harness.view++
+        val held = harness.held.single(); harness.answer(held.first, held.second)
+        assertEquals("stale_state", response!!.getString("code"))
+        assertTrue(harness.store.rows.isEmpty())
+    }
+    @Test fun sameViewLateDiscoveryCannotReplaceTheVerifiedControlDescriptorOrLease() {
+        val harness = Harness(); harness.holdReads = true
+        harness.conversation.request("list", JSONObject().put("provider", "codex")) { }
+        harness.holdReads = false
+        harness.conversation.prepareSessionControl(harness.fields()) { assertTrue(it.optBoolean("ok")) }
+        val held = harness.held.single(); harness.answer(held.first, held.second)
+        val session = harness.client.session("codex", "thread")!!
+        assertEquals("new-owner", session.target.ownershipEpoch)
+        assertEquals("new-caps", session.target.capabilityRevision)
+        assertEquals("fresh-lease", session.controlLease)
+        assertTrue(harness.client.controlReady("codex", "thread"))
+        assertTrue(harness.store.rows.isEmpty())
+    }
+    @Test fun olderViewDiscoveryCannotPopulateSessionsOrWorkspaces() {
+        for (op in listOf("list", "projects")) {
+            val harness = Harness(); harness.holdReads = true
+            var response: JSONObject? = null
+            harness.conversation.request(op, JSONObject().put("provider", "codex")) { response = it }
+            harness.view++
+            harness.client.rememberSession("codex", harness.descriptor("current-owner", "current-caps"), "current-lease")
+            val held = harness.held.single(); harness.answer(held.first, held.second)
+            assertEquals("stale_state", response!!.getString("code"))
+            assertEquals("current-lease", harness.client.session("codex", "thread")!!.controlLease)
+            assertNull(harness.client.workspace("codex", "/another-project"))
+        }
+    }
+    @Test fun obsoleteObservationCallbacksCannotNotifyDirtyOrRecreateObservers() {
+        for (clear in listOf(false, true)) {
+            val harness = Harness(); harness.holdObservation = true
+            harness.conversation.request("open", harness.fields()) { }
+            val held = harness.held.single()
+            if (clear) harness.conversation.clearConnection() else harness.view++
+            harness.answer(held.first, held.second)
+            assertEquals(0, harness.dirtyNotifications)
+            assertEquals(listOf("session.open", "session.observe"), harness.methods())
+        }
+    }
+    @Test fun preparingControlCannotSubmitWhenFreshCapabilityDeliveryChangesTheView() {
+        val harness = Harness()
+        harness.capabilityRemembered = { harness.view++ }
+        var response: JSONObject? = null
+        harness.conversation.request("send", harness.fields()) { response = it }
+        assertEquals("stale_state", response!!.getString("code"))
+        assertEquals(listOf("session.snapshot"), harness.methods())
+        assertTrue(harness.store.rows.isEmpty())
+    }
+    @Test fun explicitlyObsoleteRequestedViewCannotStartPreparation() {
+        val harness = Harness()
+        var response: JSONObject? = null
+        harness.conversation.request("send", harness.fields().put("viewVersion", 6)) { response = it }
+        assertEquals("stale_state", response!!.getString("code"))
+        assertTrue(harness.wires.isEmpty())
+        assertTrue(harness.store.rows.isEmpty())
+    }
+}

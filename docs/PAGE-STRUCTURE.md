@@ -13,12 +13,24 @@ VibePier has native views and windows, not URL-based web routes. Provider deep l
 | Key configuration | General and application profiles with a dedicated binding editor | Keep the edited profile fixed even if the Mac's frontmost app changes. |
 | App usage | Opt-in recorded usage and time-of-day segments | Respect the source Mac identity; missing periods are not invented. |
 | Session list | Provider selection, project/search filters, recent sessions and new-session entry; `ConversationPanel` | Preserve navigation scope; close obsolete subscriptions. |
-| Session detail | Conversation, lazy tool output, composer, attachments, supported settings/approvals/queue | Keep draft/uncertain receipts, cancel old reads and image work. |
+| Session detail | Conversation, lazy tool output, composer, attachments, native Plan/Execute, supported settings/approvals/queue | Keep draft/uncertain receipts, confirm native settings, cancel old reads and image work. |
 | Markdown/image viewer | Native rendering of a permitted file/image from the current session | Cancel scope-bound work; do not turn references into arbitrary network fetches. |
 | Session menu | Lock, Unlock, optional Mac unlock setup and explicit reauthorization | First connection still requests approval automatically, outside this menu. |
 | APK installation | Download/verification state, confirmation and system installer | Distinguish downloaded, awaiting permission/confirmation, installed and unknown result. |
 
 `ConversationNavigation` owns opening/closing the session overlay and document-picker return. Underlying remote controls are inaccessible while the overlay is visible. Cancelling the document picker preserves the conversation and draft. A provider change changes the complete draft/cache/request scope, not only the visible heading.
+
+Existing and new sessions expose native Plan/Execute choices only through available adapter capabilities. The new-session draft retains the chosen task mode; an unknown creation keeps its first message locked. Claude permission coupling hides the permission picker in Plan and discloses the safe default when choosing Execute.
+
+已有会话和新建会话按实际能力提供计划/执行选项；新建草稿保留模式，结果未知时首条消息继续锁定。Claude 计划模式绑定权限时隐藏权限选择，切回执行前说明默认权限。
+
+Pull down at the top of a ready, connected conversation to load earlier content directly. An explicit pull rechecks history even when the phone previously recorded its endpoint; automatic loading near the top still respects that endpoint. Codex checks a fresh, owner-bound native snapshot at the history boundary and fills incomplete history within the same read request. Earlier messages preserve the current reading position; refreshing the session is not a prerequisite.
+
+会话已就绪并连接时，在顶部下拉即可直接加载更早内容。主动下拉会重新检查历史，即使手机此前记住了终点；接近顶部的自动加载仍遵守终点。Codex 在历史边界核对绑定当前原生会话 owner 的新快照，并在同一次读取请求内补齐不完整历史。补入旧消息保留当前阅读位置，无需先刷新会话。
+
+Native updates can invalidate control capabilities while history remains readable through the verified open view. History and reply-part reads retain that view's identity until it closes or changes. Codex also reloads missing reply parts from verified native history before returning them; a reply first seen without its user message is reconciled only through a unique native item in the same conversation.
+
+原生状态更新可以使控制能力失效，历史读取仍绑定已验证的打开会话，直到该会话关闭或切换。Codex 会先从核验后的原生历史补齐缺失回复片段；首次读取时尚未包含用户消息的部分回复，仅通过同一会话内唯一原生片段匹配。
 
 ## macOS
 
@@ -30,6 +42,10 @@ VibePier has native views and windows, not URL-based web routes. Provider deep l
 | `phone-remote` | One sidebar window with connection, phone bindings, application slots, authorized session access, relay setup and APK delivery pages. |
 
 `PhoneRemoteNavigation` selects the desired sidebar page when a menu action opens the window. The shared `DeviceModel` observes the embedded runtime. Permission dialogs occur only when needed for an explicit feature; repeatedly opening a settings window must not create another runtime or connection.
+
+The menu panel preserves its top edge throughout one opening, including when the task list grows or shrinks. Content determines its height up to the existing limit, with scrolling beyond that limit. Closing and reopening captures the system's current menu anchor again.
+
+菜单面板在同次打开期间保持顶部位置，包括会话任务列表增减时。面板按内容高度向下伸缩，达到既有高度上限后滚动；关闭后再次打开，重新取得系统当前的菜单定位。
 
 ## Required states
 
