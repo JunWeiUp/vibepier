@@ -495,11 +495,11 @@ final class CodexBridge: @unchecked Sendable {
         }
         if op == "settingsReceiptCheck" {
             let actual =
-                request["executionMode"] == nil
+                request["executionMode"] == nil && request["serviceTier"] == nil
                 ? state
                 : try CodexConfiguredCreation.freshView(thread, expectedOwner: owner).state
             let selection = CodexComposer.selection(actual)
-            let keys = ["model", "effort", "mode", "executionMode"].filter { request[$0] != nil }
+            let keys = ["model", "effort", "mode", "executionMode", "serviceTier"].filter { request[$0] != nil }
             let accepted = !keys.isEmpty && keys.allSatisfy { request[$0] as? String == selection[$0] as? String }
             return [
                 "accepted": accepted, "threadId": thread, "composer": selection,

@@ -295,4 +295,8 @@
     <string name="session_wait_slow">No new progress for at least a minute. The task may still be running; you can cancel it manually.</string>
     <string name="session_wait_stopping">Cancellation requested. Waiting for the Mac to confirm that the task stopped.</string>
     <string name="session_wait_stopped">Waiting stopped. Unconfirmed receipts are kept; you can write a different message.</string>
+    <string name="session_speed">Speed</string>
+    <string name="session_speed_standard">Off · Standard</string>
+    <string name="session_speed_fast">On · Fast</string>
+    <string name="session_speed_description">Applies to subsequent requests. Fast mode may increase usage; availability follows the selected model on the Mac.</string>
 </resources>

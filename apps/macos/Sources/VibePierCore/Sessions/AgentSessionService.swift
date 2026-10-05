@@ -1079,7 +1079,7 @@ final class AgentSessionService: @unchecked Sendable {
             guard AgentSessionProfile.boolean(value["accepted"]) == true,
                 verifiedExecutionMode(native: native, value: value),
                 let effective = value["composer"] as? [String: Any],
-                ["model", "effort", "mode", "executionMode"].filter({ native[$0] != nil }).allSatisfy({
+                ["model", "effort", "mode", "executionMode", "serviceTier"].filter({ native[$0] != nil }).allSatisfy({
                     effective[$0] as? String == native[$0] as? String
                 })
             else { return ("unknown", [:]) }
@@ -1321,7 +1321,8 @@ final class AgentSessionService: @unchecked Sendable {
             queued = []
         }
         let choices = composer.filter {
-            ["model", "mode", "effort", "executionMode", "locked", "executionModePermissionCoupled"].contains($0.key)
+            ["model", "mode", "effort", "executionMode", "serviceTier", "locked", "executionModePermissionCoupled"]
+                .contains($0.key)
                 || $0.key.hasSuffix("Locked")
         }
         var controls: [String: Any] = [
@@ -1465,6 +1466,13 @@ final class AgentSessionService: @unchecked Sendable {
             }
             native[field] = choice
         }
+        if let raw = values["serviceTier"] {
+            let choice = try required(raw, limit: 256)
+            guard !requireCatalog, ["standard", "priority"].contains(choice),
+                composer["serviceTier"] is String
+            else { throw AgentSessionProfile.Failure(code: "agent_options_changed") }
+            native["serviceTier"] = choice
+        }
         if let raw = values["executionMode"] {
             let choice = try required(raw, limit: 256)
             let catalog = advertised["executionModes"] as? [[String: Any]] ?? []
@@ -1476,7 +1484,7 @@ final class AgentSessionService: @unchecked Sendable {
             else { throw AgentSessionProfile.Failure(code: "agent_capability_unavailable") }
             native["executionMode"] = choice
         }
-        guard ["model", "mode", "effort", "executionMode"].contains(where: { values[$0] != nil }) else {
+        guard ["model", "mode", "effort", "executionMode", "serviceTier"].contains(where: { values[$0] != nil }) else {
             throw AgentSessionProfile.Failure(code: "agent_options_invalid")
         }
     }

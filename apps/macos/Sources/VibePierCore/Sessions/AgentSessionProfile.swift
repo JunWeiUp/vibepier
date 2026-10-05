@@ -71,11 +71,19 @@ enum AgentSessionProfile {
         }
         if let options = params["options"] {
             guard let options = options as? [String: Any],
-                Set(options.keys).isSubset(of: ["model", "mode", "effort", "executionMode", "confirmation"]),
+                Set(options.keys).isSubset(of: [
+                    "model", "mode", "effort", "executionMode", "serviceTier", "confirmation",
+                ]),
                 options.allSatisfy({ key, value in
                     key == "confirmation" ? boolean(value) != nil : bounded(value as? String, maximum: 256)
                 })
             else { throw Failure(code: "agent_request_invalid") }
+        }
+        if let options = params["options"] as? [String: Any], let tier = options["serviceTier"] {
+            guard method == "session.configure", let tier = tier as? String, ["standard", "priority"].contains(tier)
+            else {
+                throw Failure(code: "agent_options_invalid")
+            }
         }
         if let options = params["options"] as? [String: Any], let execution = options["executionMode"] {
             guard let mode = execution as? String, ["default", "plan"].contains(mode) else {

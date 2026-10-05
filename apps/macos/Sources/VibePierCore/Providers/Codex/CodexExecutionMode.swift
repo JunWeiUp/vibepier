@@ -86,7 +86,7 @@ enum CodexExecutionMode {
 
     static func verifiedComposer(_ state: [String: Any], request: [String: Any]) throws -> [String: Any] {
         let actual = CodexConversation.composer(state)
-        let keys = ["model", "effort", "mode", "executionMode"].filter { request[$0] != nil }
+        let keys = ["model", "effort", "mode", "executionMode", "serviceTier"].filter { request[$0] != nil }
         guard !keys.isEmpty, keys.allSatisfy({ request[$0] as? String == actual[$0] as? String }) else {
             throw UnconfirmedDesktopMutation(
                 reason: L10n.text("session.codex_did_not_apply_this_setting_refresh_and_retry"))

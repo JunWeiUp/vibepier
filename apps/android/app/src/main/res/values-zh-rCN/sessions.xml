@@ -293,4 +293,8 @@
     <string name="session_wait_slow">至少一分钟没有新进展。任务可能仍在运行，你可以手动取消。</string>
     <string name="session_wait_stopping">已请求取消，正在等待 Mac 确认任务停止。</string>
     <string name="session_wait_stopped">已停止等待。待确认回执已保留，可以编写新的消息。</string>
+    <string name="session_speed">加速</string>
+    <string name="session_speed_standard">关闭 · 标准速度</string>
+    <string name="session_speed_fast">开启 · 加速</string>
+    <string name="session_speed_description">用于后续请求。加速可能增加用量，是否可用取决于 Mac 端所选模型。</string>
 </resources>

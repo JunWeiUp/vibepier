@@ -19,6 +19,14 @@ class SessionAgentProtocolTest {
             if (status in setOf("accepted", "unknown")) put("unknown", true)
         }
     }
+    @Test fun speedOptionIsEncodedAndInvalidTiersAreRejected() {
+        fun configure(tier: Any) = SessionAgentProtocol.Request(SessionAgentProtocol.id(), SessionAgentProtocol.Method.CONFIGURE, target,
+            JSONObject().put("options", JSONObject().put("serviceTier", tier)), SessionAgentProtocol.id(), SessionAgentProtocol.id())
+        for (tier in listOf("standard", "priority")) assertEquals(tier, configure(tier).json().getJSONObject("params").getJSONObject("options").getString("serviceTier"))
+        assertThrows(IllegalArgumentException::class.java) { configure("unknown") }
+        assertThrows(IllegalArgumentException::class.java) { configure(true) }
+    }
+
     @Test fun submissionConfirmationRequiresNativeProofAndOriginalScope() {
         val request = request(); assertNotNull(SessionAgentProtocol.reply(response(request), request))
         assertNull(SessionAgentProtocol.reply(response(request, proof = JSONObject().put("accepted", true)), request))

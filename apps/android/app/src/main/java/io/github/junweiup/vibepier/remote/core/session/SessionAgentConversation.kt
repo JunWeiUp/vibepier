@@ -431,7 +431,7 @@ internal class SessionAgentConversation(
         for (index in 0 until attachments.length()) put(JSONObject().put("type", "attachment").put("attachmentId", attachments.getString(index)))
     }
     private fun options(fields: JSONObject) = JSONObject().apply {
-        for (key in listOf("model", "mode", "effort", "executionMode")) if (fields.has(key)) put(key, fields.get(key))
+        for (key in listOf("model", "mode", "effort", "executionMode", "serviceTier")) if (fields.has(key)) put(key, fields.get(key))
         if (fields.has("confirmFullAccess")) put("confirmation", fields.get("confirmFullAccess"))
     }
     fun legacyReply(reply: SessionAgentProtocol.Reply, context: JSONObject): JSONObject {

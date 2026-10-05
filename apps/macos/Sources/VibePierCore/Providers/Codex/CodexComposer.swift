@@ -21,6 +21,10 @@ struct CodexComposer {
             return [
                 "id": id, "name": item["display_name"] as? String ?? id,
                 "description": item["description"] as? String ?? "", "efforts": efforts,
+                "serviceTiers":
+                    (["standard"]
+                    + ((item["service_tiers"] as? [[String: Any]] ?? []).contains { $0["id"] as? String == "priority" }
+                        ? ["priority"] : [])),
                 "defaultEffort": item["default_reasoning_level"] as? String ?? "medium",
             ]
         }
@@ -42,13 +46,23 @@ struct CodexComposer {
             "effort": settings["effort"] as? String ?? state["latestReasoningEffort"] as? String ?? "medium",
             "mode": mode,
         ]
+        if let tier = settings["serviceTier"] {
+            if tier is NSNull || tier as? String == "default" {
+                result["serviceTier"] = "standard"
+            } else if tier as? String == "priority" {
+                result["serviceTier"] = "priority"
+            }
+        }
         if let mode = CodexExecutionMode.selected(state) { result["executionMode"] = mode }
         return result
     }
     func settings(_ request: [String: Any], state: [String: Any], executionModes: [[String: Any]] = []) throws
         -> [String: Any]
     {
-        guard ["model", "effort", "mode", "executionMode"].allSatisfy({ request[$0] == nil || request[$0] is String })
+        guard
+            ["model", "effort", "mode", "executionMode", "serviceTier"].allSatisfy({
+                request[$0] == nil || request[$0] is String
+            })
         else {
             throw CLIError(L10n.text("core.invalid_request"))
         }
@@ -72,6 +86,18 @@ struct CodexComposer {
                 result["collaborationMode"] = try CodexExecutionMode.preset(
                     mode: mode, model: model, effort: effort, catalog: executionModes)
             }
+        }
+        if let tier = request["serviceTier"] as? String {
+            guard selection["serviceTier"] != nil, ["standard", "priority"].contains(tier) else {
+                throw CLIError(L10n.text("core.invalid_request"))
+            }
+            if tier == "priority" {
+                let model = request["model"] as? String ?? selection["model"] as? String ?? ""
+                guard let entry = try models().first(where: { $0["id"] as? String == model }),
+                    (entry["serviceTiers"] as? [String] ?? []).contains(tier)
+                else { throw CLIError(L10n.text("core.invalid_request")) }
+            }
+            result["serviceTier"] = tier == "priority" ? "priority" : NSNull()
         }
         if let mode = request["mode"] as? String {
             switch mode {

@@ -218,3 +218,11 @@ A confirmed configuration must contain `effectiveOptions.executionMode` matching
 Claude's native `ExitPlanMode` is exposed as a single-use approval only for a complete bounded plan with no extra permission fields/rules and no nonempty `allowedPrompts`. The adapter supplies the explicit `planApprovalScope: "once"` after validating native input. The gateway still requires the original pending identity/fingerprint and native `once`/`deny` evidence. Other plan requests stay Mac-only; a plan marker does not authorize blanket permissions or a settings mutation.
 
 手机会话输入区域与新建会话选项提供独立的计划/执行入口。当前模式来自 Mac 回读；缺少原生能力时不显示可用切换，不按 Agent 名称推断。更改模式后仍保留原来的未知回执和后端作用域。
+
+### Phone speed selection
+
+`session.configure.params.options.serviceTier` accepts `standard` or `priority` for existing Codex desktop sessions with a known native service tier. The model catalog exposes `serviceTiers`; `priority` is offered only when the Mac catalog advertises it. Standard maps to native `serviceTier: null`, priority to `serviceTier: "priority"`; omitted fields remain unchanged. The option applies to subsequent turns and may increase usage. Creation, managed runtimes and other providers do not advertise this control.
+
+The speed setting participates in control revisions and the operation journal. Confirmation requires fresh native readback matching the requested value; setter acknowledgements alone never confirm it, and unknown operations are not resent.
+
+手机端现有 Codex 桌面会话的模型菜单支持加速开关；切换模型和推理强度后也可选择加速。仅在原生状态已知、模型目录支持时提供加速，用于后续请求，可能增加用量。不支持的模型可回到标准速度；新建会话、托管运行时及其他服务商暂不提供此入口。桌面回读不匹配时保留未知回执，不自动重试写入。

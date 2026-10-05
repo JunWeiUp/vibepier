@@ -5,6 +5,50 @@ import XCTest
 @testable import VibePierCore
 
 final class CodexComposerTests: XCTestCase {
+    func testReadOnlyDesktopSpeedWhenExplicitlyRequested() throws {
+        guard let thread = ProcessInfo.processInfo.environment["VIBEPIER_CODEX_SPEED_READ_THREAD"] else {
+            throw XCTSkip("Read-only native speed probe is opt-in")
+        }
+        let view = try CodexConfiguredCreation.freshView(thread)
+        let selection = CodexComposer.selection(view.state)
+        let tier = try XCTUnwrap(selection["serviceTier"] as? String)
+        XCTAssertTrue(["standard", "priority"].contains(tier))
+        let models = try CodexComposer().models()
+        let model = try XCTUnwrap(models.first { $0["id"] as? String == selection["model"] as? String })
+        XCTAssertTrue((model["serviceTiers"] as? [String] ?? []).contains("priority"))
+        print("Read-only native service tier: \(tier); model advertises fast mode")
+    }
+
+    func testServiceTierRequiresKnownStateAndSupportedModelAndVerifiedReadback() throws {
+        let url = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+        defer { try? FileManager.default.removeItem(at: url) }
+        let rows: [[String: Any]] = [
+            ["slug": "fast-model", "visibility": "list", "service_tiers": [["id": "priority"]]],
+            ["slug": "standard-model", "visibility": "list"],
+        ]
+        try JSONSerialization.data(withJSONObject: ["models": rows]).write(to: url)
+        let composer = CodexComposer(catalogURL: url)
+        let standard: [String: Any] = ["latestThreadSettings": ["model": "fast-model", "serviceTier": NSNull()]]
+        let fast: [String: Any] = ["latestThreadSettings": ["model": "fast-model", "serviceTier": "priority"]]
+        XCTAssertNil(CodexComposer.selection([:])["serviceTier"])
+        XCTAssertEqual(CodexComposer.selection(standard)["serviceTier"] as? String, "standard")
+        XCTAssertEqual(CodexComposer.selection(fast)["serviceTier"] as? String, "priority")
+        XCTAssertEqual(
+            try composer.settings(["serviceTier": "priority"], state: standard)["serviceTier"] as? String, "priority")
+        XCTAssertTrue(try composer.settings(["serviceTier": "standard"], state: fast)["serviceTier"] is NSNull)
+        XCTAssertThrowsError(try composer.settings(["serviceTier": "priority"], state: [:]))
+        XCTAssertThrowsError(try composer.settings(["serviceTier": true], state: standard))
+        XCTAssertThrowsError(try composer.settings(["serviceTier": "ultrafast"], state: standard))
+        XCTAssertThrowsError(
+            try composer.settings(
+                ["serviceTier": "priority"],
+                state: ["latestThreadSettings": ["model": "standard-model", "serviceTier": NSNull()]]))
+        XCTAssertThrowsError(try CodexExecutionMode.verifiedComposer(standard, request: ["serviceTier": "priority"]))
+        XCTAssertEqual(
+            try CodexExecutionMode.verifiedComposer(fast, request: ["serviceTier": "priority"])["serviceTier"]
+                as? String, "priority")
+    }
+
     func testCatalogFiltersHiddenModelsAndValidatesEffort() throws {
         let url = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
         defer { try? FileManager.default.removeItem(at: url) }

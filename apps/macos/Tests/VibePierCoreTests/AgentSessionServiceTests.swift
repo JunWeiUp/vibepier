@@ -360,6 +360,33 @@ final class AgentSessionServiceTests: XCTestCase {
         }
     }
 
+    func testSpeedConfigurationRequiresMatchingNativeReceiptAndNeverResendsUnknown() throws {
+        for actual in ["standard", "priority"] {
+            let harness = try Harness()
+            harness.page["composer"] = [
+                "model": "fixture-model", "mode": "auto", "effort": "medium", "serviceTier": "standard",
+            ]
+            harness.settingsReply = [
+                "ok": true, "accepted": true, "threadId": harness.nativeID, "composer": ["serviceTier": actual],
+            ]
+            let opened = try open(harness)
+            let mutation = try request(
+                "session.configure", target: opened.target, params: ["options": ["serviceTier": "priority"]],
+                operation: UUID().uuidString, lease: opened.lease)
+            let response = try perform(harness, mutation)
+            XCTAssertEqual(
+                (response["body"] as? [String: Any])?["status"] as? String,
+                actual == "priority" ? "confirmed" : "unknown")
+            _ = try perform(harness, mutation)
+            XCTAssertEqual(harness.count("settings"), 1)
+            let native = try XCTUnwrap(
+                harness.requests.compactMap { try? JSONSerialization.jsonObject(with: $0) as? [String: Any] }.first {
+                    $0["op"] as? String == "settings"
+                })
+            XCTAssertEqual(native["serviceTier"] as? String, "priority")
+        }
+    }
+
     func testEmptySearchDiscoveryOpensEveryCurrentProviderFromFreshIdentity() throws {
         for provider in SessionV1Contract.providers {
             let harness = try Harness(provider: provider)

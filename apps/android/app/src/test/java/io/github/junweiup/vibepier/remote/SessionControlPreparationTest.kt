@@ -26,6 +26,18 @@ class SessionControlPreparationTest {
         .put("executionModes", JSONArray().put(JSONObject().put("id", "default")).put(JSONObject().put("id", "plan")))
     private fun creationFields() = JSONObject().put("draftId", "draft").put("cwd", "/synthetic").put("text", "prompt")
 
+    @Test fun speedSettingRequiresKnownFreshStateAndSurvivesPreparation() {
+        val intent = SessionControlPreparation.capture("settings", fields().put("serviceTier", "priority"))!!
+        assertFalse(SessionControlPreparation.validate(intent, page()))
+        val fresh = page().apply { getJSONObject("composer").put("serviceTier", "standard") }
+        assertEquals("priority", SessionControlPreparation.resolvedFields(intent, fresh)!!.getString("serviceTier"))
+        fresh.getJSONObject("composer").put("locked", true)
+        assertFalse(SessionControlPreparation.validate(intent, fresh))
+        assertNull(SessionControlPreparation.capture("settings", fields().put("serviceTier", true)))
+        assertNull(SessionControlPreparation.capture("settings", fields().put("serviceTier", "unknown")))
+        assertNull(SessionControlPreparation.capture("new", creationFields().put("serviceTier", "priority")))
+    }
+
     @Test fun stalePartialOrMissingCacheCannotRejectBeforeTheNativeRead() {
         val request = fields().put("text", "prompt")
         for (cached in listOf(null, page("active"), page().put("contentState", "partial"), JSONObject())) {

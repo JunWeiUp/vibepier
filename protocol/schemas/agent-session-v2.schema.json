@@ -125,6 +125,13 @@
             "default",
             "plan"
           ]
+        },
+        "serviceTier": {
+          "type": "string",
+          "enum": [
+            "standard",
+            "priority"
+          ]
         }
       }
     },

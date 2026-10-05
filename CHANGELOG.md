@@ -1,5 +1,10 @@
 # Changelog / 更新记录
 
+## Local build 35 / 本机构建 35
+
+- Add a speed option to the phone model picker for supported Codex desktop sessions, including model/effort selection and a visible Fast indicator. Advertise tiers from the Mac model catalog and confirm updates through native readback; unknown receipts are never retried automatically.
+- 手机端 Codex 模型菜单新增加速开关，选模型和推理强度后也能选择加速，开启后显示状态。可用选项来自 Mac 模型目录，原生回读确认后才显示成功；未知回执不自动重发。仅用于现有桌面会话的后续请求，加速可能增加用量。
+
 ## Local build 34 / 本机构建 34
 
 - Accept phone actions from user intent instead of cached control availability. Standard Send resolves the current native start/queue behavior without comparing stale composer settings; explicit operation targets and permission confirmations remain exact. Recover menus through the same adapter, merge concurrent snapshot reads, and preserve control authority during content-only updates.

@@ -41,3 +41,9 @@ There is no iOS client, Windows/Linux desktop host, browser frontend, public rel
 首次蓝牙发现自动申请 Mac 确认，每台手机单独授权。用时统计、保存解锁密码和手机麦克风均需另行开启；默认使用 Mac 麦克风，AU05 心跳保持开启。会话能力按来源判断，未知回执不能自动重发，离开页面或断线必须释放输入、停止录音。
 
 当前不提供 iOS、Windows/Linux 主机、网页客户端、公共中继或开机解锁。公开版本需完成整份验收清单，并以一个根提交及与其对应的产物发布。
+
+## Phone model speed / 手机模型加速
+
+Existing Codex desktop sessions expose Standard/Fast in the phone model menu when native state is known. Model and reasoning-effort selection also offers speed where supported by the Mac model catalog. Fast may increase usage and applies to subsequent requests; native readback is required before confirming a change. Other providers, managed runtimes and initial session creation do not currently expose speed selection.
+
+现有 Codex 桌面会话在原生状态已知时，可从手机模型菜单开启或关闭加速；选模型及推理强度后也会提供模型支持的速度选项。加速可能增加用量，仅影响后续请求，回读桌面设置后才确认成功。其他服务商、托管运行时和新建会话暂不提供速度选择。

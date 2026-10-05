@@ -65,8 +65,9 @@ internal object SessionAgentProtocol {
             require(params.keys().asSequence().all { it in parameters.getValue(method) })
             if (params.has("options")) {
                 val options = params.getJSONObject("options")
-                require(options.keys().asSequence().all { it in setOf("model", "mode", "effort", "executionMode", "confirmation") })
-                for (key in listOf("model", "mode", "effort", "executionMode")) if (options.has(key)) require(options.opt(key) is String)
+                require(options.keys().asSequence().all { it in setOf("model", "mode", "effort", "executionMode", "serviceTier", "confirmation") })
+                for (key in listOf("model", "mode", "effort", "executionMode", "serviceTier")) if (options.has(key)) require(options.opt(key) is String)
+                if (options.has("serviceTier")) require(method == Method.CONFIGURE && options.opt("serviceTier") in setOf("standard", "priority"))
                 if (options.has("executionMode")) require(options.opt("executionMode") in SessionExecutionModes.ids)
                 if (options.has("confirmation")) require(options.opt("confirmation") is Boolean)
             }

@@ -1963,7 +1963,7 @@ class ConversationPanel(private val activity: Activity, private val client: Sess
     private fun showModelMenu() {
         if (!settingsAvailable("modelSelection")) return
         val token = generation
-        val selectionVersion = JSONObject().apply { val current = selection(); for (key in listOf("model", "effort", "mode", "executionMode")) put(key, current.optString(key)); put("owner", page.optString("owner")) }.toString()
+        val selectionVersion = JSONObject().apply { val current = selection(); for (key in listOf("model", "effort", "mode", "executionMode", "serviceTier")) put(key, current.optString(key)); put("owner", page.optString("owner")) }.toString()
         requestComposerOptions(JSONObject().put("threadId", thread).put("cacheVersion", selectionVersion)) { result ->
             if (token != generation) return@requestComposerOptions
             if (!result.optBoolean("ok")) { notice.text = result.optString("error"); return@requestComposerOptions }
@@ -1973,19 +1973,36 @@ class ConversationPanel(private val activity: Activity, private val client: Sess
             val effortOptions = result.optJSONArray("efforts") ?: JSONArray()
             fun effortLabel(id: String): String = (0 until effortOptions.length()).mapNotNull { effortOptions.optJSONObject(it) }
                 .firstOrNull { it.optString("id") == id }?.let { it.optString("label").ifBlank { it.optString("name") } }?.takeIf { it.isNotBlank() } ?: effortName(id)
+            fun chooseSpeed(model: JSONObject, fields: JSONObject) {
+                val tiers = model.optJSONArray("serviceTiers") ?: JSONArray()
+                if (!selection().has("serviceTier")) { applySettings(fields); return }
+                if ((0 until tiers.length()).none { tiers.optString(it) == "priority" }) {
+                    applySettings(fields.put("serviceTier", "standard")); return
+                }
+                menu(context.getString(R.string.session_speed), context.getString(R.string.session_speed_description), listOf(
+                    (if (selection().optString("serviceTier") == "standard") "✓ " else "") + context.getString(R.string.session_speed_standard) to { applySettings(JSONObject(fields.toString()).put("serviceTier", "standard")) },
+                    (if (selection().optString("serviceTier") == "priority") "✓ " else "") + context.getString(R.string.session_speed_fast) to { applySettings(JSONObject(fields.toString()).put("serviceTier", "priority")) }
+                ))
+            }
             val actions = (0 until models.length()).map { models.getJSONObject(it) }.map { model ->
                 (if (model.optString("id") == selection().optString("model")) "✓ " else "") + model.optString("name") to {
                     val efforts = model.optJSONArray("efforts") ?: JSONArray()
                     if (efforts.length() == 0) {
-                        applySettings(JSONObject().put("model", model.optString("id")))
+                        chooseSpeed(model, JSONObject().put("model", model.optString("id")))
                     } else if ((claude || zcode) && efforts.length() == 1) {
-                        applySettings(JSONObject().put("model", model.optString("id")).put("effort", efforts.getString(0)))
+                        chooseSpeed(model, JSONObject().put("model", model.optString("id")).put("effort", efforts.getString(0)))
                     } else menu(model.optString("name"), if (claude && page.optString("owner") == "desktop") context.getString(R.string.session_sync_the_desktop_reasoning_effort_for_subsequent_requests_in_thi) else context.getString(R.string.session_choose_reasoning_effort_the_current_task_keeps_running_new_setti), (0 until efforts.length()).map { i ->
-                        val effort = efforts.getString(i); (if (effort == selection().optString("effort")) "✓ " else "") + effortLabel(effort) to { applySettings(JSONObject().put("model", model.optString("id")).put("effort", effort)) }
+                        val effort = efforts.getString(i); (if (effort == selection().optString("effort")) "✓ " else "") + effortLabel(effort) to { chooseSpeed(model, JSONObject().put("model", model.optString("id")).put("effort", effort)) }
                     })
                 }
             }
-            menu(context.getString(R.string.choose_model), if (claude || zcode) result.optString("description", context.getString(R.string.session_provider_models, agent)) else context.getString(R.string.session_use_the_models_currently_available_in_codex_on_the_mac), actions)
+            val speedActions = if (selection().has("serviceTier")) {
+                val currentModel = (0 until models.length()).map { models.getJSONObject(it) }.firstOrNull { it.optString("id") == selection().optString("model") }
+                if (currentModel == null) emptyList() else listOf(
+                    context.getString(R.string.session_speed) + " · " + context.getString(if (selection().optString("serviceTier") == "priority") R.string.session_speed_fast else R.string.session_speed_standard) to { chooseSpeed(currentModel, JSONObject()) }
+                )
+            } else emptyList()
+            menu(context.getString(R.string.choose_model), if (claude || zcode) result.optString("description", context.getString(R.string.session_provider_models, agent)) else context.getString(R.string.session_use_the_models_currently_available_in_codex_on_the_mac), speedActions + actions)
         }
     }
     private fun applySettings(fields: JSONObject) {
@@ -1997,7 +2014,7 @@ class ConversationPanel(private val activity: Activity, private val client: Sess
             settingsOperation = ""
             result.optJSONObject("composer")?.let { page.put("composer", it) }
             notice.text = if (result.optBoolean("ok")) (if (result.optBoolean("queued")) context.getString(R.string.session_the_desktop_is_busy_the_change_takes_effect_after_the_current_ta) else context.getString(R.string.session_settings_synced_provider, agent)) else result.optString("error", context.getString(R.string.session_settings_result_not_yet_confirmed))
-            if (reviews && result.optBoolean("ok")) { val value = selection(); listOf("model", "effort", "mode", "executionMode").forEach { key -> if (fields.has(key)) value.put(key, fields.get(key)) }; page.put("composer", value) }
+            if (reviews && result.optBoolean("ok")) { val value = selection(); listOf("model", "effort", "mode", "executionMode", "serviceTier").forEach { key -> if (fields.has(key)) value.put(key, fields.get(key)) }; page.put("composer", value) }
             updateComposer()
         }
     }
@@ -2067,7 +2084,7 @@ class ConversationPanel(private val activity: Activity, private val client: Sess
         composerControls.execution.contentDescription = context.getString(R.string.session_execution_selection, executionName(selection.optString("executionMode")))
         composerControls.execution.visibility = if (supports("executionMode") || selection.optString("executionMode").isNotBlank()) VISIBLE else GONE
         val effort = selection.optString("effortLabel").ifBlank { effortName(selection.optString("effort")) }
-        composerControls.model.text = selection.optString("modelLabel").ifBlank { selection.optString("model", context.getString(R.string.choose_model)).let { if (zcode && it.contains("/")) it.substringAfter("/").ifBlank { context.getString(R.string.choose_model) } else it } }.let { if (it == "default") context.getString(R.string.session_default_model) else it.replaceFirstChar { c -> c.uppercase() } }.replace("Gpt-", "GPT-").replace("gpt-", "GPT-") + (if (selection.optBoolean("locked") || effort.isBlank()) "" else " · " + effort) + " ▾"
+        composerControls.model.text = selection.optString("modelLabel").ifBlank { selection.optString("model", context.getString(R.string.choose_model)).let { if (zcode && it.contains("/")) it.substringAfter("/").ifBlank { context.getString(R.string.choose_model) } else it } }.let { if (it == "default") context.getString(R.string.session_default_model) else it.replaceFirstChar { c -> c.uppercase() } }.replace("Gpt-", "GPT-").replace("gpt-", "GPT-") + (if (selection.optBoolean("locked") || effort.isBlank()) "" else " · " + effort) + (if (selection.optString("serviceTier") == "priority") " · " + context.getString(R.string.session_speed_fast) else "") + " ▾"
         composerControls.model.contentDescription = context.getString(R.string.session_model_description, selection.optString("model"), effortName(selection.optString("effort")))
         composerControls.model.visibility = if (supports("modelSelection") || selection.optString("model").isNotBlank()) VISIBLE else GONE
         val settingsUnknown = !reviews && client.uncertain(thread).any { it.optString("op") == "settings" }

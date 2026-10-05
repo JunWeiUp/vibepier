@@ -13,7 +13,7 @@ internal object SessionControlPreparation {
     }
 
     private val operations = setOf("send", "new", "settings", "interrupt", "approve", "queueSteer", "queueDelete")
-    private val choices = listOf("model", "mode", "effort", "executionMode")
+    private val choices = listOf("model", "mode", "effort", "executionMode", "serviceTier")
 
     /** Cached pages are display projections, never admission evidence for a new action. */
     @Suppress("UNUSED_PARAMETER")
@@ -22,6 +22,7 @@ internal object SessionControlPreparation {
         val frozen = JSONObject(fields.toString())
         require(choices.all { !frozen.has(it) || nonempty(frozen, it) })
         require(!frozen.has("confirmFullAccess") || frozen.opt("confirmFullAccess") is Boolean)
+        require(!frozen.has("serviceTier") || op == "settings" && frozen.opt("serviceTier") in setOf("standard", "priority"))
         if (op == "new") {
             require(nonempty(frozen, "draftId") && nonempty(frozen, "cwd"))
         } else require(nonempty(frozen, "threadId"))
@@ -105,6 +106,10 @@ internal object SessionControlPreparation {
         for (key in choices) {
             if (!fields.has(key)) continue
             if (!nonempty(fields, key)) return false
+            if (key == "serviceTier") {
+                if (requireCatalog || fields.opt(key) !in setOf("standard", "priority") || composer?.opt(key) !is String || composer.opt("locked") == true) return false
+                continue
+            }
             val locked = when (key) { "model", "effort" -> "locked"; "mode" -> "modeLocked"; else -> "executionModeLocked" }
             if (composer?.opt(locked) == true && composer.opt(key) != fields.opt(key)) return false
             val catalog = when (key) {
