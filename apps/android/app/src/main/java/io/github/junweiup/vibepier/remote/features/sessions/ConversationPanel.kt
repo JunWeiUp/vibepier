@@ -153,6 +153,8 @@ class ConversationPanel(private val activity: Activity, private val client: Sess
     private var creationPickerToken = ""
     private val approvalNotifications by lazy { io.github.junweiup.vibepier.remote.core.session.ApprovalNotifications(context) }
     private var approvalCheck: Runnable? = null
+    /** Stage notices for the open new-session dialog; informational only. */
+    private var creationProgress: (JSONObject) -> Unit = {}
     /** The open new-session dialog; it survives backgrounding so a pending creation can finish or be checked. */
     private var creationDialog: AlertDialog? = null
     private val autoChecks = listOf(3_000L, 8_000L, 20_000L, 45_000L, 90_000L)
@@ -239,7 +241,8 @@ class ConversationPanel(private val activity: Activity, private val client: Sess
             insets
         }
         client.onEvent = { value ->
-            if (value.optString("event") == "providersChanged") {
+            if (value.optString("event") == "creationProgress") creationProgress(value)
+            else if (value.optString("event") == "providersChanged") {
                 val first = client.enabledProviders.firstOrNull()
                 savedDrawer = emptyList(); drawerLoaded = false
                 if (!client.providerEnabled(client.provider) && first != null) switchProvider(first)
@@ -864,6 +867,20 @@ class ConversationPanel(private val activity: Activity, private val client: Sess
             }
         }
         refreshCreationOptions = { loadCreationOptions(refresh = true) }
+        creationProgress = { notice ->
+            val stage = when (notice.optString("stage")) {
+                "unlocking" -> R.string.creation_stage_unlocking
+                "creatingThread" -> R.string.creation_stage_creating_thread
+                "openingDesktop" -> R.string.creation_stage_opening_desktop
+                "submitting" -> R.string.creation_stage_submitting
+                "runningFirstTurn" -> R.string.creation_stage_running_first_turn
+                else -> null
+            }
+            if (stage != null && busy && dialog.isShowing && notice.optString("provider") == provider &&
+                original?.optString("id") == notice.optString("operation")) {
+                state.setTextColor(Palette.faint); state.text = context.getString(stage)
+            }
+        }
         fun receive(result: JSONObject, callback: SessionCreationWaitState.CallbackToken) {
             if (!dialog.isShowing || !sameCreationScope() || !waiting.accepts(callback)) return
             busy = false; start.alpha = 1f; options.setLocked(original != null)
@@ -1012,7 +1029,7 @@ class ConversationPanel(private val activity: Activity, private val client: Sess
         }
         dialog.setOnDismissListener {
             client.cancelCreationOptions(optionsRequest); ui.removeCallbacks(persistDraft); ui.removeCallbacks(autoCheck)
-            if (creationDialog === dialog) creationDialog = null
+            if (creationDialog === dialog) { creationDialog = null; creationProgress = {} }
             if (original == null) saveCreation()
             options.closeMenus(); clearCreationAttachment(pickerToken); auxiliaryDialogs.remove(dialog)
         }

@@ -13,4 +13,9 @@
     <string name="creation_duplicate_pending">This first message or attachment matches an unconfirmed creation. Check its receipt before submitting again.</string>
     <string name="creation_stop_waiting_detail">Stop waiting returns to an editable draft here. The Mac may continue the earlier creation; its receipt stays available for checking.</string>
     <string name="creation_speed_description">Applies from the first message. Fast mode may increase usage.</string>
+    <string name="creation_stage_unlocking">Unlocking the Mac…</string>
+    <string name="creation_stage_creating_thread">Creating the session on the Mac…</string>
+    <string name="creation_stage_opening_desktop">Opening it in the Codex desktop app…</string>
+    <string name="creation_stage_submitting">Sending the first message…</string>
+    <string name="creation_stage_running_first_turn">Claude Code is running the first turn; it then opens in Claude Desktop…</string>
 </resources>

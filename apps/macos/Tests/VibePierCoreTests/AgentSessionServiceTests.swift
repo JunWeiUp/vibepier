@@ -797,6 +797,18 @@ final class AgentSessionServiceTests: XCTestCase {
         XCTAssertEqual((try perform(harness, stale)["body"] as? [String: Any])?["status"] as? String, "rejected")
         XCTAssertEqual(harness.count("queueSteer"), 1)
     }
+    func testCreationProgressNoticeNeitherRevokesControlNorEmitsSessionEvents() throws {
+        let harness = try Harness()
+        let opened = try open(harness)
+        _ = try perform(
+            harness, request("session.observe", target: opened.target, params: ["subscriptionId": "progress"]))
+        let notice: [String: Any] = [
+            "event": "creationProgress", "provider": "codex", "operation": UUID().uuidString, "stage": "submitting",
+        ]
+        harness.service.receiveCurrentV1Event(AgentSessionProfile.data(notice), provider: "codex", client: "phone")
+        XCTAssertEqual(try perform(harness, submit(opened))["ok"] as? Bool, true)
+        XCTAssertTrue(harness.events.isEmpty)
+    }
     private func withoutQueue(_ harness: Harness) {
         harness.page.removeValue(forKey: "queuedMessages")
         var caps = harness.page["agentCapabilities"] as! [String: Any]

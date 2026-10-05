@@ -13,4 +13,9 @@
     <string name="creation_duplicate_pending">这条首条消息或附件与待确认的新建请求相同，请先核对原回执。</string>
     <string name="creation_stop_waiting_detail">停止等待后会在这里恢复可编辑草稿；Mac 仍可能继续先前的新建，原回执保留供核对。</string>
     <string name="creation_speed_description">从首条消息起生效。加速可能增加用量。</string>
+    <string name="creation_stage_unlocking">正在解锁 Mac…</string>
+    <string name="creation_stage_creating_thread">正在 Mac 上创建会话…</string>
+    <string name="creation_stage_opening_desktop">正在 Codex 桌面打开该会话…</string>
+    <string name="creation_stage_submitting">正在发送首条消息…</string>
+    <string name="creation_stage_running_first_turn">Claude Code 正在运行首轮，完成后在 Claude 桌面打开…</string>
 </resources>

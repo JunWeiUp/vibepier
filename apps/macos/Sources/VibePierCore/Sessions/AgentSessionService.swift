@@ -274,7 +274,8 @@ final class AgentSessionService: @unchecked Sendable {
     }
     func receiveAdapterEvent(_ data: Data, adapterID: String, provider: String, client: String) {
         queue.async {
-            guard let page = self.object(data),
+            // Creation stage notices are informational for the phone; they never revoke an open session's control.
+            guard let page = self.object(data), page["event"] as? String != "creationProgress",
                 let state = self.states[Key(client: client, adapter: adapterID)], state.session.provider == provider,
                 page["threadId"] == nil || page["threadId"] as? String == state.session.nativeID,
                 page["viewVersion"] == nil || AgentSessionProfile.integer(page["viewVersion"]) == state.view

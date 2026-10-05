@@ -332,6 +332,10 @@ final class ClaudeBridge: @unchecked Sendable {
             session, prompt: prompt.text, cwd: cwd, operation: operation, client: ticket.key.client, fresh: true,
             streamInput: prompt.streamInput(session: session))
         operationReceipts.arm(ticket)
+        let notice: [String: Any] = [
+            "event": "creationProgress", "provider": "claude", "operation": operation, "stage": "runningFirstTurn",
+        ]
+        if let data = try? JSONSerialization.data(withJSONObject: notice) { event?(ticket.key.client, data) }
         @Sendable func poll(_ step: Int) {
             if let url = try? self.file(session),
                 let value = ClaudeCreationReceipt.read(

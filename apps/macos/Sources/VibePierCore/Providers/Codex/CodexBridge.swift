@@ -255,14 +255,28 @@ final class CodexBridge: @unchecked Sendable {
             try observation.receipt { try CodexConfiguredCreation.freshView($0) }
         }
         let settingsObject = settings
+        let client = ticket.key.client
+        let operationID = ticket.key.operation
+        // Stage notices for the phone's waiting dialog; they never carry content and confer no authority.
+        let progress: @Sendable (String) -> Void = { [weak self] stage in
+            let notice: [String: Any] = [
+                "event": "creationProgress", "provider": "codex", "operation": operationID, "stage": stage,
+            ]
+            if let data = try? JSONSerialization.data(withJSONObject: notice) { self?.event?(client, data) }
+        }
         let services = CodexConfiguredCreation.Services(
             start: { [background] parameters in
-                try background.startForDesktop(
+                progress("creatingThread")
+                return try background.startForDesktop(
                     parameters, project: project, settings: settingsObject, title: text)
             },
-            open: { [openNativeThread] thread in openNativeThread(thread) },
+            open: { [openNativeThread] thread in
+                progress("openingDesktop")
+                openNativeThread(thread)
+            },
             view: { try CodexConfiguredCreation.awaitDesktopView($0) },
             send: { owner, parameters in
+                progress("submitting")
                 // The desktop app owns the thread, so its first turn renders live there.
                 let channel = CodexIPC()
                 defer { channel.close() }
@@ -274,6 +288,7 @@ final class CodexBridge: @unchecked Sendable {
             let outcome: CreationReply
             do {
                 // Unlock first (or fail before any native effect), then drive the desktop app directly.
+                if ScreenLock.locked() { progress("unlocking") }
                 outcome = .configured(
                     try ScreenLock.unlocked {
                         try CodexConfiguredCreation.run(input, services: services, observation: observation) {
