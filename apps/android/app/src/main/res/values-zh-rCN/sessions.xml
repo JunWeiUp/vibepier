@@ -299,4 +299,9 @@
     <string name="session_speed_description">用于后续请求。加速可能增加用量，是否可用取决于 Mac 端所选模型。</string>
     <string name="session_effort_for_model">推理强度 · %1$s</string>
     <string name="session_created_with_unverified_options">会话已创建。部分所选设置未能在 Mac 上确认，请在会话设置中核对。</string>
+    <string name="session_settings_still_unknown_tap_to_abandon">会话设置结果仍未知 · 点此放弃</string>
+    <string name="session_abandon_settings_title">放弃这次设置修改？</string>
+    <string name="session_abandon_settings_description">Mac 无法确认这次修改是否生效。放弃只会解锁手机上的按钮，不会重新发送。请核对当前设置，需要时重新选择。</string>
+    <string name="session_abandon_settings_action">放弃并重新设置</string>
+    <string name="session_settings_abandoned">已放弃设置修改，请核对当前设置</string>
 </resources>

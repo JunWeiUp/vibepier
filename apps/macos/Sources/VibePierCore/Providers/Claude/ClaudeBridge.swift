@@ -346,7 +346,8 @@ final class ClaudeBridge: @unchecked Sendable {
                 return
             }
             let exited = self.runs[session] == nil && step >= 3
-            guard step < 90, !exited else {
+            // A cold CLI start (plugins, MCP servers) can take well over half a minute before it records the message.
+            guard step < 200, !exited else {
                 let error =
                     self.runErrors[session]?["text"] as? String
                     ?? L10n.text("provider.claude_code_could_not_create_a_new_session")
@@ -372,9 +373,11 @@ final class ClaudeBridge: @unchecked Sendable {
                 ?? [
                     "newReceiptCheck": "new", "settingsReceiptCheck": "settings", "interruptReceiptCheck": "interrupt",
                 ][op] ?? "send"
+            let thread = request["threadId"] as? String ?? ""
             return operationReceipts.lookup(
                 client: client, operation: request["operation"] as? String ?? request["id"] as? String ?? "",
-                thread: request["threadId"] as? String ?? "", kind: kind)
+                thread: thread, kind: kind,
+                missing: kind == "settings" ? { [self] in settingsReadback(request, session: thread) } : nil)
         }
         if op == "newOptions" || SessionCreationDraft.attachmentOperations.contains(op) {
             let cwd = request["cwd"] as? String ?? ""
@@ -936,6 +939,35 @@ final class ClaudeBridge: @unchecked Sendable {
     private func currentEffort(_ session: String) -> String {
         let effort = transcripts[session]?.effort ?? "default"
         return Self.efforts.contains(effort) ? effort : "default"
+    }
+    /// Resolves a desktop settings receipt lost with a previous process by reading the live controls.
+    /// Matching controls confirm it; differing controls are a definitive failure, because repeating a
+    /// settings choice is harmless and the phone must not stay locked. Unreadable controls stay unknown.
+    func settingsReadback(_ request: [String: Any], session: String) -> [String: Any]? {
+        guard !session.isEmpty, let owner = owner(session), owner.desktop, let host = owner.host,
+            let live = ClaudeDesktop.visibleControls(host: host),
+            let mode = try? ClaudeSessionConfiguration.permissionMode(request)
+        else { return nil }
+        let model = request["model"] as? String
+        let effort = request["effort"] as? String
+        guard model != nil || effort != nil || mode != nil else { return nil }
+        desktopControls[session] = live.withModels(desktopControls[session]?.models ?? [])
+        let actual = composer(session, owner: owner)
+        let execution = request["executionMode"] as? String
+        let applied =
+            (model == nil || live.model == model) && (effort == nil || effort == "default" || live.effort == effort)
+            && (mode == nil || live.mode == mode)
+            && (execution == nil || actual["executionMode"] as? String == execution)
+        guard applied else {
+            return [
+                "ok": false, "definitive": true, "accepted": false, "threadId": session,
+                "error": L10n.text("provider.session_settings_were_not_applied_choose_them_again"),
+            ]
+        }
+        return [
+            "ok": true, "accepted": true, "threadId": session, "composer": actual,
+            "executionModeVerified": execution != nil,
+        ]
     }
     private func composer(_ session: String, owner: ClaudeDesktop.Owner?) -> [String: Any] {
         var value: [String: Any] = selection(session)

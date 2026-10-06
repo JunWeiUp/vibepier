@@ -225,6 +225,7 @@ class ConversationPanel(private val activity: Activity, private val client: Sess
     private var loadingApproval = false
     private var submittingApproval = ""
     private var retryableOperation = ""
+    private var abandonableSettings = ""
     private val approvedHere = mutableSetOf<String>()
     private val questionDrafts = mutableMapOf<String, MutableMap<String, String>>()
     private val reviews = BuildConfig.DESIGN_REVIEW && fixture.isNotBlank()
@@ -1183,7 +1184,7 @@ class ConversationPanel(private val activity: Activity, private val client: Sess
         searchWork?.let(ui::removeCallbacks); searchWork = null
         client.cancelPageReads(); pauseProcessReads(); listGeneration++; stopOpening(); stopSync()
         stoppedWaitSignature = null; sendWaitGeneration++; stopRequestedTurn = ""; progressSignature = ""; lastProgressAt = android.os.SystemClock.elapsedRealtime()
-        saveDraft(); thread = id; title = name; drawer = false; ready = false; sending = false; submittingApproval = ""; retryableOperation = ""; generation++
+        saveDraft(); thread = id; title = name; drawer = false; ready = false; sending = false; submittingApproval = ""; retryableOperation = ""; abandonableSettings = ""; generation++
         uploading = false; uploadLabel = ""; uploadGeneration++; settingsOperation = ""; approvedHere.clear()
         if (reviews) reviewAttachments = JSONArray()
         page = JSONObject(); historyComplete = false; loadingHistory = false; olderMessages.clear(); media.cancelReads(); lastMessages = ""; removeAllViews(); setBackgroundColor(Palette.background)
@@ -2280,7 +2281,8 @@ class ConversationPanel(private val activity: Activity, private val client: Sess
         notice.gravity = Gravity.CENTER_VERTICAL
         notice.setOnClickListener {
             if (pendingOperations.isEmpty()) return@setOnClickListener
-            if (retryableOperation.isEmpty()) checkUncertain()
+            if (retryableOperation.isEmpty() && pendingOperations.any { it.optString("id") == abandonableSettings }) confirmAbandonSettings()
+            else if (retryableOperation.isEmpty()) checkUncertain()
             else {
                 val token = generation
                 val original = client.uncertain(thread).firstOrNull { it.optString("id") == retryableOperation }
@@ -2296,7 +2298,19 @@ class ConversationPanel(private val activity: Activity, private val client: Sess
             }
         }
         renderWaitState()
-        if (pendingOperations.isNotEmpty()) notice.text = if (retryableOperation.isEmpty()) context.getString(R.string.session_operation_unknown, operationName(pendingOperations.first().optString("op"))) else context.getString(R.string.session_mac_has_not_received_it_tap_to_retry_the_original_operation)
+        if (pendingOperations.isNotEmpty()) notice.text = if (retryableOperation.isNotEmpty()) context.getString(R.string.session_mac_has_not_received_it_tap_to_retry_the_original_operation)
+            else if (pendingOperations.any { it.optString("id") == abandonableSettings }) context.getString(R.string.session_settings_still_unknown_tap_to_abandon)
+            else context.getString(R.string.session_operation_unknown, operationName(pendingOperations.first().optString("op")))
+    }
+    /** Unlocks the composer after the Mac could not resolve a settings change; the user then chooses settings again. */
+    private fun confirmAbandonSettings() {
+        val id = abandonableSettings
+        menu(context.getString(R.string.session_abandon_settings_title), context.getString(R.string.session_abandon_settings_description), listOf(
+            context.getString(R.string.session_abandon_settings_action) to {
+                notice.text = context.getString(if (client.abandonSettings(id)) R.string.session_settings_abandoned else R.string.client_receipt_save_failed)
+                abandonableSettings = ""; updateComposer(); resync()
+            }
+        ))
     }
     private fun sendReply() {
         if (!sendButton.isEnabled) return
@@ -2452,6 +2466,7 @@ class ConversationPanel(private val activity: Activity, private val client: Sess
                     } else notice.text = receipt.optString("error", context.getString(R.string.session_approval_submission_result_checked))
                 } else if (result.optString("state") == "notFound") { retryableOperation = original.getString("id"); notice.text = context.getString(R.string.session_mac_has_not_recorded_this_operation_retry_with_the_original_oper) }
                 else notice.text = context.getString(R.string.session_result_still_unknown_check_on_the_mac_to_avoid_a_duplicate_opera)
+                if (result.optString("state") != "complete" && result.optString("state") != "notFound" && original.optString("op") == "settings") abandonableSettings = original.getString("id")
                 updateComposer()
             }
         }

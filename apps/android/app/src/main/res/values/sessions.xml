@@ -301,4 +301,9 @@
     <string name="session_speed_description">Applies to subsequent requests. Fast mode may increase usage; availability follows the selected model on the Mac.</string>
     <string name="session_effort_for_model">Reasoning effort · %1$s</string>
     <string name="session_created_with_unverified_options">Session created. Some selected options could not be confirmed on the Mac; check them in the session settings.</string>
+    <string name="session_settings_still_unknown_tap_to_abandon">Session settings result is still unknown · Tap to abandon</string>
+    <string name="session_abandon_settings_title">Abandon this settings change?</string>
+    <string name="session_abandon_settings_description">The Mac could not confirm whether this change took effect. Abandoning only unlocks the controls on this phone; nothing is resent. Check the current settings, then choose them again if needed.</string>
+    <string name="session_abandon_settings_action">Abandon and choose again</string>
+    <string name="session_settings_abandoned">Settings change abandoned. Check the current settings.</string>
 </resources>

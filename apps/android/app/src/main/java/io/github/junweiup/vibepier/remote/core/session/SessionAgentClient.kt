@@ -159,6 +159,8 @@ internal class SessionAgentClient(
         val target = session(provider, thread)?.target ?: return emptyList()
         return storage.pending().keys.filter { (original(it)?.target as? SessionAgentProtocol.Target.Session)?.sessionRef == target.sessionRef }
     }
+    /** Local only: the user gave up on an unknown result. The Mac journal keeps its identity, so nothing is resent. */
+    fun abandon(operationId: String): Boolean = runCatching { storage.remove(operationId) }.getOrDefault(false)
     /** Reconciliation is observational. There is intentionally no automatic mutation retry method. */
     fun reconcile(operationId: String, callback: (SessionAgentProtocol.Reply) -> Unit) {
         val request = original(operationId)

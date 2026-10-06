@@ -2351,13 +2351,13 @@
     "en": "Claude desktop composer not found; nothing was sent",
     "zh-Hans": "找不到 Claude 桌面端输入框，未发送"
   },
-  "provider.claude_desktop_has_an_unsent_draft_resolve_it_on_the_mac_first_nothing_was_s": {
-    "en": "Claude desktop has an unsent draft. Resolve it on the Mac first; nothing was sent",
-    "zh-Hans": "Claude 桌面端输入框里有未发送的草稿，请先在 Mac 上处理，未发送"
-  },
   "provider.claude_desktop_is_not_in_the_foreground_nothing_was_sent": {
     "en": "Claude desktop is not in the foreground; nothing was sent",
     "zh-Hans": "Claude 桌面端未处于前台，未发送"
+  },
+  "provider.could_not_clear_the_claude_desktop_draft_nothing_was_sent": {
+    "en": "Could not clear the existing draft in Claude desktop; nothing was sent",
+    "zh-Hans": "无法清空 Claude 桌面端输入框里的草稿，未发送"
   },
   "provider.could_not_fill_the_claude_desktop_composer_nothing_was_sent": {
     "en": "Could not fill the Claude desktop composer; nothing was sent",
@@ -2734,6 +2734,10 @@
   "provider.this_model_is_not_supported": {
     "en": "This model is not supported",
     "zh-Hans": "不支持此模型"
+  },
+  "provider.session_settings_were_not_applied_choose_them_again": {
+    "en": "The Mac's current session settings differ from this request. Choose them again",
+    "zh-Hans": "Mac 当前会话设置与这次请求不一致，请重新选择"
   },
   "provider.could_not_save_session_settings": {
     "en": "Could not save session settings",

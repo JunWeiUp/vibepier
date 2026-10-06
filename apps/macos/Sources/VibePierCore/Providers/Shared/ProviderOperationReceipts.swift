@@ -99,15 +99,19 @@ final class ProviderOperationReceipts: @unchecked Sendable {
         }
     }
 
-    func lookup(client: String, operation: String, thread: String, kind: String) -> [String: Any] {
+    /// `missing` may answer only when this process holds no record at all, for example after a restart.
+    /// It must be a read-only native observation; it never runs while an operation is still in flight.
+    func lookup(
+        client: String, operation: String, thread: String, kind: String,
+        missing: (() -> [String: Any]?)? = nil
+    ) -> [String: Any] {
         let key = Key(client: client, operation: operation)
-        let record: Record? = lock.withLock {
-            guard let record = records[key], record.context.thread == thread, record.context.operation == kind else {
-                return nil
-            }
-            return record
+        let (record, known): (Record?, Bool) = lock.withLock {
+            guard let record = records[key] else { return (nil, false) }
+            guard record.context.thread == thread, record.context.operation == kind else { return (nil, true) }
+            return (record, true)
         }
-        guard let record else { return Self.unknown() }
+        guard let record else { return known ? Self.unknown() : missing?() ?? Self.unknown() }
         if !record.final, record.armed, let observer = record.observer, let observed = try? observer() {
             return finish(Ticket(key: key, generation: record.generation), result: observed)
         }

@@ -2334,10 +2334,6 @@ enum LocalizationCatalog {
             "Claude desktop could not import this session. The project may not be trusted; check Claude desktop on the Mac",
             "Claude 桌面端未能导入这个会话（项目可能未受信任），请在 Mac 上打开 Claude 桌面端检查",
         ],
-        "provider.claude_desktop_has_an_unsent_draft_resolve_it_on_the_mac_first_nothing_was_s": [
-            "Claude desktop has an unsent draft. Resolve it on the Mac first; nothing was sent",
-            "Claude 桌面端输入框里有未发送的草稿，请先在 Mac 上处理，未发送",
-        ],
         "provider.claude_desktop_has_multiple_sessions_named_0_open_the_intended_session_on_th": [
             "Claude desktop has multiple sessions named “{0}”. Open the intended session on the Mac before retrying",
             "Claude 桌面端有多个同名会话“{0}”，请在 Mac 打开它后重试",
@@ -2473,6 +2469,10 @@ enum LocalizationCatalog {
         "provider.could_not_change_claude_desktop_reasoning_effort": [
             "Could not change Claude desktop reasoning effort",
             "无法切换 Claude 桌面端推理强度",
+        ],
+        "provider.could_not_clear_the_claude_desktop_draft_nothing_was_sent": [
+            "Could not clear the existing draft in Claude desktop; nothing was sent",
+            "无法清空 Claude 桌面端输入框里的草稿，未发送",
         ],
         "provider.could_not_click_the_native_zcode_control": [
             "Could not click the native ZCode control",
@@ -2733,6 +2733,10 @@ enum LocalizationCatalog {
         "provider.session_0_was_not_found_in_the_claude_desktop_sidebar_open_it_on_the_mac_bef": [
             "Session “{0}” was not found in the Claude desktop sidebar. Open it on the Mac before retrying",
             "Claude 桌面端侧栏里找不到会话“{0}”，请在 Mac 打开它后重试",
+        ],
+        "provider.session_settings_were_not_applied_choose_them_again": [
+            "The Mac's current session settings differ from this request. Choose them again",
+            "Mac 当前会话设置与这次请求不一致，请重新选择",
         ],
         "provider.session_update": [
             "Session update",

@@ -4,6 +4,30 @@ import XCTest
 @testable import VibePierCore
 
 final class ClaudeBridgeTests: XCTestCase {
+    func testDesktopAdoptionReminderIsNotPartOfTheTypedMessageOrItsReceipt() {
+        // Claude Desktop prepends this block to the first message it sends after adopting a CLI session.
+        let entry: [String: Any] = [
+            "type": "user", "uuid": "desktop-message", "sessionId": "session",
+            "message": [
+                "content": [
+                    [
+                        "type": "text",
+                        "text": "<system-reminder>\nThis conversation is now continuing.\n</system-reminder>",
+                    ],
+                    ["type": "text", "text": "continue"],
+                ]
+            ],
+        ]
+        XCTAssertEqual(ClaudeTranscript.userText(entry), "continue")
+        XCTAssertEqual(ClaudeSendReceipt.message(entry)?.text, "continue")
+        let receipt = ClaudeSendReceipt(entries: [], text: "continue")
+        XCTAssertEqual(receipt.confirmedMessage(in: [entry]), "desktop-message")
+        // A message the person typed that merely starts with markup is still not a reminder block.
+        let typed: [String: Any] = [
+            "type": "user", "uuid": "typed", "message": ["content": [["type": "text", "text": "<b>bold</b> text"]]],
+        ]
+        XCTAssertNil(ClaudeTranscript.userText(typed))
+    }
     func testCurrentBlockerClearsOnProgressInterruptAndNewPrompt() {
         let error: [String: Any] = ["type": "system", "subtype": "api_error", "error": ["status": 429]]
         XCTAssertEqual(ClaudeTranscript.blocker([error])?["code"] as? String, "rateLimit")

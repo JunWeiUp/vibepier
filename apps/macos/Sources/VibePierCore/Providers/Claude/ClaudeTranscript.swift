@@ -15,8 +15,7 @@ enum ClaudeTranscript {
         } else if let blocks = message["content"] as? [[String: Any]] {
             // Tool results are protocol traffic, not something the person typed.
             guard !blocks.contains(where: { $0["type"] as? String == "tool_result" }) else { return nil }
-            text = blocks.compactMap { $0["type"] as? String == "text" ? $0["text"] as? String : nil }.joined(
-                separator: "\n")
+            text = humanText(blocks)
             images = blocks.compactMap(imageSource)
         } else {
             return nil
@@ -27,6 +26,18 @@ enum ClaudeTranscript {
             return nil
         }
         return (trimmed, images)
+    }
+    /// The person's typed text. Claude Desktop prepends a separate `<system-reminder>` block to the first message it
+    /// sends after adopting a CLI session; that injected block is context, not something the person wrote.
+    static func humanText(_ blocks: [[String: Any]]) -> String {
+        blocks.compactMap { block -> String? in
+            guard block["type"] as? String == "text", let text = block["text"] as? String else { return nil }
+            return injectedReminder(text) ? nil : text
+        }.joined(separator: "\n")
+    }
+    static func injectedReminder(_ text: String) -> Bool {
+        let trimmed = text.trimmingCharacters(in: .whitespacesAndNewlines)
+        return trimmed.hasPrefix("<system-reminder>") && trimmed.hasSuffix("</system-reminder>")
     }
     static func userText(_ entry: [String: Any]) -> String? {
         userMessage(entry).flatMap { $0.text.isEmpty ? nil : $0.text }

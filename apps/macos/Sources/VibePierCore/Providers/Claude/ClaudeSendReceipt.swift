@@ -11,7 +11,12 @@ struct ClaudeSendReceipt: Sendable {
         let ids = entries.compactMap { $0["uuid"] as? String }.filter { !$0.isEmpty }
         seen = Set(ids)
         anchor = ids.last
-        expected = text.trimmingCharacters(in: .whitespacesAndNewlines)
+        expected = Self.normalized(text)
+    }
+
+    /// Desktop composers rewrite paragraph breaks, so a multi-line message is compared with whitespace runs collapsed.
+    static func normalized(_ text: String) -> String {
+        text.split(whereSeparator: { $0.isWhitespace || $0.isNewline }).joined(separator: " ")
     }
 
     static func message(_ entry: [String: Any]) -> (id: String, text: String)? {
@@ -26,11 +31,12 @@ struct ClaudeSendReceipt: Sendable {
         } else if let blocks = content as? [[String: Any]],
             blocks.allSatisfy({ $0["type"] as? String == "text" && $0["text"] is String })
         {
-            text = blocks.compactMap { $0["text"] as? String }.joined(separator: "\n")
+            // Desktop adoption can prepend a `<system-reminder>` block; only the typed text is the receipt.
+            text = ClaudeTranscript.humanText(blocks)
         } else {
             return nil
         }
-        return (id, text.trimmingCharacters(in: .whitespacesAndNewlines))
+        return (id, normalized(text))
     }
 
     func confirmedMessage(in entries: [[String: Any]]) -> String? {

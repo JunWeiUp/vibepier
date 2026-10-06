@@ -353,7 +353,7 @@ final class ClaudeHistoryIndex {
     /// Late confirmations scan appended native records independently of retained
     /// pages. A reused old UUID or ambiguous matching prompt remains unknown.
     func confirmedMessage(after start: UInt64, text: String) -> String? {
-        let expected = text.trimmingCharacters(in: .whitespacesAndNewlines)
+        let expected = ClaudeSendReceipt.normalized(text)
         guard failure == nil, start <= offset, !expected.isEmpty else { return nil }
         var matches: [String] = []
         do {

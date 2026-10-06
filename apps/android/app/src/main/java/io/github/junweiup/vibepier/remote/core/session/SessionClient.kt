@@ -637,6 +637,14 @@ class SessionClient(context: Context, private val sender: SessionTransport, priv
     fun duplicateUnconfirmedSend(thread: String, text: String, attachments: JSONArray): Boolean =
         SessionWaitingPolicy.duplicateSend(uncertain(thread), text, attachments)
     fun clearReceipt(id: String) { prefs.edit().remove("pending.$id").apply() }
+    /** Only a settings change may be abandoned: choosing settings again is harmless, unlike resending a message. */
+    fun abandonSettings(id: String): Boolean {
+        val v2 = agent.context(id)
+        val original = v2 ?: prefs.getString("pending.$id", null)?.let { runCatching { JSONObject(it) }.getOrNull() } ?: return false
+        if (original.optString("op") != "settings") return false
+        if (v2 != null) return agent.abandon(id)
+        return prefs.edit().remove("pending.$id").commit()
+    }
     fun retryPending(id: String, callback: (JSONObject) -> Unit) {
         agent.context(id)?.let { original ->
             // Only reached after the Mac reported notFound: the same operation ID and body, never a fresh mutation.

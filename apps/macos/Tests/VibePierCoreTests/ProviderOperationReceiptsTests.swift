@@ -95,6 +95,30 @@ final class ProviderOperationReceiptsTests: XCTestCase {
                 as? Bool, true)
     }
 
+    func testMissingReadbackAnswersOnlyForOperationsThisProcessNeverSaw() throws {
+        let cache = ProviderOperationReceipts()
+        var asked = 0
+        let readback: () -> [String: Any]? = {
+            asked += 1
+            return ["ok": true, "accepted": true, "threadId": "thread"]
+        }
+        XCTAssertEqual(
+            cache.lookup(client: "phone", operation: "lost", thread: "thread", kind: "settings", missing: readback)[
+                "accepted"] as? Bool, true)
+        XCTAssertEqual(asked, 1)
+        // An in-flight or differently scoped record is never replaced by a readback.
+        _ = try begin(cache, request(op: "settings"))
+        for (thread, kind) in [("thread", "settings"), ("other", "settings"), ("thread", "send")] {
+            XCTAssertEqual(
+                cache.lookup(client: "phone", operation: "operation", thread: thread, kind: kind, missing: readback)[
+                    "unknown"] as? Bool, true)
+        }
+        XCTAssertEqual(asked, 1)
+        XCTAssertEqual(
+            cache.lookup(client: "phone", operation: "lost", thread: "thread", kind: "settings", missing: { nil })[
+                "unknown"] as? Bool, true)
+    }
+
     func testCapacityRefusesNewWorkWithoutEvictingUncertainIdentity() throws {
         let cache = ProviderOperationReceipts(
             limits: .init(records: 3, recordsPerClient: 2, bytes: 10_000, bytesPerClient: 8_000))

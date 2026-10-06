@@ -152,6 +152,15 @@ final class DesktopMutationTests: XCTestCase {
         XCTAssertNil(receipt.confirmedMessage(in: [user("new", text)]), "Replaced/truncated history loses the anchor")
     }
 
+    func testSendReceiptToleratesDesktopParagraphRewrites() {
+        let text = "看这张图\n\n用户附加文件：shot.jpg\nMac 本地路径：/tmp/a b/shot.jpg"
+        let baseline = [user("old", "before")]
+        let receipt = ClaudeSendReceipt(entries: baseline, text: text)
+        let rewritten = "看这张图\n用户附加文件：shot.jpg\n\nMac 本地路径：/tmp/a b/shot.jpg\n"
+        XCTAssertEqual(receipt.confirmedMessage(in: baseline + [user("new", rewritten)]), "new")
+        XCTAssertNil(receipt.confirmedMessage(in: baseline + [user("new", "看这张图\n用户附加文件：shot.jpg")]))
+    }
+
     func testInjectedMetadataAndToolResultsCannotConfirmSend() {
         let baseline = [user("old", "before")]
         let receipt = ClaudeSendReceipt(entries: baseline, text: "hello")

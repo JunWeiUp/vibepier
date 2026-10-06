@@ -63,11 +63,7 @@ enum ClaudeDesktop {
         guard let field = found else {
             throw CLIError(L10n.text("provider.claude_desktop_composer_not_found_nothing_was_sent"))
         }
-        let existing = (value(field) ?? "").trimmingCharacters(in: .whitespacesAndNewlines)
-        guard existing.isEmpty else {
-            throw CLIError(
-                L10n.text("provider.claude_desktop_has_an_unsent_draft_resolve_it_on_the_mac_first_nothing_was_s"))
-        }
+        func emptyDraft() -> Bool { (value(field) ?? "").trimmingCharacters(in: .whitespacesAndNewlines).isEmpty }
         guard let originalWindow = focusedWindow(element) else {
             throw CLIError(L10n.text("provider.desktop_input_changed"))
         }
@@ -83,6 +79,16 @@ enum ClaudeDesktop {
         guard AXUIElementSetAttributeValue(field, kAXFocusedAttribute as CFString, kCFBooleanTrue) == .success,
             wait(1, focusedComposer)
         else { throw CLIError(L10n.text("provider.desktop_input_changed")) }
+        func clearDraft() throws {
+            try key(0, flags: .maskCommand)
+            guard focusedComposer() else { throw CLIError(L10n.text("provider.desktop_input_changed")) }
+            try key(51)
+            guard wait(1, { focusedComposer() && emptyDraft() }) else {
+                throw CLIError(L10n.text("provider.could_not_clear_the_claude_desktop_draft_nothing_was_sent"))
+            }
+        }
+        // The phone message takes priority: discard a leftover draft rather than refusing to send.
+        if !emptyDraft() { try clearDraft() }
         let clipboard = try DesktopClipboard(NSPasteboard.general)
         try clipboard.write(text)
         defer {
@@ -93,11 +99,11 @@ enum ClaudeDesktop {
             throw CLIError(L10n.text("provider.desktop_input_changed"))
         }
         try key(9, flags: .maskCommand)
-        let expected = text.trimmingCharacters(in: .whitespacesAndNewlines)
-        func exactDraft() -> Bool {
-            (value(field) ?? "").trimmingCharacters(in: .whitespacesAndNewlines) == expected
-        }
+        let expected = ClaudeSendReceipt.normalized(text)
+        func exactDraft() -> Bool { ClaudeSendReceipt.normalized(value(field) ?? "") == expected }
         guard wait(1.5, { focusedComposer() && clipboard.isCurrent && exactDraft() }) else {
+            // Take back what was pasted so it does not block the next send as a stale draft.
+            if focusedComposer() { try? clearDraft() }
             throw CLIError(L10n.text("provider.could_not_fill_the_claude_desktop_composer_nothing_was_sent"))
         }
         try DesktopMutationScope.confirmedAction(
