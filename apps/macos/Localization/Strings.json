@@ -1,4 +1,8 @@
 {
+  "session.allow_similar_command_rule": {
+    "en": "Allow future commands matching this Codex-proposed command-prefix rule: {0}. Only this request's proposed rule is submitted; global permission mode is unchanged.",
+    "zh-Hans": "允许符合此 Codex 提议的命令前缀规则的后续命令：{0}。仅提交本次请求提议的规则，不更改全局权限模式。"
+  },
   "provider.claude_model_catalog_unavailable": {
     "en": "Could not retrieve Claude models. Check the Mac Claude API configuration and connection, then refresh. Project-specific model or credential overrides and OAuth-only discovery are not supported.",
     "zh-Hans": "无法获取 Claude 模型，请检查 Mac 上的 Claude API 配置与连接后刷新。暂不支持项目级模型或凭据覆盖配置，以及仅 OAuth 登录的模型发现。"
@@ -137,7 +141,7 @@
   },
   "mac.clear_all_unviewed_indicators_in_this_menu_without_changing_the_prov": {
     "en": "Clear all unviewed indicators in this menu without changing the providers’ own read states.",
-    "zh-Hans": "清除菜单栏上所有未查看的绿点，不改变 Codex、Claude、ZCode 自身的未读状态"
+    "zh-Hans": "清除菜单栏上所有未查看的绿点，不改变 Codex、Claude 自身的未读状态"
   },
   "mac.mark_all_0_unviewed_tasks_as_viewed": {
     "en": "Mark all {0} unviewed tasks as viewed",
@@ -164,8 +168,8 @@
     "zh-Hans": "手机会话访问"
   },
   "mac.authorized_phones_can_view_and_reply_to_supported_codex_claude_code_": {
-    "en": "Authorized phones can view and reply to supported Codex, Claude Code and ZCode sessions and handle supported approvals. On first Bluetooth connection, approve the phone in the Mac dialog.",
-    "zh-Hans": "已授权手机可以查看和回复支持的 Codex、Claude Code 与 ZCode 会话，并处理支持的审批。首次蓝牙连接会自动在 Mac 弹窗，请在 Mac 确认。"
+    "en": "Authorized phones can view and reply to supported Codex and Claude Code sessions and handle supported approvals. On first Bluetooth connection, approve the phone in the Mac dialog.",
+    "zh-Hans": "已授权手机可以查看和回复支持的 Codex 与 Claude Code 会话，并处理支持的审批。首次蓝牙连接会自动在 Mac 弹窗，请在 Mac 确认。"
   },
   "mac.no_authorized_phones": {
     "en": "No authorized phones",
@@ -919,10 +923,6 @@
     "en": "Missing unviewed tasks.",
     "zh-Hans": "缺少未查看任务"
   },
-  "core.invalid_local_zcode_request": {
-    "en": "Invalid local ZCode request.",
-    "zh-Hans": "无效 ZCode 本机请求"
-  },
   "core.invalid_request": {
     "en": "Invalid request.",
     "zh-Hans": "无效请求"
@@ -1182,10 +1182,6 @@
   "core.a_different_user_is_logged_in_on_the_mac_cannot_unlock_it": {
     "en": "A different user is logged in on the Mac. Cannot unlock it.",
     "zh-Hans": "Mac 当前登录的是其他用户，无法解锁"
-  },
-  "core.the_legacy_development_relay_settings_are_invalid_correct_the_url_ro": {
-    "en": "The legacy development relay settings are invalid. Correct the URL, room and secret first.",
-    "zh-Hans": "旧开发配置中的中继参数无效，请先修正地址、房间和密钥"
   },
   "core.could_not_remove_the_relay_secret_from_keychain_0": {
     "en": "Could not remove the relay secret from Keychain ({0}).",
@@ -2328,8 +2324,8 @@
     "zh-Hans": "未知命令“{0}”。运行 vibepier help 查看帮助。"
   },
   "cli.help": {
-    "en": "vibepier: Mac controls, phone connections and Ulanzi Vibe Key (AU05) driver\n\nDevice information\n  vibepier info [--json]                 Show dongle, mic, battery and settings\n  vibepier monitor                       Print key presses, battery and link events\n  vibepier battery                       Show the mic battery\n\nSettings\n  vibepier settings [--json]             Show all device settings\n  vibepier set sleep <off|1h|2h|3h|4h|seconds>\n  vibepier set vibration <on|off|0-255>\n  vibepier set denoise <on|off>\n  vibepier set light-mode <off|on|work>\n  vibepier set brightness <0-20>\n  vibepier set led <0-3> <type|time|breathe-level|breathe-brightness|brightness> <value>\n  vibepier set hooks-mode <on|off>\n  vibepier set standby-time <seconds>\n  vibepier set audio-button-mode <n>\n  vibepier set mic <on|off>\n\nButtons (stored in the Vibe Key firmware; they work without vibepier running)\n  vibepier buttons [--json]              Show what each control sends\n  vibepier bind <control> <binding>      Controls: talk, confirm, cancel, knob-press,\n                                      knob-left, knob-right\n                                      Bindings: a hotkey such as \"cmd+shift+4\",\n                                      \"fixed:<media key>\", or \"factory\"\n  vibepier reset-buttons                 Restore the factory functions\n  vibepier keys                          List key names and media keys\n\nConfiguration and daemon\n  vibepier config init|show|path         Manage ~/Library/Application Support/vibepier/config.json\n  vibepier preferences export <file>     Export portable settings without credentials\n  vibepier preferences import <file> [--dry-run]\n                                      Validate/merge settings into the running Mac app\n  vibepier apply                         Push the configuration file to the device\n  vibepier daemon [--verbose]            Run in the foreground\n  vibepier service install|uninstall|status\n                                      Run the daemon at login with launchd\n  vibepier status                        Ask the running daemon for its state\n  vibepier reload                        Tell the daemon to reload its configuration\n  vibepier relay status|disable          Show or disable the configured cloud relay\n  vibepier relay configure --url <wss-url> --room <room> --secret-file <path>\n                                      [--dns-recovery system|alidns]\n                                      Save credentials in the running Mac app's Keychain\n  vibepier android-update <apk>          Register the available Android update\n  vibepier phone-install --list           List authorized APK recipients\n  vibepier phone-install <apk> [device]    Send an APK without ADB\n  vibepier phone-install --status [device]\n  vibepier phone-install --cancel [device]\n\nAI agent hooks (LED status from Claude Code, Codex, Gemini CLI, Cursor, Copilot CLI)\n  vibepier hooks install [--agent <id>] [--config <file>] [--dry-run]\n  vibepier hooks uninstall [--agent <id>] [--config <file>] [--dry-run]\n  vibepier hooks status\n  vibepier hook --agent <id> --event <name>   Called by the agent (reads JSON on stdin)\n\nMaintenance\n  vibepier reboot <device|dongle>\n  vibepier firmware check                Ask Ulanzi's update server (sends the dongle serial)\n  vibepier firmware update --target <device|dongle> --file <image> --yes\n  vibepier raw <hex bytes> [--wait <ms>] Send one AU05 USB frame and print replies\n  vibepier test leds|vibration           Cycle LED work types or try the motor, then restore\n\nGlobal options\n  --verbose                           Log every frame\n  --pid <hex>                         Use another product ID (default 00DD)\n  session-provider-set <codex|claude|zcode> <on|off>\n\n  Usage: vibepier agents status | codex enable --executable /absolute/codex --workspace /absolute/project | codex disable | claude-mods enable --reviewed-version VERSION | claude-mods disable | claude-mods bind --session ID --workspace /absolute/project --runtime-version VERSION --contract-digest SHA256",
-    "zh-Hans": "vibepier：Mac 控制、手机连接与 Ulanzi Vibe Key（AU05）驱动\n\n设备信息\n  vibepier info [--json]                 显示接收器、麦克风、电量与设置\n  vibepier monitor                       输出按键、电量与连接事件\n  vibepier battery                       显示麦克风电量\n\n设置\n  vibepier settings [--json]             显示全部设备设置\n  vibepier set sleep <off|1h|2h|3h|4h|seconds>\n  vibepier set vibration <on|off|0-255>\n  vibepier set denoise <on|off>\n  vibepier set light-mode <off|on|work>\n  vibepier set brightness <0-20>\n  vibepier set led <0-3> <type|time|breathe-level|breathe-brightness|brightness> <value>\n  vibepier set hooks-mode <on|off>\n  vibepier set standby-time <seconds>\n  vibepier set audio-button-mode <n>\n  vibepier set mic <on|off>\n\n按键（保存在 Vibe Key 固件中，无需运行 vibepier 也能生效）\n  vibepier buttons [--json]              显示每个按键发送的内容\n  vibepier bind <control> <binding>      按键：talk, confirm, cancel, knob-press,\n                                      knob-left, knob-right\n                                      绑定：快捷键（如 \"cmd+shift+4\"）、\n                                      \"fixed:<media key>\" 或 \"factory\"\n  vibepier reset-buttons                 恢复出厂按键功能\n  vibepier keys                          列出普通按键与媒体键名称\n\n配置与后台服务\n  vibepier config init|show|path         管理 ~/Library/Application Support/vibepier/config.json\n  vibepier preferences export <file>     导出可迁移设置，不包含凭据\n  vibepier preferences import <file> [--dry-run]\n                                      校验设置并合并到正在运行的 Mac 应用\n  vibepier apply                         将配置文件应用到设备\n  vibepier daemon [--verbose]            以前台进程运行\n  vibepier service install|uninstall|status\n                                      通过 launchd 在登录时运行后台服务\n  vibepier status                        查询正在运行的后台服务状态\n  vibepier reload                        通知后台服务重新加载配置\n  vibepier relay status|disable          查看或关闭已配置的云中继\n  vibepier relay configure --url <wss-url> --room <room> --secret-file <path>\n                                      [--dns-recovery system|alidns]\n                                      将凭据保存在正在运行的 Mac 应用钥匙串中\n  vibepier android-update <apk>          登记可用的 Android 更新\n  vibepier phone-install --list           列出已授权的 APK 接收设备\n  vibepier phone-install <apk> [device]    无需 ADB 即可发送 APK\n  vibepier phone-install --status [device]\n  vibepier phone-install --cancel [device]\n\nAI 代理钩子（显示 Claude Code、Codex、Gemini CLI、Cursor、Copilot CLI 的 LED 状态）\n  vibepier hooks install [--agent <id>] [--config <file>] [--dry-run]\n  vibepier hooks uninstall [--agent <id>] [--config <file>] [--dry-run]\n  vibepier hooks status\n  vibepier hook --agent <id> --event <name>   由代理调用（从标准输入读取 JSON）\n\n维护\n  vibepier reboot <device|dongle>\n  vibepier firmware check                查询 Ulanzi 更新服务器（会发送接收器序列号）\n  vibepier firmware update --target <device|dongle> --file <image> --yes\n  vibepier raw <hex bytes> [--wait <ms>] 发送一帧 AU05 USB 数据并输出回复\n  vibepier test leds|vibration           循环测试 LED 模式或振动马达，然后恢复\n\n全局选项\n  --verbose                           记录每帧数据\n  --pid <hex>                         使用其他产品 ID（默认 00DD）\n  session-provider-set <codex|claude|zcode> <on|off>\n\n  用法：vibepier agents status | codex enable --executable /absolute/codex --workspace /absolute/project | codex disable | claude-mods enable --reviewed-version VERSION | claude-mods disable | claude-mods bind --session ID --workspace /absolute/project --runtime-version VERSION --contract-digest SHA256"
+    "en": "vibepier: Mac controls, phone connections and Ulanzi Vibe Key (AU05) driver\n\nDevice information\n  vibepier info [--json]                 Show dongle, mic, battery and settings\n  vibepier monitor                       Print key presses, battery and link events\n  vibepier battery                       Show the mic battery\n\nSettings\n  vibepier settings [--json]             Show all device settings\n  vibepier set sleep <off|1h|2h|3h|4h|seconds>\n  vibepier set vibration <on|off|0-255>\n  vibepier set denoise <on|off>\n  vibepier set light-mode <off|on|work>\n  vibepier set brightness <0-20>\n  vibepier set led <0-3> <type|time|breathe-level|breathe-brightness|brightness> <value>\n  vibepier set hooks-mode <on|off>\n  vibepier set standby-time <seconds>\n  vibepier set audio-button-mode <n>\n  vibepier set mic <on|off>\n\nButtons (stored in the Vibe Key firmware; they work without vibepier running)\n  vibepier buttons [--json]              Show what each control sends\n  vibepier bind <control> <binding>      Controls: talk, confirm, cancel, knob-press,\n                                      knob-left, knob-right\n                                      Bindings: a hotkey such as \"cmd+shift+4\",\n                                      \"fixed:<media key>\", or \"factory\"\n  vibepier reset-buttons                 Restore the factory functions\n  vibepier keys                          List key names and media keys\n\nConfiguration and daemon\n  vibepier config init|show|path         Manage ~/Library/Application Support/vibepier/config.json\n  vibepier preferences export <file>     Export portable settings without credentials\n  vibepier preferences import <file> [--dry-run]\n                                      Validate/merge settings into the running Mac app\n  vibepier apply                         Push the configuration file to the device\n  vibepier daemon [--verbose]            Run in the foreground\n  vibepier service install|uninstall|status\n                                      Run the daemon at login with launchd\n  vibepier status                        Ask the running daemon for its state\n  vibepier reload                        Tell the daemon to reload its configuration\n  vibepier relay status|disable          Show or disable the configured cloud relay\n  vibepier relay configure --url <wss-url> --room <room> --secret-file <path>\n                                      [--dns-recovery system|alidns]\n                                      Save credentials in the running Mac app's Keychain\n  vibepier android-update <apk>          Register the available Android update\n  vibepier phone-install --list           List authorized APK recipients\n  vibepier phone-install <apk> [device]    Send an APK without ADB\n  vibepier phone-install --status [device]\n  vibepier phone-install --cancel [device]\n\nAI agent hooks (LED status from Claude Code, Codex, Gemini CLI, Cursor, Copilot CLI)\n  vibepier hooks install [--agent <id>] [--config <file>] [--dry-run]\n  vibepier hooks uninstall [--agent <id>] [--config <file>] [--dry-run]\n  vibepier hooks status\n  vibepier hook --agent <id> --event <name>   Called by the agent (reads JSON on stdin)\n\nMaintenance\n  vibepier reboot <device|dongle>\n  vibepier firmware check                Ask Ulanzi's update server (sends the dongle serial)\n  vibepier firmware update --target <device|dongle> --file <image> --yes\n  vibepier raw <hex bytes> [--wait <ms>] Send one AU05 USB frame and print replies\n  vibepier test leds|vibration           Cycle LED work types or try the motor, then restore\n\nGlobal options\n  --verbose                           Log every frame\n  --pid <hex>                         Use another product ID (default 00DD)\n  session-provider-set <codex|claude> <on|off>\n\n  Usage: vibepier agents status | codex enable --executable /absolute/codex --workspace /absolute/project | codex disable | claude-mods enable --reviewed-version VERSION | claude-mods disable | claude-mods bind --session ID --workspace /absolute/project --runtime-version VERSION --contract-digest SHA256",
+    "zh-Hans": "vibepier：Mac 控制、手机连接与 Ulanzi Vibe Key（AU05）驱动\n\n设备信息\n  vibepier info [--json]                 显示接收器、麦克风、电量与设置\n  vibepier monitor                       输出按键、电量与连接事件\n  vibepier battery                       显示麦克风电量\n\n设置\n  vibepier settings [--json]             显示全部设备设置\n  vibepier set sleep <off|1h|2h|3h|4h|seconds>\n  vibepier set vibration <on|off|0-255>\n  vibepier set denoise <on|off>\n  vibepier set light-mode <off|on|work>\n  vibepier set brightness <0-20>\n  vibepier set led <0-3> <type|time|breathe-level|breathe-brightness|brightness> <value>\n  vibepier set hooks-mode <on|off>\n  vibepier set standby-time <seconds>\n  vibepier set audio-button-mode <n>\n  vibepier set mic <on|off>\n\n按键（保存在 Vibe Key 固件中，无需运行 vibepier 也能生效）\n  vibepier buttons [--json]              显示每个按键发送的内容\n  vibepier bind <control> <binding>      按键：talk, confirm, cancel, knob-press,\n                                      knob-left, knob-right\n                                      绑定：快捷键（如 \"cmd+shift+4\"）、\n                                      \"fixed:<media key>\" 或 \"factory\"\n  vibepier reset-buttons                 恢复出厂按键功能\n  vibepier keys                          列出普通按键与媒体键名称\n\n配置与后台服务\n  vibepier config init|show|path         管理 ~/Library/Application Support/vibepier/config.json\n  vibepier preferences export <file>     导出可迁移设置，不包含凭据\n  vibepier preferences import <file> [--dry-run]\n                                      校验设置并合并到正在运行的 Mac 应用\n  vibepier apply                         将配置文件应用到设备\n  vibepier daemon [--verbose]            以前台进程运行\n  vibepier service install|uninstall|status\n                                      通过 launchd 在登录时运行后台服务\n  vibepier status                        查询正在运行的后台服务状态\n  vibepier reload                        通知后台服务重新加载配置\n  vibepier relay status|disable          查看或关闭已配置的云中继\n  vibepier relay configure --url <wss-url> --room <room> --secret-file <path>\n                                      [--dns-recovery system|alidns]\n                                      将凭据保存在正在运行的 Mac 应用钥匙串中\n  vibepier android-update <apk>          登记可用的 Android 更新\n  vibepier phone-install --list           列出已授权的 APK 接收设备\n  vibepier phone-install <apk> [device]    无需 ADB 即可发送 APK\n  vibepier phone-install --status [device]\n  vibepier phone-install --cancel [device]\n\nAI 代理钩子（显示 Claude Code、Codex、Gemini CLI、Cursor、Copilot CLI 的 LED 状态）\n  vibepier hooks install [--agent <id>] [--config <file>] [--dry-run]\n  vibepier hooks uninstall [--agent <id>] [--config <file>] [--dry-run]\n  vibepier hooks status\n  vibepier hook --agent <id> --event <name>   由代理调用（从标准输入读取 JSON）\n\n维护\n  vibepier reboot <device|dongle>\n  vibepier firmware check                查询 Ulanzi 更新服务器（会发送接收器序列号）\n  vibepier firmware update --target <device|dongle> --file <image> --yes\n  vibepier raw <hex bytes> [--wait <ms>] 发送一帧 AU05 USB 数据并输出回复\n  vibepier test leds|vibration           循环测试 LED 模式或振动马达，然后恢复\n\n全局选项\n  --verbose                           记录每帧数据\n  --pid <hex>                         使用其他产品 ID（默认 00DD）\n  session-provider-set <codex|claude> <on|off>\n\n  用法：vibepier agents status | codex enable --executable /absolute/codex --workspace /absolute/project | codex disable | claude-mods enable --reviewed-version VERSION | claude-mods disable | claude-mods bind --session ID --workspace /absolute/project --runtime-version VERSION --contract-digest SHA256"
   },
   "cli.firmware_confirmation": {
     "en": "this writes new firmware to the {0}. The protocol was reverse engineered and\nhas not been tested against a real update. An interrupted or wrong image can leave the\n{0} unusable. Keep the dongle plugged in and the mic charged. Add --yes to continue.",
@@ -2819,26 +2815,6 @@
     "en": "Session update",
     "zh-Hans": "会话更新"
   },
-  "provider.no_local_zcode_sessions_found_open_zcode_first": {
-    "en": "No local ZCode sessions found. Open ZCode first",
-    "zh-Hans": "未找到本机 ZCode 会话，请先打开 ZCode"
-  },
-  "provider.the_zcode_desktop_task_index_is_temporarily_unreadable": {
-    "en": "The ZCode desktop task index is temporarily unreadable",
-    "zh-Hans": "ZCode 桌面任务索引暂不可读"
-  },
-  "provider.the_local_zcode_session_index_version_is_incompatible": {
-    "en": "The local ZCode session index version is incompatible",
-    "zh-Hans": "ZCode 本机会话索引版本不兼容"
-  },
-  "provider.could_not_read_the_zcode_session_try_again_later": {
-    "en": "Could not read the ZCode session. Try again later",
-    "zh-Hans": "读取 ZCode 会话失败，请稍后重试"
-  },
-  "provider.this_zcode_desktop_session_was_not_found": {
-    "en": "This ZCode desktop session was not found",
-    "zh-Hans": "未找到此 ZCode 桌面会话"
-  },
   "provider.the_session_changed_refresh_before_retrying": {
     "en": "The session changed. Refresh before retrying",
     "zh-Hans": "会话已变化，请刷新后重试"
@@ -2846,30 +2822,6 @@
   "provider.the_message_changed_refresh_to_continue": {
     "en": "The message changed. Refresh to continue",
     "zh-Hans": "消息已变化，请刷新"
-  },
-  "provider.full_access_lets_zcode_reduce_confirmations_for_file_changes_and_command_exe": {
-    "en": "Full access lets ZCode reduce confirmations for file changes and command execution.",
-    "zh-Hans": "完全访问允许 ZCode 减少文件修改与命令执行确认。"
-  },
-  "provider.open_zcode_desktop_and_grant_vibepier_accessibility_permission_first": {
-    "en": "Open ZCode desktop and grant VibePier Accessibility permission first",
-    "zh-Hans": "请先打开 ZCode 桌面端，并授予 VibePier 辅助功能权限"
-  },
-  "provider.this_feature_is_not_yet_connected_to_native_zcode_desktop_sessions": {
-    "en": "This feature is not yet connected to native ZCode desktop sessions",
-    "zh-Hans": "此功能暂未接入 ZCode 原生桌面会话"
-  },
-  "provider.the_zcode_session_project_changed_no_action_was_taken": {
-    "en": "The ZCode session project changed; no action was taken",
-    "zh-Hans": "ZCode 会话项目已变化，未执行"
-  },
-  "provider.the_running_zcode_turn_changed_no_stop_action_was_sent": {
-    "en": "The running ZCode turn changed; no stop action was sent",
-    "zh-Hans": "ZCode 运行回合已变化，未停止"
-  },
-  "provider.this_zcode_session_has_no_task_that_can_currently_be_stopped": {
-    "en": "This ZCode session has no task that can currently be stopped",
-    "zh-Hans": "ZCode 这个会话当前没有可停止的任务"
   },
   "provider.stop_was_pressed_but_the_native_task_has_not_been_confirmed_as_ended": {
     "en": "Stop was pressed, but the native task has not been confirmed as ended",
@@ -2879,133 +2831,13 @@
     "en": "The message is empty or too long",
     "zh-Hans": "消息为空或过长"
   },
-  "provider.zcode_desktop_attachments_are_not_yet_supported_nothing_was_sent": {
-    "en": "ZCode desktop attachments are not yet supported; nothing was sent",
-    "zh-Hans": "ZCode 桌面附件暂未接入，未发送"
-  },
-  "provider.zcode_is_running_or_its_composer_is_not_ready_retry_when_it_is_ready": {
-    "en": "ZCode is running or its composer is not ready. Retry when it is ready",
-    "zh-Hans": "ZCode 正在运行或输入框未就绪，请完成后重试"
-  },
-  "provider.zcode_desktop_has_an_existing_draft_nothing_was_sent": {
-    "en": "ZCode desktop has an existing draft; nothing was sent",
-    "zh-Hans": "ZCode 桌面输入框已有草稿，未发送"
-  },
-  "provider.zcode_desktop_input_state_changed_nothing_was_sent": {
-    "en": "ZCode desktop input state changed; nothing was sent",
-    "zh-Hans": "ZCode 桌面输入状态已变化，未发送"
-  },
-  "provider.zcode_lost_focus_the_content_remains_in_the_desktop_draft": {
-    "en": "ZCode lost focus. The content remains in the desktop draft",
-    "zh-Hans": "ZCode 失去焦点，内容留在桌面草稿中"
-  },
-  "provider.the_native_zcode_send_button_and_draft_could_not_be_verified_the_content_rem": {
-    "en": "The native ZCode Send button and draft could not be verified. The content remains on the desktop",
-    "zh-Hans": "未确认 ZCode 原生发送按钮与草稿，内容留在桌面"
-  },
-  "provider.open_a_local_project_in_the_native_zcode_agent_before_retrying_session_creat": {
-    "en": "Open a local project in the native ZCode Agent before retrying session creation",
-    "zh-Hans": "请打开 ZCode 原生 Agent 的本地项目后重试新建"
-  },
-  "provider.attachments_for_new_zcode_sessions_are_not_yet_supported": {
-    "en": "Attachments for new ZCode sessions are not yet supported",
-    "zh-Hans": "ZCode 新建附件暂未接入"
-  },
-  "provider.could_not_activate_zcode_no_new_session_was_created": {
-    "en": "Could not activate ZCode; no new session was created",
-    "zh-Hans": "无法激活 ZCode，未新建"
-  },
-  "provider.the_zcode_navigation_dialog_is_still_open_no_new_session_was_created": {
-    "en": "The ZCode navigation dialog is still open; no new session was created",
-    "zh-Hans": "ZCode 当前导航对话框尚未关闭，未新建"
-  },
-  "provider.zcode_desktop_has_an_existing_draft_no_new_session_was_created": {
-    "en": "ZCode desktop has an existing draft; no new session was created",
-    "zh-Hans": "ZCode 当前桌面已有草稿，未新建"
-  },
-  "provider.could_not_verify_an_empty_draft_for_the_new_native_zcode_task_nothing_was_se": {
-    "en": "Could not verify an empty draft for the new native ZCode task; nothing was sent",
-    "zh-Hans": "未确认 ZCode 原生新任务是空草稿，未发送"
-  },
-  "provider.the_full_path_does_not_uniquely_identify_a_native_zcode_workspace_nothing_wa": {
-    "en": "The full path does not uniquely identify a native ZCode workspace; nothing was sent",
-    "zh-Hans": "ZCode 原生工作区无法唯一绑定该完整路径，未发送"
-  },
-  "provider.the_project_selector_for_the_new_zcode_task_could_not_be_verified_nothing_wa": {
-    "en": "The project selector for the new ZCode task could not be verified; nothing was sent",
-    "zh-Hans": "ZCode 新任务没有可确认的项目选择器，未发送"
-  },
-  "provider.zcode_project_search_not_found_nothing_was_sent": {
-    "en": "ZCode project search not found; nothing was sent",
-    "zh-Hans": "找不到 ZCode 项目搜索，未发送"
-  },
-  "provider.zcode_project_search_or_native_path_mapping_is_not_stable_nothing_was_sent": {
-    "en": "ZCode project search or native path mapping is not stable; nothing was sent",
-    "zh-Hans": "ZCode 项目查询或原生路径映射未稳定，未发送"
-  },
-  "provider.the_project_path_for_the_new_zcode_task_does_not_match_nothing_was_sent": {
-    "en": "The project path for the new ZCode task does not match; nothing was sent",
-    "zh-Hans": "ZCode 新任务项目路径不匹配，未发送"
-  },
-  "provider.native_settings_for_the_new_zcode_task_are_unconfirmed_nothing_was_sent": {
-    "en": "Native settings for the new ZCode task are unconfirmed; nothing was sent",
-    "zh-Hans": "ZCode 新任务原生配置未确认，未发送"
-  },
-  "provider.the_new_zcode_task_state_changed_the_content_remains_in_the_desktop_draft": {
-    "en": "The new ZCode task state changed. The content remains in the desktop draft",
-    "zh-Hans": "ZCode 新任务状态已变化，内容留在桌面草稿"
-  },
-  "provider.open_zcode_and_grant_vibepier_accessibility_permission_first": {
-    "en": "Open ZCode and grant VibePier Accessibility permission first",
-    "zh-Hans": "请先打开 ZCode，并授予 VibePier 辅助功能权限"
-  },
-  "provider.could_not_activate_zcode_no_action_was_taken": {
-    "en": "Could not activate ZCode; no action was taken",
-    "zh-Hans": "无法激活 ZCode，未执行"
-  },
-  "provider.the_zcode_navigation_view_is_still_open_check_on_the_mac": {
-    "en": "The ZCode navigation view is still open. Check on the Mac",
-    "zh-Hans": "ZCode 当前导航界面未关闭，请在 Mac 核对"
-  },
-  "provider.zcode_has_multiple_editing_areas_or_its_input_is_not_ready_no_action_was_tak": {
-    "en": "ZCode has multiple editing areas or its input is not ready; no action was taken",
-    "zh-Hans": "ZCode 当前有多个编辑区域或输入未就绪，未执行"
-  },
   "provider.the_session_has_no_identifiable_desktop_title_open_it_on_the_mac_before_retr": {
     "en": "The session has no identifiable desktop title. Open it on the Mac before retrying",
     "zh-Hans": "会话没有可定位的桌面标题，请在 Mac 打开它后重试"
   },
-  "provider.zcode_task_search_not_found_open_this_session_on_the_mac_before_retrying": {
-    "en": "ZCode task search not found. Open this session on the Mac before retrying",
-    "zh-Hans": "找不到 ZCode 任务搜索，请在 Mac 打开此会话后重试"
-  },
   "provider.the_desktop_search_result_is_not_unique_open_this_session_on_the_mac_before_": {
     "en": "The desktop search result is not unique. Open this session on the Mac before retrying",
     "zh-Hans": "桌面搜索结果不唯一，请在 Mac 打开此会话后重试"
-  },
-  "provider.the_zcode_session_did_not_finish_opening_no_action_was_taken": {
-    "en": "The ZCode session did not finish opening; no action was taken",
-    "zh-Hans": "ZCode 会话未完成打开，未执行"
-  },
-  "provider.the_current_native_zcode_session_id_does_not_match_no_action_was_taken": {
-    "en": "The current native ZCode session ID does not match; no action was taken",
-    "zh-Hans": "ZCode 当前原生会话 ID 不匹配，未执行"
-  },
-  "provider.the_native_zcode_session_id_menu_was_not_found": {
-    "en": "The native ZCode session ID menu was not found",
-    "zh-Hans": "找不到 ZCode 会话的原生 ID 菜单"
-  },
-  "provider.this_zcode_version_has_no_verifiable_native_session_id_no_action_was_taken": {
-    "en": "This ZCode version has no verifiable native session ID; no action was taken",
-    "zh-Hans": "此 ZCode 版本没有可验证的原生会话 ID，未执行"
-  },
-  "provider.zcode_did_not_return_a_native_session_id_no_action_was_taken": {
-    "en": "ZCode did not return a native session ID; no action was taken",
-    "zh-Hans": "ZCode 未返回原生会话 ID，未执行"
-  },
-  "provider.the_native_zcode_session_menu_is_still_open_no_action_was_taken": {
-    "en": "The native ZCode session menu is still open; no action was taken",
-    "zh-Hans": "ZCode 原生会话菜单尚未关闭，未执行"
   },
   "provider.model": {
     "en": "model",
@@ -3019,145 +2851,9 @@
     "en": "reasoning effort",
     "zh-Hans": "推理强度"
   },
-  "provider.the_native_zcode_0_menu_is_not_ready_try_again": {
-    "en": "The native ZCode {0} menu is not ready. Try again",
-    "zh-Hans": "ZCode 原生{0}菜单未就绪，请重试"
-  },
-  "provider.the_native_zcode_0_menu_has_no_readable_options_1": {
-    "en": "The native ZCode {0} menu has no readable options ({1})",
-    "zh-Hans": "ZCode 原生{0}菜单没有可读取的选项（{1}）"
-  },
   "provider.option_0": {
     "en": "Option {0}",
     "zh-Hans": "选项 {0}"
-  },
-  "provider.the_native_zcode_0_menu_is_still_open_try_again": {
-    "en": "The native ZCode {0} menu is still open. Try again",
-    "zh-Hans": "ZCode 原生{0}菜单尚未关闭，请重试"
-  },
-  "provider.confirm_zcode_full_access_mode_first": {
-    "en": "Confirm ZCode full access mode first",
-    "zh-Hans": "请先确认 ZCode 完全访问模式"
-  },
-  "provider.reopen_the_zcode_model_and_permission_options_first": {
-    "en": "Reopen the ZCode model and permission options first",
-    "zh-Hans": "请先重新打开 ZCode 的模型与权限选项"
-  },
-  "provider.native_zcode_options_changed_no_selection_was_made": {
-    "en": "Native ZCode options changed; no selection was made",
-    "zh-Hans": "ZCode 原生选项已变化，未切换"
-  },
-  "provider.the_zcode_option_change_did_not_finish": {
-    "en": "The ZCode option change did not finish",
-    "zh-Hans": "ZCode 选项未完成切换"
-  },
-  "provider.the_zcode_control_changed": {
-    "en": "The ZCode control changed",
-    "zh-Hans": "ZCode 控件已变化"
-  },
-  "provider.the_native_zcode_option_change_is_unconfirmed_check_on_the_mac": {
-    "en": "The native ZCode option change is unconfirmed. Check on the Mac",
-    "zh-Hans": "未确认 ZCode 原生选项生效，请在 Mac 核对"
-  },
-  "provider.the_zcode_search_field_changed_nothing_was_entered": {
-    "en": "The ZCode search field changed; nothing was entered",
-    "zh-Hans": "ZCode 搜索输入框已变化，未输入"
-  },
-  "provider.the_zcode_search_field_lost_focus_input_was_stopped": {
-    "en": "The ZCode search field lost focus; input was stopped",
-    "zh-Hans": "ZCode 搜索输入框失去焦点，未继续输入"
-  },
-  "provider.the_zcode_input_field_changed_or_lost_focus_nothing_was_entered": {
-    "en": "The ZCode input field changed or lost focus; nothing was entered",
-    "zh-Hans": "ZCode 输入框已变化或失去焦点，未输入"
-  },
-  "provider.actual_input_focus_in_zcode_could_not_be_verified_nothing_was_entered": {
-    "en": "Actual input focus in ZCode could not be verified; nothing was entered",
-    "zh-Hans": "未确认 ZCode 输入框获得真实焦点，未输入"
-  },
-  "provider.zcode_desktop_has_an_existing_draft_nothing_was_entered": {
-    "en": "ZCode desktop has an existing draft; nothing was entered",
-    "zh-Hans": "ZCode 桌面输入框已有草稿，未输入"
-  },
-  "provider.could_not_prepare_zcode_input_nothing_was_entered": {
-    "en": "Could not prepare ZCode input; nothing was entered",
-    "zh-Hans": "无法准备 ZCode 输入内容，未输入"
-  },
-  "provider.zcode_input_focus_changed_nothing_was_entered": {
-    "en": "ZCode input focus changed; nothing was entered",
-    "zh-Hans": "ZCode 输入焦点已变化，未输入"
-  },
-  "provider.zcode_input_focus_changed_nothing_was_pasted": {
-    "en": "ZCode input focus changed; nothing was pasted",
-    "zh-Hans": "ZCode 输入焦点已变化，未粘贴"
-  },
-  "provider.the_content_could_not_be_verified_in_the_current_zcode_composer_nothing_was_": {
-    "en": "The content could not be verified in the current ZCode composer; nothing was sent",
-    "zh-Hans": "未确认内容进入 ZCode 当前输入框，未发送"
-  },
-  "provider.the_zcode_control_is_not_ready_or_lost_focus_no_action_was_taken": {
-    "en": "The ZCode control is not ready or lost focus; no action was taken",
-    "zh-Hans": "ZCode 控件未就绪或失去焦点，未执行"
-  },
-  "provider.the_zcode_control_is_not_ready_or_lost_focus_no_click_was_sent": {
-    "en": "The ZCode control is not ready or lost focus; no click was sent",
-    "zh-Hans": "ZCode 控件未就绪或失去焦点，未点击"
-  },
-  "provider.could_not_click_the_native_zcode_control": {
-    "en": "Could not click the native ZCode control",
-    "zh-Hans": "无法点击 ZCode 原生控件"
-  },
-  "provider.the_zcode_control_is_not_visible": {
-    "en": "The ZCode control is not visible",
-    "zh-Hans": "ZCode 控件不可见"
-  },
-  "provider.the_zcode_control_moved_no_click_was_sent": {
-    "en": "The ZCode control moved; no click was sent",
-    "zh-Hans": "ZCode 控件位置已变化，未点击"
-  },
-  "provider.zcode_left_the_foreground_no_further_click_was_sent": {
-    "en": "ZCode left the foreground; no further click was sent",
-    "zh-Hans": "ZCode 失去前台，未继续点击"
-  },
-  "provider.could_not_create_a_zcode_click_event": {
-    "en": "Could not create a ZCode click event",
-    "zh-Hans": "无法生成 ZCode 点击事件"
-  },
-  "provider.actual_input_focus_after_the_zcode_click_could_not_be_verified_nothing_was_e": {
-    "en": "Actual input focus after the ZCode click could not be verified; nothing was entered",
-    "zh-Hans": "未确认 ZCode 点击后的真实输入焦点，未输入"
-  },
-  "provider.native_zcode_history_is_available_the_original_desktop_session_on_the_mac_mu": {
-    "en": "Native ZCode history is available. The original desktop session on the Mac must be verified before sending.",
-    "zh-Hans": "可查看 ZCode 原生历史；发送前需验证 Mac 上的原桌面会话。"
-  },
-  "provider.create_the_session_in_zcode_on_the_mac": {
-    "en": "Create the session in ZCode on the Mac",
-    "zh-Hans": "请在 Mac 的 ZCode 中新建会话"
-  },
-  "provider.invalid_zcode_session": {
-    "en": "Invalid ZCode session",
-    "zh-Hans": "无效 ZCode 会话"
-  },
-  "provider.zcode_does_not_yet_provide_verifiable_context_capacity_view_it_on_the_mac": {
-    "en": "ZCode does not yet provide verifiable context capacity. View it on the Mac",
-    "zh-Hans": "ZCode 尚未提供可验证的上下文容量，请在 Mac 中查看"
-  },
-  "provider.this_operation_has_not_been_verified_in_the_original_zcode_desktop_session_h": {
-    "en": "This operation has not been verified in the original ZCode desktop session. Handle it on the Mac",
-    "zh-Hans": "此操作尚未在 ZCode 原桌面会话验证，请在 Mac 上处理"
-  },
-  "provider.zcode_currently_supports_text_replies_up_to_32_kb": {
-    "en": "ZCode currently supports text replies up to 32 KB",
-    "zh-Hans": "ZCode 暂支持 32 KB 以内的文本回复"
-  },
-  "provider.zcode_is_working_or_the_session_is_not_yet_verified_wait_until_it_is_ready": {
-    "en": "ZCode is working or the session is not yet verified. Wait until it is ready",
-    "zh-Hans": "ZCode 正在处理或会话尚未验证，请等待完成"
-  },
-  "provider.zcode_does_not_support_this_phone_operation": {
-    "en": "ZCode does not support this phone operation",
-    "zh-Hans": "ZCode 不支持此手机操作"
   },
   "provider.invalid_image": {
     "en": "Invalid image",
@@ -3427,10 +3123,6 @@
     "en": "HID usage 0x{0} has no macOS key code",
     "zh-Hans": "HID 用法 0x{0} 没有对应的 macOS 键码"
   },
-  "provider.zcode_unrecognized_permission_choices": {
-    "en": "This ZCode permission menu contains unrecognized or ambiguous modes. Change permissions on the Mac.",
-    "zh-Hans": "此 ZCode 权限菜单包含无法识别或不明确的模式，请在 Mac 上修改权限。"
-  },
   "provider.claude_approval_not_current": {
     "en": "The approval changed or its button cannot be verified. Nothing was submitted; check on the Mac.",
     "zh-Hans": "审批已变化或无法确认按钮，尚未提交，请在 Mac 上核对。"
@@ -3482,10 +3174,6 @@
   "provider.desktop_clipboard_unavailable": {
     "en": "The clipboard changed or could not be safely preserved. Copy a small text item and try again.",
     "zh-Hans": "剪贴板已变化或无法完整保留，请复制一小段文本后重试。"
-  },
-  "provider.zcode_receipt_baseline_unavailable": {
-    "en": "The native ZCode session baseline is incomplete or exceeds the supported limit. Create the task on the Mac.",
-    "zh-Hans": "ZCode 原生会话基线不完整或超出支持上限，请在 Mac 上新建任务。"
   },
   "provider.receipt_capacity": {
     "en": "The provider receipt cache is full. Resolve outstanding operations on the Mac before trying again.",
@@ -3898,17 +3586,5 @@
   "core.unlock_preferences_invalid_failed": {
     "en": "Mac unlock preferences are invalid for the current user.",
     "zh-Hans": "Mac 解锁偏好无效或不属于当前用户。"
-  },
-  "core.unlock_preferences_migration_failed_0": {
-    "en": "Could not migrate the previous unlock password ({0}). Save it once in Mac unlock setup.",
-    "zh-Hans": "无法迁移原解锁密码（{0}），请在 Mac 解锁设置中保存一次。"
-  },
-  "provider.zcode_insufficient_balance": {
-    "en": "ZCode received the message, but the model provider reported insufficient balance or no available resource package (1113). Check your ZCode account quota or select a model with available quota. No message was resent.",
-    "zh-Hans": "ZCode 已收到消息，但模型服务商返回余额不足或无可用资源包（1113）。请检查 ZCode 账户额度，或选择有额度的模型；没有自动重发消息。"
-  },
-  "provider.zcode_reply_failed": {
-    "en": "ZCode received the message, but the model reply failed. Check the error in the original ZCode session on the Mac. No message was resent.",
-    "zh-Hans": "ZCode 已收到消息，但模型回复失败。请在 Mac 的原 ZCode 会话查看具体错误；没有自动重发消息。"
   }
 }

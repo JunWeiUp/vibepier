@@ -31,7 +31,11 @@ final class CodexBridgeCreationRecoveryTests: XCTestCase {
         ]
     }
     private func lookup(_ value: [String: Any]) -> [String: Any] {
-        SessionRemote.creationReceiptLookup(value, operation: value["id"] as! String, thread: "")
+        var request = value
+        request["op"] = "newReceiptCheck"
+        request["operation"] = value["id"]
+        request["threadId"] = ""
+        return request
     }
     private func bridge(_ readback: Readback, receipts: ProviderOperationReceipts = ProviderOperationReceipts())
         -> CodexBridge
@@ -135,16 +139,15 @@ final class CodexBridgeCreationRecoveryTests: XCTestCase {
         XCTAssertEqual(readback.calls, 0)
     }
 
-    func testLegacyLookupPreservesImmutableInputAndConfiguration() throws {
-        let request = original
-        let before = try JSONSerialization.data(withJSONObject: request, options: [.sortedKeys])
-        let result = lookup(request)
-        XCTAssertEqual(result["op"] as? String, "newReceiptCheck")
-        XCTAssertEqual(result["operation"] as? String, request["id"] as? String)
-        XCTAssertEqual(result["threadId"] as? String, "")
-        for key in request.keys where key != "op" {
-            XCTAssertTrue(NSDictionary(dictionary: ["value": result[key]!]).isEqual(to: ["value": request[key]!]), key)
+    func testMissingExplicitDraftNeverEntersCreationOrReadback() throws {
+        for op in ["new", "newReceiptCheck"] {
+            let readback = Readback()
+            var request = op == "new" ? original : lookup(original)
+            request.removeValue(forKey: "draftId")
+            let result = try perform(bridge(readback), request)
+            XCTAssertEqual(result["ok"] as? Bool, false)
+            if op == "newReceiptCheck" { XCTAssertEqual(result["unknown"] as? Bool, true) }
+            XCTAssertEqual(readback.calls, 0)
         }
-        XCTAssertEqual(try JSONSerialization.data(withJSONObject: request, options: [.sortedKeys]), before)
     }
 }

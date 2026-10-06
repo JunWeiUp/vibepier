@@ -39,6 +39,7 @@ internal data class SessionCreationDraft(
 
     /** Snapshot all selected values; later editing cannot mutate an unresolved original request. */
     fun request(operation: String, attachments: JSONArray): JSONObject {
+        require(provider in SessionProvider.ids)
         require(validUUID(operation))
         require(serviceTier.isEmpty() || provider == "codex" && serviceTier in setOf("standard", "priority"))
         require(text.toByteArray(Charsets.UTF_8).size <= 32_000)
@@ -68,7 +69,7 @@ internal data class SessionCreationDraft(
 
         fun restore(stored: String?, cwd: String, provider: String): SessionCreationDraft {
             require(cwd.startsWith("/") && !cwd.contains('\u0000') && cwd.toByteArray(Charsets.UTF_8).size <= 4096)
-            require(provider in setOf("codex", "claude", "zcode"))
+            require(provider in SessionProvider.ids)
             if (stored == null) return SessionCreationDraft(UUID.randomUUID().toString(), provider, cwd)
             require(stored.toByteArray(Charsets.UTF_8).size <= 128 * 1024)
             val value = JSONObject(stored)

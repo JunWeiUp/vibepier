@@ -26,7 +26,7 @@
     <string name="icons_syncing">Syncing app icons…</string>
     <string name="app_hide_scroll_hint">Tap selected app to hide · Swipe for more</string>
     <string name="app_hide_hint">Tap selected app to hide</string>
-    <string name="open_sessions_accessibility">Open Codex, Claude Code or ZCode sessions</string>
+    <string name="open_sessions_accessibility">Open Codex or Claude Code sessions</string>
     <string name="open_settings_accessibility">Open settings: connection, voice, shortcuts and app updates</string>
     <string name="edit_keys_accessibility">Edit general and per-app key bindings</string>
     <string name="keys">Keys</string>

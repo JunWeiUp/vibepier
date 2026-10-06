@@ -4,7 +4,7 @@ import android.content.SharedPreferences
 import org.json.JSONObject
 import java.util.UUID
 
-/** Main-thread owner of migration, durable edits, and per-entry conflict resolution. */
+/** Main-thread owner of durable edits, and per-entry conflict resolution. */
 class BindingSync(private val prefs: SharedPreferences, private val send: (JSONObject) -> Unit,
                   private val beforeChange: () -> Unit, private val changed: () -> Unit,
                   private val notice: (String) -> Unit, private val conflictMessage: String) {
@@ -13,12 +13,18 @@ class BindingSync(private val prefs: SharedPreferences, private val send: (JSONO
     private var server = prefs.getString("bindingSync.server", "") ?: ""
     private var ready = false
     init {
-        if (!prefs.getBoolean("bindingSync.migrated", false)) {
-            prefs.all.forEach { (key, value) ->
-                if (validKey(key) && value is String && Keys.normalize(value) != null) enqueue(key, value, appName(key))
-            }
-            persist().putBoolean("bindingSync.migrated", true).apply()
-        }
+        check(versions.keys().asSequence().all { key ->
+            validKey(key) && versions.optJSONObject(key)?.let { entry ->
+                entry.opt("version") is String && entry.opt("generation") is Number && entry.has("value")
+            } == true
+        }) { "Invalid binding versions schema" }
+        check(pending.keys().asSequence().all { key ->
+            validKey(key) && pending.optJSONObject(key)?.let { operation ->
+                operation.optString("type") == "vibepier-binding-set1" && operation.optString("key") == key &&
+                    operation.optString("operation").isNotEmpty() && operation.opt("version") is String &&
+                    operation.has("value") && (operation.isNull("value") || operation.opt("value") is String)
+            } == true
+        }) { "Invalid pending binding schema" }
     }
     fun disconnected() { ready = false }
     fun edit(key: String, value: String?, name: String, label: String = "") {
@@ -129,9 +135,8 @@ class BindingSync(private val prefs: SharedPreferences, private val send: (JSONO
     }
     private fun persist() = prefs.edit().putString("bindingSync.versions", versions.toString())
         .putString("bindingSync.pending", pending.toString()).putString("bindingSync.server", server)
-    private fun appName(key: String) = appID(key)?.let { prefs.getString("appName.$it", it) } ?: ""
     companion object {
-        private fun parse(text: String?) = try { JSONObject(text ?: "{}") } catch (_: Exception) { JSONObject() }
+        private fun parse(text: String?) = JSONObject(text ?: "{}")
         private fun appID(key: String): String? = Keys.defaults.keys.firstOrNull { key.startsWith("app.") && key.endsWith(".keys.$it") }
             ?.let { key.removePrefix("app.").removeSuffix(".keys.$it") }
         private fun validKey(key: String) = Keys.defaults.keys.any { key == "keys.$it" } || !appID(key).isNullOrBlank()

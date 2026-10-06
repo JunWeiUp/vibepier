@@ -16,15 +16,15 @@ The HMAC is SHA-256, keyed by the UTF-8 server secret, over:
 <protocol>|<role>|<room>|<unix-seconds>|<nonce>
 ```
 
-The current Mac selects `vibepier-relay2` with role `host`; Android selects `vibepier-relay1` with role `client`. Version is covered by the signature. The server also understands `vibepier-relay1` hosts with single-phone routing, but the current Mac never requests that mode. These relay routing versions do not enable the old VibeBar application protocol or plaintext desktop control.
+The current Mac selects `vibepier-relay2` with role `host`; Android selects `vibepier-relay1` with role `client`. Version is covered by the signature. These are the only accepted role/version pairs: relay2 host and relay1 client. A relay1 host or relay2 client is rejected with `bad-role` before joining a room; there is no single-phone compatibility mode. The current pairing-code prefix `vibepierrelay1` is a separate format and remains supported. These relay routing versions do not enable the old VibeBar application protocol or plaintext desktop control.
 
 Rooms match `[A-Za-z0-9_-]{1,64}`. The accepted nonce length is 16–64 characters; production clients generate random hexadecimal nonces. Clock skew is at most 120 seconds. Nonces are retained for five minutes to reject reused admission requests; the nonce table is bounded. Incorrect version, role, room, clock, signature or replay returns `<protocol> error <reason>` and closes the connection. Admission success returns `<protocol> ok`.
 
-Shared known-answer vectors live in [relay-hello.json](../fixtures/relay-hello.json). Swift and Go read all applicable routing versions; Android reads the two relay1 vectors, including its client role. Fixed fixture secrets and nonces are not deployment credentials.
+Shared known-answer vectors live in [relay-hello.json](../fixtures/relay-hello.json). The relay2 host and relay1 client vectors describe current contracts. The retained relay1 host HMAC vector is a shared cryptographic/rejection fixture, not an accepted handshake; an otherwise valid signature does not make that retired role/version pair admissible. Fixed fixture secrets and nonces are not deployment credentials.
 
 ## Multiple phones
 
-A room has one host. A newer host replaces the old host, and a late callback from a replaced connection must not remove its successor. A relay2 host supports up to 32 concurrent phone connections. Each phone connection receives a server-generated random 32-character hexadecimal peer ID; this is a routing ID, not a trusted device UUID.
+A room has one host. A newer host replaces the old host, and a late callback from a replaced connection must not remove its successor. The relay2 host supports up to 32 concurrent phone connections. Joining or replacing a host never evicts phones, including phones that arrived while no host was online; a new phone never replaces another phone. Each phone connection receives a server-generated random 32-character hexadecimal peer ID; this is a routing ID, not a trusted device UUID.
 
 Mac topology notifications:
 
@@ -45,7 +45,7 @@ The Mac binds that routing peer to the authenticated device/session and replies 
 vibepier-relay2 to <peer-id> <base64-secure-response>
 ```
 
-The phone receives the decoded secure response. Unknown/disconnected peer IDs do not fall back to another phone or a room broadcast. Reserved relay control prefixes from a phone are not forwarded as application messages. Room authentication alone never authorizes a secure control session.
+The phone receives the decoded secure response. An unwrapped host message is dropped. Unknown/disconnected peer IDs do not fall back to another phone or a room broadcast. Reserved relay control prefixes from a phone are not forwarded as application messages. Room authentication alone never authorizes a secure control session.
 
 ## Bounds and lifecycle
 
@@ -57,6 +57,10 @@ The server sends WebSocket ping frames every 25 seconds and uses a 75-second idl
 
 A successful relay admission is only the first step. Clients must also complete phone authorization, the secure handshake, and application-state exchange. A bare HTTP 426 response verifies only that the WebSocket endpoint is reachable.
 
+## File-channel admission
+
+`POST /files/register` uses the same fresh, protocol-bound hello in `X-VibePier-Authorization`, and requires the current `vibepier-relay2` host contract. Retired host1 and all client registrations are rejected; room binding, clock and nonce replay checks remain mandatory. Per-transfer read/write capabilities, bounded streaming and device authorization at the endpoints are unchanged. Removing host1 does not change the current file registration or phone download/upload formats.
+
 ## Relay and direct UDP
 
 The authorized application channel may exchange UDP candidates and probe tokens, including STUN-derived public mappings. Direct packets still require the same device/session cryptography. A direct route is an optimization and may be unavailable behind restrictive NAT/firewalls. Session traffic remains relay-routed; microphone frames require BLE, local Wi-Fi or direct UDP, not the relay.
@@ -66,3 +70,5 @@ Deployment, credentials and DNS recovery are documented in [DEPLOYMENT.md](../..
 ## 中文说明
 
 中继最多接受 128 个 WebSocket 连接，包含尚未认证的连接；握手正文上限 1024 字节，必须在 10 秒内完成，ping 和分片不会延长期限。帧格式、掩码、长度、分片顺序和 UTF-8 均校验，控制帧不允许分片且最多 125 字节。手机发送队列最多容纳 256 个加密控制帧，队列过满会关闭并重连；旧连接的待发内容不会被转发到新连接。
+
+当前仅接受 Mac `vibepier-relay2`/`host` 与 Android `vibepier-relay1`/`client` 两种角色协议组合。旧 relay1 host 在入房前拒绝，删除单手机替换和默认路由回退；host 重连保留全部手机，回复必须带同房间 peer ID。HMAC 仍绑定协议、角色、房间、时间和 nonce；文件注册同样仅接受当前 host2，文件能力与流式通道不变。`vibepierrelay1` 是当前配对码格式，继续保留，不属于已删除的 host1 兼容。

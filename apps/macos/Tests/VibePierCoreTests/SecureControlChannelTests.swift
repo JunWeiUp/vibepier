@@ -147,7 +147,7 @@ final class SecureControlChannelTests: XCTestCase {
         let fields = String(decoding: response, as: UTF8.self).split(separator: " ").map(String.init)
         XCTAssertEqual(fields[0], SecureControlEnvelope.ready)
         XCTAssertEqual(fields[4], "1")
-        XCTAssertEqual(fields[5], "31")
+        XCTAssertEqual(fields[5], "15")
         XCTAssertTrue(
             SecureControlEnvelope.verify(
                 fields[6], fields: Array(fields.prefix(6)), key: try SecureControlEnvelope.Keys(root: root).handshake))
@@ -245,45 +245,49 @@ final class SecureControlChannelTests: XCTestCase {
         XCTAssertEqual(host.device(for: "other-phone"), secondary)
     }
 
-    func testBulkAuthenticationVectorAndSessionIsolation() throws {
-        var repository = URL(fileURLWithPath: #filePath)
-        for _ in 0..<5 { repository.deleteLastPathComponent() }
-        let fixture = try XCTUnwrap(
-            JSONSerialization.jsonObject(
-                with: Data(contentsOf: repository.appendingPathComponent("protocol/fixtures/control-bulk-v1.json")))
-                as? [String: String])
-        let keys = try SecureControlEnvelope.Keys(root: root)
-        let fields = try XCTUnwrap(fixture["wire"]).split(separator: " ").map(String.init)
-        XCTAssertEqual(try SecureControlEnvelope.openBulk(fields, keys: keys), Data(fixture["payload"]!.utf8))
-        func wire(
-            session: String, sequence: Int64 = 1, payload: Data = Data(fixture["payload"]!.utf8), key: Data? = nil
-        ) throws -> Data {
-            let keys = try SecureControlEnvelope.Keys(root: key ?? root)
-            let material = HMAC<SHA256>.authenticationCode(
-                for: Data(["vibepier-bulk-key-v1", "phone", device, session].joined(separator: "|").utf8),
-                using: keys.handshake)
-            let fields = [SecureControlEnvelope.bulk, device, session, String(sequence), payload.base64EncodedString()]
-            let tag = SecureControlEnvelope.signature(
-                ["vibepier-bulk-frame-v1", "phone"] + fields, key: SymmetricKey(data: material))
-            return Data((fields + [tag]).joined(separator: " ").utf8)
-        }
+    func testRetiredBulkFrameIsRejectedWithoutAdvancingReplayWindow() throws {
+        XCTAssertEqual(ControlProtocol.all, 15)
         let host = server()
-        let session = try connect(host, hello: hello(capabilities: "31"))
-        let valid = try wire(session: session)
-        rejected(
-            host.receive(
-                try wire(session: session, sequence: 9000, key: Data(repeating: 0x32, count: 32)), peer: "udp:phone"))
-        rejected(host.receive(valid, peer: "udp:other"))
-        guard case .message(_, let payload) = host.receive(valid, peer: "udp:phone") else {
-            return XCTFail("valid negotiated upload rejected")
+        let session = try connect(host)
+        let keys = try SecureControlEnvelope.Keys(root: root)
+        let payload = try JSONSerialization.data(withJSONObject: [
+            "type": "vibepier-session1", "sender": device, "device": device,
+            "packet": UUID().uuidString, "part": 0, "parts": 1,
+            "upload": UUID().uuidString, "data": "c2VhbGVk",
+        ])
+        // Even a correctly authenticated retired wrapper must not enter the current channel.
+        let material = HMAC<SHA256>.authenticationCode(
+            for: Data(["vibepier-bulk-key-v1", "phone", device, session].joined(separator: "|").utf8),
+            using: keys.handshake)
+        let fields = ["vibepier-bulk1", device, session, "9000", payload.base64EncodedString()]
+        let tag = SecureControlEnvelope.signature(
+            ["vibepier-bulk-frame-v1", "phone"] + fields, key: SymmetricKey(data: material))
+        let retired = (fields + [tag]).joined(separator: " ")
+        XCTAssertNil(DirectAdmissions.sender(in: retired))
+        rejected(host.receive(Data(retired.utf8), peer: "udp:phone"))
+        let text = #"{"type":"vibepier-session1","data":"synthetic"}"#
+        let current = try packet(session, sequence: 1, text: text)
+        guard case .message(_, let opened) = host.receive(current, peer: "udp:phone") else {
+            return XCTFail("Retired frame must not poison ordinary encrypted RPC")
         }
-        XCTAssertEqual(payload, Data(fixture["payload"]!.utf8))
-        rejected(host.receive(valid, peer: "udp:phone"))
-        let legacy = server()
-        let oldSession = try connect(legacy)
-        rejected(legacy.receive(try wire(session: oldSession), peer: "udp:phone"))
-        rejected(
-            host.receive(try wire(session: session, sequence: 2, payload: Data("confirm".utf8)), peer: "udp:phone"))
+        XCTAssertEqual(opened, Data(text.utf8))
+        rejected(host.receive(current, peer: "udp:phone"))
+    }
+
+    func testRelaySelectsRequiredCapabilitiesOnly() throws {
+        let id = device
+        let key = root
+        let host = SecureControlServer(
+            keyForDevice: { $0 == id ? key : nil },
+            clock: { 1_700_000_000 }, capabilities: ControlProtocol.required)
+        guard case .handshake(let bytes) = host.receive(try hello(), peer: "relay:phone") else {
+            return XCTFail("Current relay handshake failed")
+        }
+        let fields = String(decoding: bytes, as: UTF8.self).split(separator: " ").map(String.init)
+        XCTAssertEqual(fields[5], "7")
+        guard case .message = host.receive(try packet(fields[3], sequence: 1), peer: "relay:phone") else {
+            return XCTFail("Current relay encrypted RPC failed")
+        }
     }
 
     func testIndependentSharedCryptographyVectors() throws {

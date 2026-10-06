@@ -840,6 +840,7 @@
               },
               "decision": {
                 "type": "string",
+                "description": "An advertised decision: allow, deny, or allowSimilar. allowSimilar uses only the matching native Codex request's proposed command-prefix rule; clients never supply rule bytes.",
                 "minLength": 1,
                 "maxLength": 1024
               }

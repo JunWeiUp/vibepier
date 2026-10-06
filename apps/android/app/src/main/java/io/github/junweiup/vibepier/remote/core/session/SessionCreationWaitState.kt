@@ -25,8 +25,7 @@ internal class SessionCreationWaitState {
         /** Only discard the read callback; the original mutation and its journal remain intact. */
         fun isReceiptRead(request: JSONObject, operation: String): Boolean {
             if (operation.isBlank()) return false
-            return request.optString("op") == "receipt" && request.optString("operation") == operation ||
-                request.optString("op") == "agentRequest" &&
+            return request.optString("op") == "agentRequest" &&
                 request.optJSONObject("body")?.let {
                     it.optString("method") == "operation.get" && it.optJSONObject("params")?.optString("operationId") == operation
                 } == true

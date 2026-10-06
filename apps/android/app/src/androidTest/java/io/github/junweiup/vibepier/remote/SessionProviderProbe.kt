@@ -68,26 +68,28 @@ object SessionProviderProbe {
             val pieces = data.chunked(900)
             pieces.forEachIndexed { i, part -> transport.onSessionFrame(JSONObject().put("type", "vibepier-session1").put("sender", client.device).put("device", client.device).put("packet", packet).put("part", i).put("parts", pieces.size).put("data", part)) }
         }
-        fun lastRequest(): JSONObject {
-            val packet = transport.frames.last().getString("packet")
+        fun requests(): List<JSONObject> = transport.frames.map { it.getString("packet") }.distinct().mapNotNull { packet ->
             val frames = transport.frames.filter { it.getString("packet") == packet }.sortedBy { it.getInt("part") }
+            if (frames.size != frames.first().getInt("parts")) return@mapNotNull null
             val data = Base64.decode(frames.joinToString("") { it.getString("data") }, Base64.NO_WRAP)
             val cipher = Cipher.getInstance("AES/GCM/NoPadding")
             cipher.init(Cipher.DECRYPT_MODE, key, GCMParameterSpec(128, data.copyOfRange(0, 12)))
             cipher.updateAAD("vibepier-session-v1|phone|${client.device}|$packet".toByteArray())
-            return JSONObject(String(cipher.doFinal(data.copyOfRange(12, data.size))))
+            JSONObject(String(cipher.doFinal(data.copyOfRange(12, data.size))))
         }
+        val peer = SessionProfile2Peer(test, { client }, ::requests, ::reply)
         var activity: MainActivity? = null
         var panel: ConversationPanel? = null
         try {
-            test.runOnMainSync {
-                client = SessionClient(context, transport, 80); clientCreated = true; client.connectionChanged(true); client.pair()
+            peer.main {
+                client = SessionClient(context, transport, 2_000); clientCreated = true; client.connectionChanged(true); client.pair()
                 transport.onSessionPair(JSONObject().put("state", "approved").put("device", client.device)
                     .put("key", Base64.encodeToString(ByteArray(32) { 19 }, Base64.NO_WRAP)).toString().toByteArray())
             }
             test.waitForIdleSync(); check(client.paired)
-            var operation = ""
-            test.runOnMainSync {
+            peer.negotiate()
+            peer.discover("codex", "same")
+            peer.main {
                 for (provider in SessionProvider.ids) {
                     client.provider = provider
                     client.saveDraft("same", "$provider draft")
@@ -102,29 +104,38 @@ object SessionProviderProbe {
                     check(client.cachedPage("same")!!.getString("title") == provider)
                     check(client.cachedProcess("same", "reply")!!.getString("text") == provider)
                 }
-                client.provider = "codex"
-                operation = client.request("send", JSONObject().put("threadId", "same").put("text", "codex draft").put("attachments", JSONArray().put("codex"))) {}
-                client.provider = "zcode"
+            }
+            // Current writes require discovery, a fresh native snapshot and a lease.
+            val (operation, mutation) = peer.submit("codex", "same", "codex draft") {}
+            peer.main {
+                client.provider = "claude"
                 check(client.uncertain("same").isEmpty())
                 check(client.uncertain("same", "codex").size == 1)
             }
-            SystemClock.sleep(130); test.waitForIdleSync()
-            reply(JSONObject().put("id", operation).put("ok", true).put("accepted", true).put("threadId", "same")); test.waitForIdleSync()
-            test.runOnMainSync {
-                check(client.provider == "zcode" && client.draft("same") == "zcode draft")
+            SystemClock.sleep(2_100); test.waitForIdleSync()
+            check(client.uncertain("same", "codex").single().getString("id") == operation)
+            reply(peer.confirmed(mutation)); test.waitForIdleSync()
+            peer.main {
+                check(client.provider == "claude" && client.draft("same") == "claude draft")
                 check(client.draft("same", "codex").isEmpty())
                 check(client.attachments("same").length() == 1 && client.attachments("same", "codex").length() == 0)
                 client.request("list", JSONObject().put("limit", 8)) {}
-                check(lastRequest().getString("provider") == "zcode")
+            }
+            val listRequest = peer.latest("session.list")
+            check(listRequest.getJSONObject("body").getJSONObject("target").getString("adapterId") == "claude")
+            peer.read(listRequest, JSONObject().put("sessions", JSONArray()).put("nextOffset", -1))
+            peer.main {
                 prefs.edit().putString("draft.legacy", "existing Claude draft").commit()
-                check(client.draft("legacy", "zcode").isEmpty())
-                check(client.draft("legacy", "claude") == "existing Claude draft")
-                check(!prefs.contains("draft.legacy"))
+                check(client.draft("legacy", "retired-provider").isEmpty())
+                check(client.draft("legacy", "claude").isEmpty())
+                client.saveDraft("legacy", "current Claude draft", "claude")
+                check(client.draft("legacy", "claude") == "current Claude draft")
+                check(prefs.getString("draft.legacy", null) == "existing Claude draft")
             }
             activity = test.startActivitySync(Intent(test.targetContext, MainActivity::class.java)
                 .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK).putExtra("codexFixture", "approval")) as MainActivity
             test.waitForIdleSync()
-            test.runOnMainSync {
+            peer.main {
                 (field(activity!!, "settingsSheet") as? SettingsSheet)?.dismiss()
                 ((activity as MainActivity).sessionNavigation.panel as? ConversationPanel)?.close()
                 client.provider = "codex"
@@ -136,16 +147,13 @@ object SessionProviderProbe {
                 check(views(panel!!).first { it.contentDescription?.toString() == activity!!.getString(R.string.choice_switch, "Claude Code", activity!!.getString(R.string.session_sessions)) }.performClick())
                 check(client.provider == "claude")
                 check(views(panel!!).any { it.contentDescription?.toString() == activity!!.getString(R.string.choice_selected, "Claude Code", activity!!.getString(R.string.session_sessions)) })
-                check(views(panel!!).first { it.contentDescription?.toString() == activity!!.getString(R.string.choice_switch, "ZCode", activity!!.getString(R.string.session_sessions)) }.performClick())
-                check(client.provider == "zcode")
-                check(views(panel!!).any { it.contentDescription?.toString()?.contains(activity!!.getString(R.string.choice_selected, "ZCode", activity!!.getString(R.string.session_sessions))) == true })
                 check((field(activity!!, "settingsSheet") as? SettingsSheet)?.isShowing != true)
             }
             test.waitForIdleSync()
             // Exercise the real overlay's hit testing, with the remote settings controls still underneath it.
             fun touchProvider(provider: String) {
                 var x = 0f; var y = 0f
-                test.runOnMainSync {
+                peer.main {
                     val view = views(panel!!).first { it.contentDescription?.toString() == activity!!.getString(R.string.choice_switch, SessionProvider.name(provider), activity!!.getString(R.string.session_sessions)) }
                     val bounds = android.graphics.Rect(); check(view.getGlobalVisibleRect(bounds))
                     x = bounds.exactCenterX(); y = bounds.exactCenterY()
@@ -156,44 +164,49 @@ object SessionProviderProbe {
                     test.sendPointerSync(event); event.recycle()
                 }
                 test.waitForIdleSync()
-                test.runOnMainSync {
+                peer.main {
                     check(client.provider == provider)
                     check(views(panel!!).any { it.contentDescription?.toString() == activity!!.getString(R.string.choice_selected, SessionProvider.name(provider), activity!!.getString(R.string.session_sessions)) })
                     check((field(activity!!, "settingsSheet") as? SettingsSheet)?.isShowing != true)
                 }
             }
-            touchProvider("codex"); touchProvider("zcode")
-            test.runOnMainSync { call(panel!!, "open", "same", "ZCode QA") }
+            touchProvider("codex"); touchProvider("claude")
+            peer.main { call(panel!!, "open", "same", "Claude Code QA") }
             SystemClock.sleep(220); test.waitForIdleSync()
-            test.runOnMainSync {
+            peer.main {
                 val capabilities = JSONObject()
                 for (name in listOf("send", "new", "interrupt", "settings", "modelSelection", "permissionMode", "attachments", "approvals", "queue")) capabilities.put(name, false)
-                val value = ConversationReviewFixtures.conversation("approval").put("provider", "zcode").put("threadId", "same")
+                val value = ConversationReviewFixtures.conversation("approval").put("provider", "claude").put("threadId", "same")
                     .put("revision", 10).put("canSend", false).put("capabilities", capabilities).put("status", "active").put("hasOlder", true)
                     .put("queuedMessages", JSONArray().put(JSONObject().put("id", "foreign-queue").put("text", "hidden")))
                 value.getJSONObject("composer").put("contextUsage", "")
                 call(panel!!, "applyPage", value)
                 check(field(panel!!, "ready") == true)
-                check(!(field(panel!!, "editor") as EditText).isEnabled)
+                // A readable session keeps local drafting available even when send is unsupported.
+                val readOnlyEditor = field(panel!!, "editor") as EditText
+                check(readOnlyEditor.isEnabled)
+                readOnlyEditor.setText("Local draft without send authority")
                 check(!(field(panel!!, "sendButton") as View).isEnabled)
                 val controls = field(panel!!, "composerControls") as ComposerControls
-                check(controls.add.visibility == View.GONE && !controls.model.isEnabled && !controls.mode.isEnabled)
-                check(controls.contextUsage.visibility == View.GONE)
+                check(controls.add.visibility == View.GONE && !controls.add.isEnabled)
+                // Model/mode selectors remain inspectable; fresh preparation still guards writes.
+                check(controls.model.isEnabled && controls.mode.isEnabled)
+                check(controls.contextUsage.visibility == View.VISIBLE)
                 check((field(panel!!, "stopButton") as View).visibility == View.GONE)
                 check((field(panel!!, "queuedBox") as LinearLayout).childCount == 0)
-                call(panel!!, "loadOlder")
+                call(panel!!, "loadOlder", false)
                 check(field(panel!!, "loadingHistory") == true)
                 capabilities.put("send", true)
                 call(panel!!, "applyPage", JSONObject(value.toString()).put("revision", 11).put("canSend", true))
-                (field(panel!!, "editor") as EditText).setText("ZCode reply")
+                (field(panel!!, "editor") as EditText).setText("Claude Code reply")
                 check((field(panel!!, "sendButton") as View).isEnabled)
                 check((field(panel!!, "sendButton") as View).contentDescription.toString() != activity!!.getString(R.string.session_add_to_the_send_queue))
                 call(panel!!, "applyPage", JSONObject(value.toString()).put("provider", "codex").put("revision", 99))
                 check((field(panel!!, "page") as JSONObject).optLong("revision") == 11L)
             }
-            return "PASS: ZCode request identity; provider-isolated durable drafts, attachments, pages, process cache and uncertain operations; late Codex receipt preserves ZCode draft; legacy draft migration; Codex/Claude/ZCode performClick navigation and real overlay pointer hit testing without opening remote settings; ZCode read-only composer/queue/interrupt gating; read-only history remains available; explicit send capability and live canSend; wrong-provider snapshot rejected\n"
+            return "PASS: Claude Code request identity; provider-isolated durable drafts, attachments, pages, process cache and uncertain operations; late Codex receipt preserves Claude Code draft; unscoped old draft retained without migration; Codex/Claude performClick navigation and real overlay pointer hit testing without opening remote settings; Claude Code read-only composer/queue/interrupt gating; read-only history remains available; explicit send capability and live canSend; wrong-provider snapshot rejected\n"
         } finally {
-            test.runOnMainSync { panel?.close(); activity?.finish(); if (clientCreated) client.close() }
+            peer.main { panel?.close(); activity?.finish(); if (clientCreated) client.close() }
             if (clientCreated) KeyStore.getInstance("AndroidKeyStore").apply { load(null); deleteEntry("vibepier.codex.${client.device}") }
             prefs.edit().clear().commit()
         }

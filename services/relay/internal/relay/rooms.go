@@ -15,10 +15,8 @@ import (
 )
 
 type room struct {
-	host     *conn
-	clients  map[string]*conn
-	latest   *conn // the single phone retained for legacy relay1 hosts
-	sequence uint64
+	host    *conn
+	clients map[string]*conn
 }
 
 type relay struct {
@@ -52,9 +50,12 @@ func randomPeerID() (string, error) {
 	return hex.EncodeToString(bytes[:]), nil
 }
 
-// Only hosts have a replaceable slot. Legacy hosts deliberately retain their
-// historical one-phone behavior; relay2 hosts never replace another phone.
+// Only the current relay2 host has a replaceable slot. Every relay1 client
+// retains its own routing identity, including while the host is offline.
 func (r *relay) join(c *conn) (old []*conn, notices []notice, err error) {
+	if !currentRole(c.protocol, c.role) {
+		return nil, nil, errors.New("bad-role")
+	}
 	r.mu.Lock()
 	defer r.mu.Unlock()
 	rm := r.rooms[c.room]
@@ -74,27 +75,11 @@ func (r *relay) join(c *conn) (old []*conn, notices []notice, err error) {
 			}
 		}
 		rm.host = c
-		if c.protocol == 1 {
-			for id, phone := range rm.clients {
-				if phone != rm.latest {
-					old = append(old, phone)
-					delete(rm.clients, id)
-				}
-			}
-		}
 	} else {
-		if rm.host != nil && rm.host.protocol == 1 {
-			for id, phone := range rm.clients {
-				old = append(old, phone)
-				delete(rm.clients, id)
-			}
-		} else if len(rm.clients) >= maxClients {
+		if len(rm.clients) >= maxClients {
 			return nil, nil, errors.New("too-many-clients")
 		}
-		rm.sequence++
-		c.order = rm.sequence
 		rm.clients[c.peerID] = c
-		rm.latest = c
 	}
 	// Queue topology notices while holding the room lock. Writes themselves run
 	// separately, so a fast reconnect cannot enqueue "down" after the new "up".
@@ -121,19 +106,11 @@ func (r *relay) activate(c *conn) []notice {
 				continue
 			}
 			notices = append(notices, notice{phone, "vibepier-relay1 peer up"})
-			line := "vibepier-relay1 peer up"
-			if c.protocol == 2 {
-				line = "vibepier-relay2 peer up " + phone.peerID
-			}
-			notices = append(notices, notice{c, line})
+			notices = append(notices, notice{c, "vibepier-relay2 peer up " + phone.peerID})
 		}
 	} else if rm.host != nil && rm.host.ready {
 		notices = append(notices, notice{c, "vibepier-relay1 peer up"})
-		line := "vibepier-relay1 peer up"
-		if rm.host.protocol == 2 {
-			line = "vibepier-relay2 peer up " + c.peerID
-		}
-		notices = append(notices, notice{rm.host, line})
+		notices = append(notices, notice{rm.host, "vibepier-relay2 peer up " + c.peerID})
 	}
 	notify(notices)
 	return notices
@@ -158,20 +135,8 @@ func (r *relay) leave(c *conn) []notice {
 		}
 	} else {
 		delete(rm.clients, c.peerID)
-		if rm.latest == c {
-			rm.latest = nil
-			for _, phone := range rm.clients {
-				if rm.latest == nil || phone.order > rm.latest.order {
-					rm.latest = phone
-				}
-			}
-		}
 		if c.ready && rm.host != nil && rm.host.ready {
-			line := "vibepier-relay1 peer down"
-			if rm.host.protocol == 2 {
-				line = "vibepier-relay2 peer down " + c.peerID
-			}
-			notices = append(notices, notice{rm.host, line})
+			notices = append(notices, notice{rm.host, "vibepier-relay2 peer down " + c.peerID})
 		}
 	}
 	c.ready = false
@@ -199,9 +164,7 @@ func (r *relay) forward(c *conn, message string) {
 		}
 		r.mu.Unlock()
 		if host != nil {
-			if host.protocol == 2 {
-				message = "vibepier-relay2 from " + c.peerID + " " + base64.StdEncoding.EncodeToString([]byte(message))
-			}
+			message = "vibepier-relay2 from " + c.peerID + " " + base64.StdEncoding.EncodeToString([]byte(message))
 			r.mu.Lock()
 			rm = r.rooms[c.room]
 			if r.current(rm, c) && c.ready && rm.host == host && host.ready {
@@ -211,41 +174,20 @@ func (r *relay) forward(c *conn, message string) {
 		}
 		return
 	}
-	var target *conn
-	if c.protocol == 2 {
-		parts := strings.SplitN(message, " ", 4)
-		if len(parts) != 4 || parts[0] != "vibepier-relay2" || parts[1] != "to" || !peerPattern.MatchString(parts[2]) || len(parts[3]) > base64.StdEncoding.EncodedLen(maxFrame) {
-			return
+	parts := strings.SplitN(message, " ", 4)
+	if len(parts) != 4 || parts[0] != "vibepier-relay2" || parts[1] != "to" || !peerPattern.MatchString(parts[2]) || len(parts[3]) > base64.StdEncoding.EncodedLen(maxFrame) {
+		return
+	}
+	body, err := base64.StdEncoding.Strict().DecodeString(parts[3])
+	if err != nil || len(body) > maxFrame {
+		return
+	}
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	rm := r.rooms[c.room]
+	if r.current(rm, c) && c.ready {
+		if target := rm.clients[parts[2]]; target != nil && target.ready {
+			target.relayText(string(body))
 		}
-		body, err := base64.StdEncoding.Strict().DecodeString(parts[3])
-		if err != nil || len(body) > maxFrame {
-			return
-		}
-		message = string(body)
-		r.mu.Lock()
-		rm := r.rooms[c.room]
-		if r.current(rm, c) && c.ready {
-			target = rm.clients[parts[2]]
-			if target != nil && !target.ready {
-				target = nil
-			}
-		}
-		if target != nil {
-			target.relayText(message)
-		}
-		r.mu.Unlock()
-	} else {
-		if reserved(message) {
-			return
-		}
-		r.mu.Lock()
-		rm := r.rooms[c.room]
-		if r.current(rm, c) && c.ready && rm.latest != nil && rm.latest.ready {
-			target = rm.latest
-		}
-		if target != nil {
-			target.relayText(message)
-		}
-		r.mu.Unlock()
 	}
 }

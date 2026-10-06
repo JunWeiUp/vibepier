@@ -8,7 +8,7 @@ import org.junit.Assert.assertTrue
 import org.junit.Test
 
 class ReplyPartGroupingTest {
-    private fun js(index: Int, title: String = "cua_repl · js", toolName: String = "") = ReplyPartGrouping.Entry("js-$index", index, "tool", title, toolName)
+    private fun js(index: Int, title: String = "cua_repl · js", toolName: String = title) = ReplyPartGrouping.Entry("js-$index", index, "tool", title, toolName)
 
     @Test fun adjacentSameToolRowsFoldAndEveryDifferentEntryKeepsItsBoundary() {
         val entries = listOf(js(0), js(1), ReplyPartGrouping.Entry("text", 2, "text"), js(3), js(4, "functions · exec"), js(5),
@@ -23,13 +23,11 @@ class ReplyPartGroupingTest {
         assertEquals(ReplyPartGrouping.Summary("calls", 2, "cua_repl.js"), ReplyPartGrouping.summary(entries.take(2)))
     }
 
-    @Test fun missingIndicesBlankNamesAndPossiblyTruncatedTitlesNeverMerge() {
+    @Test fun missingIndicesOrToolMetadataNeverMergeByDisplayTitle() {
         assertEquals(listOf(listOf(0), listOf(1)), ReplyPartGrouping.runs(listOf(js(1), js(3))))
-        assertEquals(listOf(listOf(0), listOf(1)), ReplyPartGrouping.runs(listOf(js(0, ""), js(1, ""))))
-        assertEquals(listOf(listOf(0), listOf(1)), ReplyPartGrouping.runs(listOf(js(0, "x".repeat(400)), js(1, "x".repeat(400)))))
-        assertEquals(listOf(listOf(0), listOf(1)), ReplyPartGrouping.runs(listOf(js(0, "未知工具前缀…"), js(1, "未知工具前缀…"))))
-        assertEquals(listOf(listOf(0), listOf(1)), ReplyPartGrouping.runs(listOf(js(0, "未知工具前缀..."), js(1, "未知工具前缀..."))))
-        assertEquals(listOf(listOf(0, 1)), ReplyPartGrouping.runs(listOf(js(0, "读取 a…"), js(1, "读取 b…"))))
+        for (title in listOf("", "x".repeat(400), "未知工具前缀…", "读取 a…", "Read", "cua_repl · js")) {
+            assertEquals(listOf(listOf(0), listOf(1)), ReplyPartGrouping.runs(listOf(js(0, title, ""), js(1, title, ""))))
+        }
     }
 
     @Test fun defaultFoldAndExplicitChoiceSurviveAppendPrependAndOpenBodies() {
@@ -46,7 +44,7 @@ class ReplyPartGroupingTest {
     }
 
     @Test fun jsKindAndToolKindCanShareTheSameStableToolIdentity() {
-        assertEquals(listOf(listOf(0, 1)), ReplyPartGrouping.runs(listOf(js(0), ReplyPartGrouping.Entry("js-1", 1, "js", "cua_repl · js"))))
+        assertEquals(listOf(listOf(0, 1)), ReplyPartGrouping.runs(listOf(js(0), ReplyPartGrouping.Entry("js-1", 1, "js", "cua_repl · js", "cua_repl · js"))))
     }
 
     @Test fun semanticOperationsMergeParameterChangesAndKeepOtherClassesSeparate() {
@@ -69,12 +67,11 @@ class ReplyPartGroupingTest {
         assertEquals(listOf(listOf(0, 1), listOf(2, 3), listOf(4)), ReplyPartGrouping.runs(entries))
     }
 
-    @Test fun olderPeersUseOnlyKnownBuiltinNamesAndExactGeneratedTitleFormats() {
+    @Test fun oldGeneratedTitlesDoNotSupplyMissingSemanticIdentity() {
         val titles = listOf("读取 a", "读取 b", "搜索 a · src", "查找 *.kt", "搜索网页 a", "搜索网页 b", "访问 https://a", "访问 https://b", "子任务 · a", "子代理 · b")
-        assertEquals((0..4).map { listOf(it * 2, it * 2 + 1) }, ReplyPartGrouping.runs(titles.mapIndexed { index, title -> js(index, title) }))
-        assertEquals(listOf(listOf(0), listOf(1)), ReplyPartGrouping.runs(listOf(js(0, "请读取 a"), js(1, "请读取 b"))))
+        assertEquals(titles.indices.map { listOf(it) }, ReplyPartGrouping.runs(titles.mapIndexed { index, title -> js(index, title, "") }))
+        assertEquals(listOf(listOf(0, 1)), ReplyPartGrouping.runs(listOf(js(0, "读取 a", "Read"), js(1, "读取 b", "Read"))))
         assertEquals(listOf(listOf(0), listOf(1)), ReplyPartGrouping.runs(listOf(js(0, "读取 a", "server.Read"), js(1, "读取 b", "another.Read"))))
-        assertEquals(listOf(listOf(0), listOf(1)), ReplyPartGrouping.runs(listOf(js(0, "读取 " + "a".repeat(400)), js(1, "读取 " + "b".repeat(400)))))
     }
 
     @Test fun thinkingAndTypedNoticesGroupButFailuresAndDifferentNoticeTypesAreBoundaries() {

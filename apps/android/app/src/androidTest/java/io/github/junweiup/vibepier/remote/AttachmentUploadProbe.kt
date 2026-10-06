@@ -44,14 +44,15 @@ object AttachmentUploadProbe {
         val tick = object : Runnable {
             override fun run() { val now = SystemClock.elapsedRealtime(); delays.add(now - lastTick); lastTick = now; if (watching) main.postDelayed(this, 16) }
         }
-        fun runUpload(fast: Boolean, cancel: Boolean = false): JSONObject {
+        fun runUpload(binaryAvailable: Boolean, cancel: Boolean = false): JSONObject {
             val server = Executors.newSingleThreadScheduledExecutor()
             val packets = mutableMapOf<String, MutableMap<Int, String>>()
-            val received = ByteArray(sample.size)
-            val coverage = mutableSetOf<Int>()
+            val binary = BinaryLoopbackFixture(sample).apply { delayMillis = if (cancel) 10 else 1 }
+            var capability: JSONObject? = null
             var frames = 0; var completeRequests = 0
             val transport = object : SessionTransport {
                 override val mode = "relay"
+                override val binaryHost = binary.host
                 override var onSessionFrame: (JSONObject) -> Unit = {}
                 override var onSessionPair: (ByteArray?) -> Unit = {}
                 override fun requestSessionPair(device: String, name: String) {}
@@ -73,30 +74,35 @@ object AttachmentUploadProbe {
                     val id = request.optString("attachmentId")
                     var delay = 100L
                     when (request.optString("op")) {
-                        "attachmentStart" -> if (fast) response.put("upload", JSONObject().put("version", 1).put("token", id).put("fragmentChars", 7200).put("chunkBytes", 64 * 1024).put("window", 3))
-                        "attachmentChunk" -> {
-                            val offset = request.getInt("offset")
-                            val bytes = Base64.getDecoder().decode(request.getString("data"))
-                            bytes.copyInto(received, offset); coverage.add(offset)
-                            response.put("attachmentId", id).put("offset", offset + bytes.size)
-                            if (fast) delay = if (offset % (3 * 64 * 1024) == 0) 100 else 60 // Reorder real callbacks.
-                            check(message.has("upload") == fast)
+                        "attachmentStart" -> {
+                            check(request.getInt("binaryVersion") == 1 && !request.has("uploadVersion") && !request.has("uploadFragmentChars"))
+                            if (binaryAvailable) {
+                                capability = binary.profile(kind = "upload", mime = "application/octet-stream")
+                                response.put("binary", capability)
+                            }
                         }
+                        "attachmentChunk", "newAttachmentChunk" -> error("Text attachment chunks are forbidden")
                         "attachmentComplete" -> {
                             completeRequests++
-                            check(received.contentEquals(sample) && coverage.size == (sample.size + (if (fast) 65535 else 131071)) / (if (fast) 65536 else 131072))
-                            val digest = MessageDigest.getInstance("SHA-256").digest(received).joinToString("") { "%02x".format(it) }
-                            check(request.getString("sha256") == digest)
+                            val received = checkNotNull(binary.uploaded.get())
+                            check(received.contentEquals(sample))
+                            check(request.getString("binaryTicket") == capability!!.getString("id"))
+                            check(request.getString("sha256") == BinaryLoopbackFixture.hash(received))
                             response.put("attachmentId", id).put("complete", true)
                         }
+                        "fileCancel" -> check(request.getString("ticket") == capability!!.getString("id"))
                     }
+
                     server.schedule({
                         val replyPacket = UUID.randomUUID().toString()
                         val outgoing = Cipher.getInstance("AES/GCM/NoPadding")
                         outgoing.init(Cipher.ENCRYPT_MODE, key)
                         outgoing.updateAAD("vibepier-session-v1|mac|${keys.device}|$replyPacket".toByteArray())
                         val text = Base64.getEncoder().encodeToString(outgoing.iv + outgoing.doFinal(response.toString().toByteArray()))
-                        onSessionFrame(JSONObject().put("type", "vibepier-session1").put("sender", keys.device).put("device", keys.device).put("packet", replyPacket).put("part", 0).put("parts", 1).put("data", text))
+                        val pieces = text.chunked(900)
+                        pieces.forEachIndexed { index, body -> onSessionFrame(JSONObject().put("type", "vibepier-session1")
+                            .put("sender", keys.device).put("device", keys.device).put("packet", replyPacket)
+                            .put("part", index).put("parts", pieces.size).put("data", body)) }
                     }, delay, TimeUnit.MILLISECONDS)
                 }
             }
@@ -115,42 +121,26 @@ object AttachmentUploadProbe {
                 check(latch.await(25, TimeUnit.SECONDS)) { "Upload did not finish" }
                 val elapsed = SystemClock.elapsedRealtime() - started
                 test.waitForIdleSync()
-                if (cancel) { check(!result.optBoolean("ok") && completeRequests == 0) }
+                if (cancel || !binaryAvailable) { check(!result.optBoolean("ok") && completeRequests == 0) }
                 else {
                     check(result.optBoolean("ok") && result.optBoolean("complete") && completeRequests == 1)
                     check(progress.first() == 0 && progress.last() == 100 && progress.zipWithNext().all { it.second >= it.first })
                 }
+                if (!binaryAvailable) check(binary.bodies.get() == 0 && binary.uploaded.get() == null)
+                check(binary.error.get() == null)
                 return JSONObject().put("elapsedMs", elapsed).put("frames", frames).put("progressUpdates", progress.size)
-            } finally { test.runOnMainSync { client.close() }; server.shutdownNow() }
-        }
-        fun outerAuthentication(capabilities: String): Long {
-            val software = io.github.junweiup.vibepier.remote.core.security.SecureControlKeys.fromRoot(root)
-            val client = io.github.junweiup.vibepier.remote.core.security.SecureControlClient(keys.device, keys::controlKeys)
-            val hello = client.hello()!!.split(' ')
-            val fields = listOf(io.github.junweiup.vibepier.remote.core.security.SecureControlClient.READY, keys.device, hello[2], UUID.randomUUID().toString(), "1", capabilities)
-            check(client.receive((fields + io.github.junweiup.vibepier.remote.core.security.SecureControlKeys.hex(software.signature(fields))).joinToString(" ")) is io.github.junweiup.vibepier.remote.core.security.SecureControlClient.Result.Ready)
-            val payload = JSONObject().put("type", "vibepier-session1").put("sender", keys.device).put("device", keys.device)
-                .put("packet", UUID.randomUUID().toString()).put("part", 0).put("parts", 2).put("upload", UUID.randomUUID().toString()).put("data", "a".repeat(7200)).toString().toByteArray()
-            val started = SystemClock.elapsedRealtimeNanos()
-            repeat(128) { check(client.seal(payload)!!.startsWith(if (capabilities == "31") "vibepier-bulk1 " else "vibepier-secure1 ")) }
-            client.disconnect()
-            return (SystemClock.elapsedRealtimeNanos() - started) / 1_000_000
+            } finally { test.runOnMainSync { client.close() }; server.shutdownNow(); binary.close() }
         }
         try {
             main.post(tick)
-            val legacy = runUpload(false); val fast = runUpload(true); val cancel = runUpload(true, true)
-            check(fast.getInt("frames") * 6 < legacy.getInt("frames"))
-            check(fast.getLong("elapsedMs") < legacy.getLong("elapsedMs"))
+            val missingBinary = runUpload(false); val binary = runUpload(true); val cancel = runUpload(true, true)
+            check(binary.getInt("frames") < 32) { "Binary bytes leaked into encrypted control frames" }
             val sorted = delays.sorted()
-            val aesMs = outerAuthentication("15"); val macMs = outerAuthentication("31")
-            check(macMs < aesMs)
-            val result = JSONObject().put("legacy", legacy).put("fast", fast).put("cancel", cancel)
-                .put("outer128FramesAesMs", aesMs).put("outer128FramesMacMs", macMs)
-                .put("speedup", legacy.getDouble("elapsedMs") / fast.getDouble("elapsedMs"))
+            val result = JSONObject().put("binaryRequired", missingBinary).put("binary", binary).put("cancel", cancel)
                 .put("mainTickP95Ms", sorted[(sorted.size * 95 / 100).coerceAtMost(sorted.lastIndex)])
                 .put("mainTickMaxMs", sorted.last())
             File(test.targetContext.getExternalFilesDir(null), "attachment-upload-validation.json").writeText(result.toString(2))
-            return "PASS: encrypted 4MiB upload, reordered acknowledgements, SHA256, off-main transmission, monotonic progress and cancellation; $result\n"
+            return "PASS: encrypted control + pinned binary 4MiB upload, exact bytes/SHA256, missing-binary rejection, off-main transmission, monotonic progress and cancellation; $result\n"
         } finally {
             watching = false; main.removeCallbacks(tick); keys.clear(); file.delete()
             context.getSharedPreferences("device-identity", Context.MODE_PRIVATE).edit().clear().commit()

@@ -19,7 +19,6 @@
   "providerPolicyExempt": [
     "androidUpdateStage",
     "apkBinary",
-    "apkChunk",
     "apkOffer",
     "apkProgress",
     "apkStatus",

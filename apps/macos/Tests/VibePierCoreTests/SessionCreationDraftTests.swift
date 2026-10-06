@@ -31,9 +31,15 @@ final class SessionCreationDraftTests: XCTestCase {
         _ = try draft.attachment(
             ["op": "newAttachmentStart", "attachmentId": attachment, "name": "note.txt", "size": body.count],
             storage: storage, device: "phone")
-        _ = try draft.attachment(
-            ["op": "newAttachmentChunk", "attachmentId": attachment, "offset": 0, "data": body.base64EncodedString()],
-            storage: storage, device: "phone")
+        XCTAssertFalse(SessionCreationDraft.attachmentOperations.contains("newAttachmentChunk"))
+        XCTAssertThrowsError(
+            try draft.attachment(
+                [
+                    "op": "newAttachmentChunk", "attachmentId": attachment, "offset": 0,
+                    "data": body.base64EncodedString(),
+                ],
+                storage: storage, device: "phone"))
+        _ = try storage.appendImportedData(body, id: attachment, offset: 0, device: "phone", thread: draft.scope)
         _ = try draft.attachment(
             ["op": "newAttachmentComplete", "attachmentId": attachment, "sha256": CodexConversation.dataHash(body)],
             storage: storage, device: "phone")

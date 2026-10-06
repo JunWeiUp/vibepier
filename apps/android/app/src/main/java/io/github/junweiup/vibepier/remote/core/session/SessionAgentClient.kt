@@ -2,7 +2,7 @@ package io.github.junweiup.vibepier.remote.core.session
 
 import org.json.JSONObject
 
-/** Typed profile-2 transport. Its journal is separate from, and never rewrites, pending v1 bytes. */
+/** Typed profile-2 transport with its own durable operation journal. */
 internal class SessionAgentClient(
     private val identity: () -> String,
     private val send: (JSONObject, (JSONObject) -> Unit) -> Unit,
@@ -84,13 +84,33 @@ internal class SessionAgentClient(
 
     /** Called with the request ID of reads that a pending mutation or receipt depends on; page cancellation must keep them. */
     var onPreservedRead: (String) -> Unit = {}
+    /** A logical read can span workspace pages and a final options request. Confined to the client thread. */
+    inner class ReadScope {
+        private val requests = mutableSetOf<String>()
+        var active = true; private set
+        internal fun track(id: String) { requests.add(id) }
+        internal fun finished(id: String) { requests.remove(id) }
+        fun cancel() {
+            if (!active) return
+            active = false
+            val ids = requests.toList(); requests.clear()
+            ids.forEach { onCancelledRead(it) }
+        }
+    }
+    var onCancelledRead: (String) -> Unit = {}
     fun read(method: SessionAgentProtocol.Method, target: SessionAgentProtocol.Target? = null,
-             params: JSONObject = JSONObject(), preserve: Boolean = false, callback: (SessionAgentProtocol.Reply) -> Unit) {
+             params: JSONObject = JSONObject(), preserve: Boolean = false, readScope: ReadScope? = null, callback: (SessionAgentProtocol.Reply) -> Unit) {
+        if (readScope?.active == false) return
+        require(!preserve || readScope == null) { "Preserved reads cannot belong to a cancellable UI scope" }
         if (!supports(method) || method.mutation) { callback(SessionAgentProtocol.Reply.Failure("protocol_incompatible")); return }
         val request = runCatching { SessionAgentProtocol.Request(SessionAgentProtocol.id(), method, target, JSONObject(params.toString())) }.getOrNull()
         if (request == null) { callback(SessionAgentProtocol.Reply.Failure("agent_request_invalid")); return }
         if (preserve) onPreservedRead(request.requestId)
-        perform(request, callback)
+        readScope?.track(request.requestId)
+        perform(request) { reply ->
+            readScope?.finished(request.requestId)
+            if (readScope?.active != false) callback(reply)
+        }
     }
     fun mutate(method: SessionAgentProtocol.Method, target: SessionAgentProtocol.Target, params: JSONObject,
                controlLease: String, operationId: String = SessionAgentProtocol.id(), context: JSONObject? = null,
@@ -100,6 +120,7 @@ internal class SessionAgentClient(
             JSONObject(params.toString()), operationId, controlLease) }.getOrNull()
         if (request == null) { callback(SessionAgentProtocol.Reply.Failure("agent_protocol_invalid")); return }
         val original = JSONObject().put("identity", identity()).put("body", request.json()).apply {
+            // "legacy" is the current profile-2 journal UI projection field, not an older wire schema.
             context?.let { put("legacy", JSONObject(it.toString()).put("id", operationId).put("agentOperationId", operationId)) }
         }.toString()
         val pending = runCatching { storage.pending() }.getOrNull()
@@ -135,6 +156,7 @@ internal class SessionAgentClient(
     private fun original(operationId: String): SessionAgentProtocol.Request? = runCatching {
         val stored = JSONObject(storage.pending()[operationId] ?: return null)
         require(stored.opt("identity") == identity())
+        stored.optJSONObject("legacy")?.let { require(it.opt("provider") in SessionProvider.ids) }
         val body = stored.getJSONObject("body")
         require(body.opt("agentProtocol") == SessionAgentProtocol.VERSION && body.opt("operationId") == operationId)
         val method = SessionAgentProtocol.Method.parse(body.opt("method")) ?: error("Unknown method")
@@ -147,11 +169,12 @@ internal class SessionAgentClient(
     }.getOrNull()
 
     fun context(operationId: String): JSONObject? = runCatching {
+        require(original(operationId) != null)
         val stored = JSONObject(storage.pending()[operationId] ?: return null)
         require(stored.opt("identity") == identity())
         JSONObject(stored.getJSONObject("legacy").toString())
     }.getOrNull()
-    fun pendingLegacy(provider: String, thread: String) = runCatching { storage.pending().keys.mapNotNull { operation ->
+    fun pendingContexts(provider: String, thread: String) = runCatching { storage.pending().keys.mapNotNull { operation ->
         context(operation)?.takeIf { it.opt("provider") == provider && it.optString("threadId") == thread && it.opt("agentAdapterId") == selectedAdapter(provider) }
     } }.getOrDefault(emptyList())
 

@@ -753,16 +753,19 @@ final class CodexBackgroundSessions: @unchecked Sendable {
             else { throw RuntimeDriverError.invalidRequest }
             response = value
         } else {
-            guard let allow = request["allow"] as? Bool else { throw RuntimeDriverError.invalidRequest }
             if pending.source["method"] as? String == "item/permissions/requestApproval" {
-                guard let parameters = pending.source["params"] as? [String: Any],
+                guard request["decision"] == nil, let allow = request["allow"] as? Bool,
+                    let parameters = pending.source["params"] as? [String: Any],
                     let permissions = parameters["permissions"] as? [String: Any]
                 else {
                     throw RuntimeDriverError.invalidRequest
                 }
                 response = ["permissions": allow ? permissions : [:], "scope": "turn"]
             } else {
-                response = ["decision": allow ? "accept" : "decline"]
+                response = [
+                    "decision": try CodexApprovalDecision.decision(
+                        request, source: pending.source, projected: projected)
+                ]
             }
         }
         stateLock.withLock { requests[thread]?[key]?.submitted = true }

@@ -6,7 +6,6 @@ import ImageIO
 
 /// Only caller-selected files enter the composer. Attachment identifiers are bound to device and thread.
 final class CodexAttachments {
-    private static let uploadChunkBytes = 64 * 1024
     private struct Record: Codable {
         let device: String
         let thread: String
@@ -18,17 +17,11 @@ final class CodexAttachments {
         var complete: Bool
         let managed: Bool
         var sourcePath: String?
-        var uploadVersion: Int?
-        var uploadFragmentChars: Int?
         var used: Bool = false
     }
     private let root: URL
     private let files: BinaryFileTransfers
     private var records: [String: Record] = [:]
-    // Fast chunk receipts cover buffered bytes, not crash-durable completion. A restarted
-    // partial upload has no coverage map and must be removed/restarted with a fresh ID.
-    private var uploadCoverage: [String: Set<Int>] = [:]
-    private var failedUploads: Set<String> = []
     private var manifest: URL { root.appendingPathComponent("manifest.json") }
     init(
         root: URL = Paths.supportDirectory.appendingPathComponent("codex-attachments"),
@@ -60,19 +53,10 @@ final class CodexAttachments {
         try FileManager.default.setAttributes([.posixPermissions: 0o600], ofItemAtPath: manifest.path)
     }
     private func info(_ record: Record) -> [String: Any] {
-        var result: [String: Any] = [
+        let result: [String: Any] = [
             "attachmentId": record.id, "name": record.name, "mime": record.mime, "size": record.size,
             "complete": record.complete,
         ]
-        if record.uploadVersion == 1 && !record.complete && uploadCoverage[record.id] != nil
-            && !failedUploads.contains(record.id)
-        {
-            result["upload"] = [
-                "version": 1, "token": record.id, "fragmentChars": record.uploadFragmentChars ?? 7200,
-                "chunkBytes": Self.uploadChunkBytes,
-                "window": 3,
-            ]
-        }
         return result
     }
     func start(_ request: [String: Any], device: String, thread: String) throws -> [String: Any] {
@@ -103,18 +87,12 @@ final class CodexAttachments {
         guard
             FileManager.default.createFile(atPath: file.path, contents: Data(), attributes: [.posixPermissions: 0o600])
         else { throw CLIError(L10n.text("session.could_not_create_the_attachment")) }
-        var value = Record(
+        let value = Record(
             device: device, thread: thread, id: Self.key(id), name: name, path: file.path, mime: mime, size: size,
             complete: false, managed: true)
-        if request["uploadVersion"] as? Int == 1 {
-            value.uploadVersion = 1
-            value.uploadFragmentChars = request["uploadFragmentChars"] as? Int == 512 ? 512 : 7200
-            uploadCoverage[Self.key(id)] = []
-        }
         records[Self.key(id)] = value
         do { try save() } catch {
             records.removeValue(forKey: Self.key(id))
-            uploadCoverage.removeValue(forKey: Self.key(id))
             throw error
         }
         return startInfo(value, request: request)
@@ -128,36 +106,14 @@ final class CodexAttachments {
         }
         return result
     }
-    func chunk(_ request: [String: Any], device: String, thread: String) throws -> [String: Any] {
-        let id = request["attachmentId"] as? String ?? ""
+    /// Internal byte import for Mac-generated attachments. No JSON/base64 upload RPC is accepted here.
+    func appendImportedData(_ data: Data, id: String, offset: Int, device: String, thread: String) throws -> [String:
+        Any]
+    {
         let value = try record(id, device: device, thread: thread)
-        guard value.managed, !value.complete, let offset = request["offset"] as? Int, offset >= 0,
-            let base64 = request["data"] as? String, base64.count <= 180_000,
-            let data = Data(base64Encoded: base64), !data.isEmpty, data.count <= 128 * 1024,
+        guard value.managed, !value.complete, offset >= 0, !data.isEmpty, data.count <= 128 * 1024,
             offset <= value.size, data.count <= value.size - offset
         else { throw CLIError(L10n.text("session.invalid_attachment_chunk")) }
-        if value.uploadVersion == 1 {
-            guard request["uploadVersion"] as? Int == 1, var received = uploadCoverage[value.id],
-                !failedUploads.contains(value.id), offset % Self.uploadChunkBytes == 0,
-                data.count == min(Self.uploadChunkBytes, value.size - offset)
-            else { throw CLIError(L10n.text("session.invalid_attachment_chunk")) }
-            let file = try FileHandle(forUpdating: URL(fileURLWithPath: value.path))
-            defer { try? file.close() }
-            try file.seek(toOffset: UInt64(offset))
-            if received.contains(offset) {
-                guard try file.read(upToCount: data.count) == data else {
-                    throw CLIError(L10n.text("session.attachment_chunk_content_conflicts"))
-                }
-            } else {
-                do { try file.write(contentsOf: data) } catch {
-                    failedUploads.insert(value.id)
-                    throw error
-                }
-                received.insert(offset)
-                uploadCoverage[value.id] = received
-            }
-            return ["attachmentId": id, "offset": offset + data.count, "durable": false]
-        }
         let file = try FileHandle(forUpdating: URL(fileURLWithPath: value.path))
         defer { try? file.close() }
         let length = try file.seekToEnd()
@@ -191,16 +147,6 @@ final class CodexAttachments {
                 try target.write(contentsOf: bytes)
             }
             try target.synchronize()
-            value.uploadVersion = nil
-        }
-        if value.uploadVersion == 1 && !value.complete {
-            guard request["uploadVersion"] as? Int == 1, let received = uploadCoverage[value.id],
-                !failedUploads.contains(value.id),
-                received.count == (value.size + Self.uploadChunkBytes - 1) / Self.uploadChunkBytes
-            else { throw CLIError(L10n.text("session.attachment_chunks_are_missing_upload_it_again")) }
-            let file = try FileHandle(forUpdating: URL(fileURLWithPath: value.path))
-            defer { try? file.close() }
-            try file.synchronize()
         }
         let bytes = try contents(value)
         let hash = SHA256.hash(data: bytes).map { String(format: "%02x", $0) }.joined()
@@ -219,8 +165,6 @@ final class CodexAttachments {
             records[Self.key(id)] = previous
             throw error
         }
-        uploadCoverage.removeValue(forKey: value.id)
-        failedUploads.remove(value.id)
         files.cancelUpload(device: device, scope: thread, id: id)
         return info(value)
     }
@@ -276,8 +220,6 @@ final class CodexAttachments {
             try? FileManager.default.removeItem(at: root.appendingPathComponent(value.id, isDirectory: true))
         }
         records.removeValue(forKey: Self.key(id))
-        uploadCoverage.removeValue(forKey: value.id)
-        failedUploads.remove(value.id)
         try save()
     }
     func selected(_ ids: [String], device: String, thread: String, markUsed: Bool = true) throws -> (

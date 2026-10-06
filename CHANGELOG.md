@@ -1,5 +1,66 @@
 # Changelog / 更新记录
 
+## Local build 69 — Recover Codex controls after a failed turn / 本机构建 69 — Codex 失败回合后恢复操作
+
+- Restore send and model settings after Codex reports `systemError` with a failed latest turn and no running turn. Keep the error visible and retain native owner, lease and receipt checks; never resend automatically.
+- Codex 明确最新回合失败且没有运行中回合时，将 `systemError` 投影为可继续操作的空闲状态，恢复发送与模型设置。保留错误展示、原生归属、控制租约和回执校验，不自动重发。
+
+## Local build 68 — Keep unsubmitted approval choices visible / 本机构建 68 — 保留未提交的审批选择
+
+- Keep the approval dialog and selected answers visible across snapshot changes or brief disconnections. State changes disable stale decisions and appear inside the dialog; selecting an answer does not submit it.
+- 快照变化或短暂断线不再自动关闭未提交的审批页，保留已选答案；状态变化在页内提示并禁用过期提交。选择选项不会代替提交。
+
+## Local build 67 — Preserve approval during partial refresh / 本机构建 67 — 审批刷新时保留弹窗
+
+- Only dismiss an approval as removed or revised after a live, complete snapshot explicitly supplies the approval collection. Partial or cached pages cannot confirm that an approval disappeared.
+- 仅实时完整快照明确提供审批集合后，才判断当前审批已消失或变更并收起弹窗；未完成刷新或缓存缺字段不再导致误关。仅更新 Android，Mac 保持 66。
+
+## Local build 66 — Codex approval choices / 本机构建 66 — Codex 审批操作
+
+- Let users approve Codex requests without scrolling to the bottom. Keep current authorization, complete request identity and receipt checks.
+- Codex 审批无需滚动到底即可操作，保留当前授权、完整请求身份与回执校验。
+- Offer “Allow similar” when Codex provides a matching command-rule amendment; submit that exact native rule instead of widening the session permission mode.
+- Codex 提供同类命令规则时显示“允许此类”，提交原生给出的精确规则，不修改整个会话的权限模式。
+
+## Local build 65 — Keep incomplete Codex pages loading / 本机构建 65 — 修复 Codex 未完成加载被显示为空
+
+- Keep partial initial conversation snapshots in a loading state and recover with bounded read-only snapshot requests; do not present incomplete content as an empty completed session.
+- Codex 初始快照尚未完成时继续显示加载状态，并通过有界只读请求补齐消息；不再将未完成内容当作已同步的空会话。
+
+## Local build 64 — Restore current assistant discovery / 本机构建 64 — 修复当前助手发现
+
+- Restore the current adapter capability directory in the Mac discovery response. Removing it caused current phones to show an upgrade prompt and an empty session list even when both ends ran build 63. Session operations still require profile 2.
+- 恢复 Mac 能力发现回复中的当前助手目录，修复双端均为 build 63 时仍提示升级、会话列表为空的问题；会话操作仍统一使用 profile 2。本次仅更新 Mac，Android 63 无需重装。
+
+## Local build 63 — Current contracts only / 本机构建 63 — 仅当前契约
+
+- Require profile 2 for conversation operations; remove old-client execution fallbacks, old pending-message replay and automatic settings/credential migration. New installations initialize the current schema; unsupported formats fail closed.
+- 会话操作统一 profile 2；删除旧客户端执行回退、旧消息重发与设置/凭据自动迁移。全新安装仅初始化当前格式，不支持格式明确拒绝。
+- Use only binary attachment/media/APK file transfers (the current small-thumbnail preview contract remains). Remove text chunk RPCs, bulk wrappers and old single-phone relay host support; retain current host2/client1 routing and ordinary authenticated packet protection. The former 0x10 bulk capability is retired.
+- 附件、媒体、APK 文件仅使用二进制传输（保留当前小缩略图预览契约）；删除文本分块 RPC、bulk 包装与旧单手机中继主机分支，保留现用 host2/client1 路由及普通认证分片保护，退役 0x10 bulk 能力。
+- Keep only current provider identities in the active session index; retired entries no longer participate in startup or routing. Clarify the session-not-ready message so it does not incorrectly imply a network disconnection.
+- 活动索引仅保留当前服务商身份，退役记录不参与启动和路由；修正状态未就绪提示，避免误报网络未连接。
+
+## Unreleased — Session recovery and approval QA / 未发布 — 会话恢复与审批回归
+
+- Keep open approval controls synchronized with current session capabilities; preserve read-only preparation and receipt callbacks when leaving a page. Cancel model option reads by their actual profile-2 request scope, and reload a retained creation draft after capability/foreground recovery without resubmitting it.
+- 审批弹窗随会话能力变化刷新；切后台保留发送准备与回执读取；模型选项按新协议实际请求作用域取消，新建草稿恢复后只重读选项，不自动提交。
+- Reject ambiguous Claude permission-to-tool mappings. Reconcile delayed native decisions against the original request and decision without another click; unknown records remain protected across restart.
+- Claude 审批拒绝猜测同名工具的关联；迟到决定按原请求与原决定只读核对，不补点，重启后未确认记录仍保持防重放。
+- Keep receipt checks available when approval write capabilities disappear; respect per-item queue and read-only approval permissions in visible controls.
+- 审批写能力消失后仍可只读检查结果；队列与审批按钮遵循每条记录的可操作权限，避免按钮可点却无法执行。
+- Revalidate Codex desktop ownership and obtain a fresh snapshot for verified reads; invalidate old leases on verification failure or owner replacement without letting an obsolete read revoke a newer view.
+- Codex 强制快照读取重新核验桌面 owner 并取新快照；核验失败或 owner 更换时撤旧租约，迟到旧请求不影响新页面权限，修复漏更新后的持续等待。
+- Add API 37 review-only touch/cancellation regressions, explicit emulator checks, native opt-in acceptance seams and a call-chain/testability guide. Unit, synthetic Android and real native evidence are reported separately; these changes do not imply a phone or production Mac installation.
+- 增加 API 37 隔离触摸与取消回归、显式模拟器检查、原生验收入口及调用链文档；单测、合成模拟器、真实原生证据分别记录，不代表已安装真机或生产 Mac。
+
+## Unreleased — ZCode removal / 未发布 — 移除 ZCode
+
+- Removed ZCode from the supported provider set. Current provider documentation, capability tables and launch drafts now cover Codex and Claude Code only.
+- 移除 ZCode 适配；当前服务商说明、能力表和宣传草稿仅保留 Codex 与 Claude Code。
+- Earlier entries below describe their original releases/builds. Their ZCode references remain historical and do not imply current support; upstream license and attribution records are preserved.
+- 下方旧条目保留对应发布／构建时的事实，其中 ZCode 描述仅作历史记录，不代表当前支持；上游许可与来源署名保持不变。
+
 ## Local build 54 / 本机构建 54
 
 - Reconnect a registered Codex background server after the desktop updater unlinks its executable, requiring the original process birth, unchanged private socket and kernel peer PID/UID. Do not restart it or resend requests.

@@ -56,6 +56,27 @@ object NewSessionComposerProbe {
                 show()
             }
             settle()
+            val beforeRecovery = ConversationReviewFixtures.creationOptionsReads
+            lateinit var recoveryDraft: String
+            main {
+                recoveryDraft = options.draft.id
+                client.onEvent(JSONObject().put("event", "agentCapabilitiesChanged"))
+            }
+            settle()
+            main {
+                check(dialog.isShowing && options.draft.id == recoveryDraft)
+                check(ConversationReviewFixtures.creationOptionsReads == beforeRecovery + 1) {
+                    "Creation dialog did not reload options after capability recovery"
+                }
+                panel.suspend(); panel.resume()
+            }
+            settle()
+            main {
+                check(ConversationReviewFixtures.creationOptionsReads == beforeRecovery + 2) {
+                    "Creation dialog did not reload cancelled options after returning to foreground"
+                }
+                check(ConversationReviewFixtures.newRequestBodies.isEmpty()) { "Read recovery submitted a creation" }
+            }
             main { check(options.ready); (field(options, "model") as View).performClick() }
             settle(); main { choose(1) }; settle(); main { choose(2) }; settle()
             main { check(options.draft.model == "gpt-6-astra" && options.draft.effort == "high"); (field(options, "mode") as View).performClick() }
@@ -111,7 +132,7 @@ object NewSessionComposerProbe {
                 check(client.creationDraft(cwd, "codex").id != draftID)
                 check(client.attachments("creation:$draftID", "codex").length() == 0)
                 val nativeChoices = NewSessionOptionsView(activity,
-                    io.github.junweiup.vibepier.remote.core.session.SessionCreationDraft(UUID.randomUUID().toString(), "zcode", "/fixture/zcode"), {}, {}, { true })
+                    io.github.junweiup.vibepier.remote.core.session.SessionCreationDraft(UUID.randomUUID().toString(), "claude", "/fixture/claude"), {}, {}, { true })
                 nativeChoices.applyOptions(JSONObject().put("ok", true).put("creationVersion", 1)
                     .put("models", JSONArray().put(JSONObject().put("id", "native-model").put("name", "Native model").put("efforts", JSONArray().put("opaque-effort-id"))))
                     .put("efforts", JSONArray().put(JSONObject().put("id", "opaque-effort-id").put("name", "Native deep reasoning")))

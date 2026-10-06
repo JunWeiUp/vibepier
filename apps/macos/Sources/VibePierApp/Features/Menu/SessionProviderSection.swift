@@ -34,10 +34,10 @@ struct SessionProviderSection: View {
 
     private func providerRow(_ provider: String) -> some View {
         let enabled = model.sessionProviders[provider] == true
-        let title = ["codex": "Codex", "claude": "Claude Code", "zcode": "ZCode"][provider] ?? provider
+        let title = ["codex": "Codex", "claude": "Claude Code"][provider] ?? provider
         let tint = provider == "claude" ? VibeAppearance.warning : VibeAppearance.blue
         return HStack(spacing: 10) {
-            Text(provider == "claude" ? "✻" : provider == "zcode" ? "Z" : "C")
+            Text(provider == "claude" ? "✻" : "C")
                 .font(.system(size: 17, weight: .semibold)).foregroundStyle(tint).frame(width: 22)
                 .accessibilityHidden(true)
             Text(title).font(.subheadline.weight(.semibold))

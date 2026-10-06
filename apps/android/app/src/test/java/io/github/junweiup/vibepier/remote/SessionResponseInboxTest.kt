@@ -122,30 +122,27 @@ class SessionResponseInboxTest {
             for ((field, value) in listOf("accountId" to "other", "creditId" to "other", "outcome" to "unknown", "accepted" to !reply.getBoolean("accepted"))) assertFalse(SessionResponseInbox.confirms(changed(reply, field, value), request))
         }
     }
-    @Test fun fastFramesRequirePendingRequestAndMatchAuthenticatedID() {
-        val value = message("x".repeat(174764)); val id = value.getString("id")
-        val parts = frames(value.toString().toByteArray(), request = id)
-        assertEquals(33, parts.size)
+    @Test fun retiredFastFramesAreRejectedBeforeDecryptionWithoutConsumingSlots() {
+        val value = message("x".repeat(174764))
+        val retired = frames(value.toString().toByteArray(), request = value.getString("id"))
         val inbox = SessionResponseInbox(device, { 0 })
-        assertNull(inbox.receive(parts[0], ::decrypt))
-        assertNull(inbox.receive(changed(parts[0], "parts", 57), ::decrypt) { it == id })
-        for (part in parts.drop(1).reversed()) assertNull(inbox.receive(part, ::decrypt) { it == id }?.message)
-        assertEquals(value.toString(), inbox.receive(parts[0], ::decrypt) { it == id }?.message.toString())
-        assertNull(inbox.receive(parts[0], ::decrypt) { it == id })
-        val wrongID = UUID.randomUUID().toString()
-        val wrong = frames(message().toString().toByteArray(), request = wrongID).single()
-        assertThrows(IllegalStateException::class.java) { inbox.receive(wrong, ::decrypt) { it == wrongID } }
+        for (part in retired) assertNull(inbox.receive(part) { _, _ -> fail("retired frame reached decrypt"); byteArrayOf() })
+        assertFalse(inbox.receivingContent)
+        val ordinary = frames(value)
+        ordinary.drop(1).reversed().forEach { assertNull(inbox.receive(it, ::decrypt)?.message) }
+        assertEquals(value.toString(), inbox.receive(ordinary.first(), ::decrypt)?.message.toString())
+        ordinary.forEach { assertNull(inbox.receive(it, ::decrypt)) }
     }
-    @Test fun cancelledFastRequestCannotFinishAndOtherMessagesStillPass() {
-        val value = message("y".repeat(12000)); val id = value.getString("id")
-        val parts = frames(value.toString().toByteArray(), request = id)
+    @Test fun binaryDescriptorUsesOrdinaryEnvelopeAndOldUploadFramesCannotCorruptIt() {
+        val value = message().put("binary", JSONObject().put("version", 1).put("kind", "download")
+            .put("encoding", "raw").put("id", "binary-ticket").put("pin", "a".repeat(64)))
         val inbox = SessionResponseInbox(device, { 0 })
-        assertNotNull(inbox.receive(parts[0], ::decrypt) { it == id })
-        for (part in parts.drop(1)) assertNull(inbox.receive(part, ::decrypt) { false })
-        val ordinary = message("control receipt")
-        assertEquals(ordinary.toString(), inbox.receive(frames(ordinary).single(), ::decrypt)?.message.toString())
+        val frame = frames(value).single()
+        for (field in listOf("request", "upload", "fragmentChars")) {
+            assertNull(inbox.receive(changed(frame, field, if (field == "fragmentChars") 7200 else UUID.randomUUID().toString()), ::decrypt))
+        }
+        assertEquals(value.toString(), inbox.receive(frame, ::decrypt)?.message.toString())
         inbox.clearPartial()
-        assertNull(inbox.receive(parts.last(), ::decrypt))
+        assertNull(inbox.receive(frame, ::decrypt)) // Clearing partial transfers must not clear replay history.
     }
-
 }

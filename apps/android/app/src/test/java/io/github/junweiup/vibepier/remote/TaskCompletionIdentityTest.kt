@@ -7,7 +7,7 @@ import org.junit.Test
 
 class TaskCompletionIdentityTest {
     @Test fun acceptsOnlyCompletionEventsWithKnownProviderAndStableIdentity() {
-        for (provider in listOf("codex", "claude", "zcode")) {
+        for (provider in listOf("codex", "claude")) {
             val event = JSONObject().put("event", "taskCompleted").put("eventId", "a".repeat(64)).put("provider", provider).put("threadId", "session-a")
             assertEquals(provider, TaskCompletionIdentity.parse(event)?.provider)
             assertEquals("session-a", TaskCompletionIdentity.parse(event)?.threadId)

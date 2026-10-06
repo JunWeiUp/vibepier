@@ -77,13 +77,22 @@ internal object ProviderAccessProbe {
                     .put("key", Base64.encodeToString(keyBytes, Base64.NO_WRAP)).toString().toByteArray())
             }
             test.waitForIdleSync()
-            policy(0, setOf("codex", "claude", "zcode"))
+            policy(0, setOf("codex", "claude"))
             var original = ""
+            var originalRecord = ""
             main {
                 client.saveDraft("synthetic", "preserve this draft")
                 client.rememberPage("synthetic", JSONObject().put("title", "synthetic cached conversation"))
                 client.rememberProcess("synthetic", "reply", JSONObject().put("text", "synthetic cached process"))
-                original = client.request("send", JSONObject().put("threadId", "synthetic").put("text", "preserve this draft")) { }
+                var refused: JSONObject? = null
+                client.request("send", JSONObject().put("threadId", "synthetic").put("text", "preserve this draft")) { refused = it }
+                check(refused?.optString("code") == "agent_state_not_ready")
+                check(client.uncertain("synthetic").isEmpty())
+                // A pre-upgrade unresolved intent is local data, not authority for a new write.
+                original = UUID.randomUUID().toString()
+                originalRecord = JSONObject().put("id", original).put("provider", "codex").put("op", "send")
+                    .put("threadId", "synthetic").put("text", "preserve this draft").toString()
+                check(PrivatePreferences.open(context, "sessions").edit().putString("pending.$original", originalRecord).commit())
             }
             activity = test.startActivitySync(Intent(test.targetContext, MainActivity::class.java)
                 .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK).putExtra("codexFixture", "approval")) as MainActivity
@@ -100,17 +109,23 @@ internal object ProviderAccessProbe {
                 val labels = views(panel!!).mapNotNull { it.contentDescription?.toString() }
                 check(labels.any { it == activity!!.getString(R.string.choice_selected, "Claude Code", activity!!.getString(R.string.session_sessions)) })
                 check(labels.none { it == activity!!.getString(R.string.choice_switch, "Codex", activity!!.getString(R.string.session_sessions)) })
-                check(labels.none { it == activity!!.getString(R.string.choice_switch, "ZCode", activity!!.getString(R.string.session_sessions)) })
                 client.provider = "codex"
                 check(client.cachedPage("synthetic") == null)
                 check(client.cachedProcess("synthetic", "reply") == null)
                 check(client.draft("synthetic") == "preserve this draft")
-                check(client.uncertain("synthetic").any { it.optString("id") == original })
+                check(client.uncertain("synthetic").isEmpty())
+                check(PrivatePreferences.open(context, "sessions").contains("pending.$original"))
                 var rejected = false
                 client.request("send", JSONObject().put("threadId", "synthetic").put("text", "must not send")) {
-                    rejected = it.optString("code") == "provider_disabled"
+                    rejected = it.opt("ok") == false && it.optString("code") == "agent_state_not_ready"
                 }
                 check(rejected)
+                // Old session intents remain inert even with their original ID.
+                var recoveryRejected = false
+                client.retryPending(original) { recoveryRejected = it.optBoolean("unknown") }
+                check(recoveryRejected)
+                check(client.uncertain("synthetic").isEmpty())
+                check(PrivatePreferences.open(context, "sessions").contains("pending.$original"))
                 client.provider = "claude"
             }
             policy(2, emptySet())
@@ -121,20 +136,26 @@ internal object ProviderAccessProbe {
                 check(!panel!!.restoreNavigationState(JSONObject().put("source", client.authorizationIdentity)
                     .put("provider", "codex").put("thread", "synthetic").put("drawer", false)))
             }
-            policy(1, setOf("codex", "claude", "zcode"))
+            policy(1, setOf("codex", "claude"))
             main { check(client.enabledProviders.isEmpty()) }
             main {
                 val restored = SessionClient(context, Transport(), 2_000)
                 check(restored.providerAccessKnown && restored.enabledProviders.isEmpty())
                 restored.close()
             }
-            policy(3, setOf("zcode"))
+            policy(3, setOf("claude"))
             main {
-                check(client.provider == "zcode" && client.enabledProviders == listOf("zcode"))
+                check(client.provider == "claude" && client.enabledProviders == listOf("claude"))
                 check(client.draft("synthetic", "codex") == "preserve this draft")
-                check(client.uncertain("synthetic", "codex").any { it.optString("id") == original })
+                // Policy changes cannot reactivate a retired session journal entry.
+                check(client.uncertain("synthetic", "codex").isEmpty())
+                var retryRejected = false
+                client.retryPending(original) { retryRejected = it.opt("ok") == false && it.opt("unknown") == true }
+                check(retryRejected)
+                client.clearReceipt(original)
+                check(PrivatePreferences.open(context, "sessions").getString("pending.$original", null) == originalRecord)
             }
-            return "PASS: authenticated live policy hides disabled native tabs, switches selection, clears visible cache, preserves drafts/unknown receipts, blocks new sends, renders all-off refresh safely, rejects stale policy/navigation, persists all-off across client recreation and re-enables only selected provider. Synthetic emulator only."
+            return "PASS: authenticated live policy hides disabled native tabs, switches selection, clears visible cache, preserves drafts and inert old journal bytes without displaying or retrying them, blocks new sends, renders all-off refresh safely, rejects stale policy/navigation, persists all-off across client recreation and re-enables only selected provider. Synthetic emulator only."
         } finally {
             main { panel?.close(); activity?.finish(); if (clientReady) client.close() }
             if (clientReady) DeviceKeys(context).clear()

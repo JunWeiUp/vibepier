@@ -9,21 +9,7 @@ struct ConversationImageRequest: Error, Sendable {
     let cwd: String
     let maxPixel: Int
     let device: String
-    let binary: Bool
-    let zcodeArtifactRoot: String?
-    init(
-        thread: String, id: String, source: String, cwd: String, maxPixel: Int, device: String = "",
-        binary: Bool = false, zcodeArtifactRoot: String? = nil
-    ) {
-        self.thread = thread
-        self.id = id
-        self.source = source
-        self.cwd = cwd
-        self.maxPixel = maxPixel
-        self.device = device
-        self.binary = binary
-        self.zcodeArtifactRoot = zcodeArtifactRoot
-    }
+
 }
 
 /// File opens can wait indefinitely on filesystem or macOS permission services even with O_NONBLOCK.
@@ -44,57 +30,46 @@ final class ConversationImageLoader: @unchecked Sendable {
     private let queueLimit: Int
     private let limit: Int
     private let timeout: Double
+    private let offer: BinaryMediaFiles.Offer
     private let decode: Decode
     private let timer = DispatchQueue(label: "vibepier.image-timeouts")
 
     init(
         limit: Int = 2, timeout: Double = 6, queueLimit: Int = 16,
+        offer: @escaping BinaryMediaFiles.Offer = BinaryMediaFiles.currentOffer,
         decode: @escaping Decode = {
-            if let root = $0.zcodeArtifactRoot {
-                return try ZCodeImageArtifacts.jpeg(
-                    $0.source, session: $0.thread, root: root, maxPixel: $0.maxPixel,
-                    maximumBytes: $0.binary ? 4 * 1024 * 1024 : 200_000)
-            }
             return try ConversationReply.jpeg(
-                $0.source, cwd: $0.cwd, maxPixel: $0.maxPixel, maximumBytes: $0.binary ? 4 * 1024 * 1024 : 200_000)
+                $0.source, cwd: $0.cwd, maxPixel: $0.maxPixel, maximumBytes: 4 * 1024 * 1024)
         }
     ) {
         self.queueLimit = queueLimit
         self.limit = limit
         self.timeout = timeout
         self.decode = decode
+        self.offer = offer
     }
 
     func perform(_ request: ConversationImageRequest, provider: String, completion: @escaping @Sendable (Data) -> Void)
     {
         let token = UUID()
-        @Sendable func reply(_ image: Data?, error: String? = nil) -> Data {
-            var value: [String: Any] = [
-                "ok": image != nil, "threadId": request.thread,
-                "imageId": request.id, "provider": provider,
-            ]
-            if let image { value["image"] = image.base64EncodedString() }
-            if let error { value["error"] = error }
-            return (try? JSONSerialization.data(withJSONObject: value, options: [.withoutEscapingSlashes])) ?? Data()
-        }
-        let unavailable = reply(nil, error: L10n.text("session.image_preview_unavailable"))
+        let unavailable =
+            (try? JSONSerialization.data(
+                withJSONObject: [
+                    "ok": false, "threadId": request.thread, "imageId": request.id,
+                    "provider": provider, "error": L10n.text("session.image_preview_unavailable"),
+                ], options: [.withoutEscapingSlashes])) ?? Data()
         let work: @Sendable () -> Void = { [self] in
 
             let result: Data
             do {
                 let image = try decode(request)
-                if request.binary {
-                    let profile = try BinaryMediaFiles.offer(
-                        BinaryMediaFiles.snapshot(image), device: request.device,
-                        thread: request.thread, mime: "image/jpeg")
-                    result = try JSONSerialization.data(
-                        withJSONObject: [
-                            "ok": true, "threadId": request.thread,
-                            "imageId": request.id, "provider": provider, "binary": profile,
-                        ], options: [.withoutEscapingSlashes])
-                } else {
-                    result = reply(image)
-                }
+                let profile = try offer(
+                    BinaryMediaFiles.snapshot(image), request.device, request.thread, "image/jpeg")
+                result = try JSONSerialization.data(
+                    withJSONObject: [
+                        "ok": true, "threadId": request.thread,
+                        "imageId": request.id, "provider": provider, "binary": profile,
+                    ], options: [.withoutEscapingSlashes])
             } catch { result = unavailable }
             let (callback, next) = lock.withLock {
                 active.remove(token)
@@ -104,7 +79,7 @@ final class ConversationImageLoader: @unchecked Sendable {
                 return (callback, next)
             }
             callback?(result)
-            if callback == nil, request.binary,
+            if callback == nil,
                 let value = try? JSONSerialization.jsonObject(with: result) as? [String: Any],
                 let profile = value["binary"] as? [String: Any], let ticket = profile["id"] as? String
             {

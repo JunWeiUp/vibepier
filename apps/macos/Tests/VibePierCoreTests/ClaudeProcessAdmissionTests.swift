@@ -114,16 +114,23 @@ final class ClaudeProcessAdmissionTests: XCTestCase {
         let draft = UUID().uuidString
         func upload(_ bytes: Data, name: String, mime: String) throws -> String {
             let id = UUID().uuidString
-            for (op, values): (String, [String: Any]) in [
-                ("newAttachmentStart", ["name": name, "mime": mime, "size": bytes.count]),
-                ("newAttachmentChunk", ["offset": 0, "data": bytes.base64EncodedString()]),
-                ("newAttachmentComplete", ["sha256": CodexConversation.dataHash(bytes)]),
-            ] {
-                let fields = values.merging(["op": op, "draftId": draft, "attachmentId": id]) { _, new in new }
-                XCTAssertEqual(
-                    try request(bridge, project: fixture.project, client: "phone", options: fields)["ok"] as? Bool, true
-                )
-            }
+            let scope = try SessionCreationDraft(
+                ["draftId": draft, "cwd": fixture.project.path], project: fixture.project.path, provider: "claude")
+            let start: [String: Any] = [
+                "op": "newAttachmentStart", "draftId": draft, "attachmentId": id,
+                "name": name, "mime": mime, "size": bytes.count,
+            ]
+            XCTAssertEqual(
+                try request(bridge, project: fixture.project, client: "phone", options: start)["ok"] as? Bool, true)
+            // Populate synthetic bytes internally; the retired text-chunk RPC is never used by fixtures.
+            let storage = try CodexAttachments(root: fixture.root.appendingPathComponent("attachments"))
+            _ = try storage.appendImportedData(bytes, id: id, offset: 0, device: "phone", thread: scope.scope)
+            let complete: [String: Any] = [
+                "op": "newAttachmentComplete", "draftId": draft, "attachmentId": id,
+                "sha256": CodexConversation.dataHash(bytes),
+            ]
+            XCTAssertEqual(
+                try request(bridge, project: fixture.project, client: "phone", options: complete)["ok"] as? Bool, true)
             return id
         }
         let png = try upload(ClaudePromptTests.png(), name: "diagram.png", mime: "image/png")

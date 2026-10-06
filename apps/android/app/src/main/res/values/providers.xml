@@ -12,5 +12,5 @@
     <string name="agent_backend_extension">Desktop extension</string>
     <string name="agent_backend_explanation">Choose the Mac connection for new browsing and actions. Existing requests keep their original connection and receipt.</string>
     <string name="agent_state_changed">The original task, approval or option is no longer available. Your draft is kept.</string>
-    <string name="agent_state_not_ready">The desktop assistant could not be reached yet. Nothing was submitted; your draft is kept.</string>
+    <string name="agent_state_not_ready">The session service is not ready yet. Nothing was submitted; your draft is kept. Refresh and try again.</string>
 </resources>

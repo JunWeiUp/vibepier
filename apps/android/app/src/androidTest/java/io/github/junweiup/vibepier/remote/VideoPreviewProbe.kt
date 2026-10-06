@@ -12,7 +12,7 @@ import org.json.JSONObject
 import java.io.File
 import java.security.MessageDigest
 
-/** Emulator-only H.264/AAC fixture; no real provider, network or phone data. */
+/** Emulator-only H.264/AAC over pinned loopback TLS; no real provider, external network or phone data. */
 object VideoPreviewProbe {
     fun run(test: Instrumentation): String {
         check(BuildConfig.DESIGN_REVIEW)
@@ -29,6 +29,7 @@ object VideoPreviewProbe {
             while (!condition()) { check(SystemClock.elapsedRealtime() < deadline) { "Video preview timed out" }; SystemClock.sleep(50) }
         }
         val bytes = test.context.assets.open("video-preview.mp4").use { it.readBytes() }
+        val fixture = BinaryLoopbackFixture(bytes)
         val handler = Handler(Looper.getMainLooper())
         var viewer: ProjectFileViewer? = null
         try {
@@ -36,15 +37,10 @@ object VideoPreviewProbe {
                 var reads = 0
                 main {
                     val host = ProjectFileHost(activity, "fixture", provider, { op, args, done ->
-                        check(op == "readVideoFile"); reads++
-                        val offset = args.getInt("offset")
-                        if (offset > 0) check(args.getString("version") == "fixture-video")
-                        val next = minOf(offset + 16_384, bytes.size)
-                        handler.post { done(JSONObject().put("ok", true).put("path", "demo.mp4").put("mime", "video/mp4")
-                            .put("size", bytes.size).put("offset", offset).put("version", "fixture-video")
-                            .put("nextOffset", if (next == bytes.size) -1 else next)
-                            .put("video", android.util.Base64.encodeToString(bytes.copyOfRange(offset, next), android.util.Base64.NO_WRAP))) }
-                    }, { true }, { false }, { _, _ -> }, { false }, {}, allowLegacyMedia = true)
+                        if (op == "fileCancel") { done(JSONObject().put("ok", true)); return@ProjectFileHost }
+                        check(op == "readVideoFile" && args.getInt("binaryVersion") == 1 && args.getInt("offset") == 0); reads++
+                        handler.post { done(fixture.response("video/mp4")) }
+                    }, { true }, { false }, { _, _ -> }, { false }, {}, binaryHost = { fixture.host })
                     viewer = ProjectFileViewer(host, "demo.mp4"); viewer!!.show()
                 }
                 var player: VideoView? = null
@@ -59,7 +55,7 @@ object VideoPreviewProbe {
                     }
                     prepared
                 }
-                check(reads > 1)
+                check(reads == 1 && fixture.bodies.get() >= 1) // Metadata RPC once; body uses pinned binary TLS.
                 check(MessageDigest.isEqual(MessageDigest.getInstance("SHA-256").digest(bytes),
                     MessageDigest.getInstance("SHA-256").digest(temporary!!.readBytes())))
                 main { check(!player!!.isPlaying); check(player!!.duration in 3900..4200); player!!.start() }
@@ -73,7 +69,7 @@ object VideoPreviewProbe {
                 main { viewer!!.dismiss(); check(field(viewer!!, "videoPreview") == null) }
                 waitFor { !temporary!!.exists() }
             }
-            return "PASS: Claude/Codex MP4 multi-chunk download, exact digest, H.264/AAC prepare, manual play/pause/seek and private file cleanup."
-        } finally { main { viewer?.dismiss(); activity.finish() } }
+            return "PASS: Claude/Codex MP4 binary TLS download, exact digest, H.264/AAC prepare, manual play/pause/seek and private file cleanup."
+        } finally { main { viewer?.dismiss(); activity.finish() }; fixture.close() }
     }
 }

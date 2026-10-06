@@ -14,7 +14,7 @@ import io.github.junweiup.vibepier.remote.features.sessions.ConversationMedia
 import org.json.JSONArray
 import org.json.JSONObject
 
-/** Real image dialog with synthetic callbacks only; no Mac, phone pairing or network. */
+/** Real image dialog with synthetic pinned loopback TLS; no Mac, phone pairing or external network. */
 internal object ConversationMediaProbe {
     fun run(test: Instrumentation, activity: MainActivity) {
         fun views(root: View): List<View> = listOf(root) + if (root is ViewGroup) (0 until root.childCount).flatMap { views(root.getChildAt(it)) } else emptyList()
@@ -33,8 +33,8 @@ internal object ConversationMediaProbe {
             }
             error("Image dialog did not settle")
         }
-        val encoded = android.util.Base64.encodeToString(test.context.assets.open("direction-1.png").use { it.readBytes() }, android.util.Base64.NO_WRAP)
-        val success = JSONObject().put("ok", true).put("image", encoded)
+        val fixture = BinaryLoopbackFixture(BinaryLoopbackFixture.jpeg(test.context.assets.open("direction-1.png").use { it.readBytes() }))
+        val success = fixture.response()
         var bodyVersion = "initial"
         val replies = mutableListOf<(JSONObject) -> Unit>()
         lateinit var media: ConversationMedia
@@ -47,8 +47,8 @@ internal object ConversationMediaProbe {
                 media = ConversationMedia(activity,
                     scope = { ConversationMedia.Scope("codex", "synthetic", 1, "synthetic-phone") },
                     active = { true }, version = { bodyVersion },
-                    request = { _, params, callback -> if (params.optString("size") == "thumb") callback(success) else replies.add(callback) },
-                    imageViewer = { title -> FullscreenImageDialog(activity, title).also { popup = it.dialog; popupReady = true } }, readTimeoutMs = 1_000, allowLegacyImages = true)
+                    request = { op, params, callback -> if (op == "fileCancel") callback(JSONObject().put("ok", true)) else if (params.optString("size") == "thumb") callback(success) else replies.add(callback) },
+                    imageViewer = { title -> FullscreenImageDialog(activity, title).also { popup = it.dialog; popupReady = true } }, readTimeoutMs = 1_000, binaryHost = { fixture.host })
                 mediaReady = true
                 val strip = media.strip(JSONArray().put(JSONObject().put("id", "photo#0")))
                 tile = views(strip).filterIsInstance<ConversationImage>().single()
@@ -84,6 +84,7 @@ internal object ConversationMediaProbe {
             await { views(popup.window!!.decorView).filterIsInstance<CanvasLabel>().any { it.isShown && it.text == activity.getString(R.string.image_large_failed) } }
         } finally {
             main { if (popupReady) popup.dismiss(); if (mediaReady) media.clear() }
+            fixture.close()
         }
     }
 }

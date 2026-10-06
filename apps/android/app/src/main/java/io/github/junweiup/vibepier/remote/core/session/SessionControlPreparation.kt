@@ -169,6 +169,9 @@ internal object SessionControlPreparation {
             }
         }
         if (current.opt("kind") == "questions") return nonempty(fields, "option") && contains(current.optJSONArray("options"), fields.opt("option"))
+        // This broader decision is Codex-only and must still be advertised by the fresh native approval.
+        if (fields.opt("option") == "allowSimilar") return fields.opt("provider") == "codex" &&
+            fresh.opt("provider") == "codex" && contains(current.optJSONArray("allowedDecisions"), "allowSimilar")
         if (fields.has("option") && current.optJSONArray("options") != null) return nonempty(fields, "option") && contains(current.optJSONArray("options"), fields.opt("option"))
         val decision = if (fields.has("option")) fields.opt("option") else when (fields.opt("allow")) { true -> "allow"; false -> "deny"; else -> null }
         return decision in setOf("allow", "deny") && (current.optJSONArray("allowedDecisions") == null || contains(current.optJSONArray("allowedDecisions"), decision))

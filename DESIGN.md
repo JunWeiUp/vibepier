@@ -102,6 +102,6 @@ Show a clickable file-access status with distinct not-verified, checking, access
 
 ## AI coding assistant switches / AI 编程助手开关
 
-The Mac menu places a compact assistant card after the phone connection card: header plus enabled count; Codex, Claude Code and ZCode rows each show a mark, name, visibility status and native switch. Mint accents follow VibePier. Controls remain disabled while saving, and failures show inside the card. “Enabled” describes phone access, not runtime health.
+The Mac menu places a compact assistant card after the phone connection card: header plus enabled count; Codex and Claude Code rows each show a mark, name, visibility status and native switch. Mint accents follow VibePier. Controls remain disabled while saving, and failures show inside the card. “Enabled” describes phone access, not runtime health.
 
 Mac 手机连接卡片下新增助手卡片，标题右侧显示启用数，每行包含标记、名称、已启用/已关闭和原生开关。沿用薄荷绿；保存期间禁用操作，失败原位显示。手机只展示启用标签，全关闭给出空状态及 Mac 开启提示。

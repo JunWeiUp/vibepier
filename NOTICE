@@ -50,3 +50,10 @@ DATA, OR PROFITS; OR BUSINESS INTERRUPTION) HOWEVER CAUSED AND ON ANY
 THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT
 (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
 OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
+
+ZCode integration has been removed. References to ZCode above are retained for
+historical attribution and non-affiliation only, not as a statement of current
+support. Upstream copyright and license terms are unchanged.
+
+ZCode 适配已移除；上文相关名称仅保留作历史来源与非关联声明，
+不代表当前支持。上游版权及许可条款不变。

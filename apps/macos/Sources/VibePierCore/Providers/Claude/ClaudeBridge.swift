@@ -27,6 +27,7 @@ final class ClaudeBridge: @unchecked Sendable {
     private let modelCatalog: (String, Bool) throws -> [[String: Any]]
     private let attachments: CodexAttachments?
     private let markdownFiles = SessionMarkdownFiles()
+    private let imageLoader: ConversationImageLoader
     private let settingsFile: URL
     private var selected: [String: String] = [:]
     private var viewVersions: [String: Int64] = [:]
@@ -63,10 +64,12 @@ final class ClaudeBridge: @unchecked Sendable {
     init(
         root: URL = FileManager.default.homeDirectoryForCurrentUser.appendingPathComponent(".claude/projects"),
         processExecutable: URL? = nil, processBudget: SessionWorkBudget? = nil, settingsFile: URL? = nil,
+        imageLoader: ConversationImageLoader = .shared,
         attachmentRoot: URL? = nil, modelCatalog: ((String, Bool) throws -> [[String: Any]])? = nil
     ) {
         let catalog = ClaudeModelCatalog()
         self.modelCatalog = modelCatalog ?? { try catalog.entries(cwd: $0, refresh: $1) }
+        self.imageLoader = imageLoader
         self.root = root
         self.processExecutable = processExecutable
         self.processBudget = processBudget ?? Self.sharedProcesses
@@ -118,7 +121,7 @@ final class ClaudeBridge: @unchecked Sendable {
                 SessionFileLoader.shared.perform(file, provider: "claude", completion: completion)
                 return
             } catch let image as ConversationImageRequest {
-                ConversationImageLoader.shared.perform(image, provider: "claude", completion: completion)
+                imageLoader.perform(image, provider: "claude", completion: completion)
                 return
             } catch { result = ProviderFailure.reply(error, provider: "claude") }
             if let ticket { result = self.operationReceipts.finish(ticket, result: result) }
@@ -532,6 +535,7 @@ final class ClaudeBridge: @unchecked Sendable {
             }
             return reply
         case "image":
+            try BinaryMediaFiles.requireCurrent(request)
             let id = request["imageId"] as? String ?? ""
             guard let source = ConversationReply.image(try projected(session, containing: id).flatMap { $0 }, id: id)
             else {
@@ -540,9 +544,8 @@ final class ClaudeBridge: @unchecked Sendable {
             throw ConversationImageRequest(
                 thread: session, id: id, source: source,
                 cwd: transcript.cwd,
-                maxPixel: request["size"] as? String == "large"
-                    ? (request["binaryVersion"] as? Int == 1 ? 2048 : 1280) : 480,
-                device: client, binary: request["binaryVersion"] as? Int == 1)
+                maxPixel: request["size"] as? String == "large" ? 2048 : 480,
+                device: client)
         case "composerOptions":
             let owner = owner(session)
             // Reading the menus means switching the desktop app; while locked, keep the last known ones.
@@ -599,15 +602,13 @@ final class ClaudeBridge: @unchecked Sendable {
                 ["attachmentId": id, "name": bundle + ".jpg", "mime": "image/jpeg", "size": bytes.count],
                 device: client, thread: session)
             for offset in stride(from: 0, to: bytes.count, by: 128 * 1024) {
-                _ = try attachments.chunk(
-                    [
-                        "attachmentId": id, "offset": offset,
-                        "data": bytes.subdata(in: offset..<min(offset + 128 * 1024, bytes.count)).base64EncodedString(),
-                    ], device: client, thread: session)
+                _ = try attachments.appendImportedData(
+                    bytes.subdata(in: offset..<min(offset + 128 * 1024, bytes.count)),
+                    id: id, offset: offset, device: client, thread: session)
             }
             return try attachments.complete(
                 ["attachmentId": id, "sha256": CodexConversation.dataHash(bytes)], device: client, thread: session)
-        case "attachmentPreview", "attachmentStart", "attachmentChunk", "attachmentComplete", "attachmentReference":
+        case "attachmentPreview", "attachmentStart", "attachmentComplete", "attachmentReference":
             guard let attachments else {
                 throw CLIError(L10n.text("session.attachment_storage_is_unavailable_check_on_the_mac"))
             }
@@ -616,7 +617,6 @@ final class ClaudeBridge: @unchecked Sendable {
                 return try attachments.preview(
                     request["attachmentId"] as? String ?? "", device: client, thread: session)
             case "attachmentStart": return try attachments.start(request, device: client, thread: session)
-            case "attachmentChunk": return try attachments.chunk(request, device: client, thread: session)
             case "attachmentComplete": return try attachments.complete(request, device: client, thread: session)
             default:
                 return try attachments.reference(
@@ -818,35 +818,67 @@ final class ClaudeBridge: @unchecked Sendable {
                 }
                 return matching.count == 1 && self.permissions.log.pending.filter { $0.host == host }.count == 1
             }
-            if let options = approval["options"] as? [String] {
-                guard let option, options.contains(option) else {
-                    throw CLIError(L10n.text("provider.select_a_valid_option"))
-                }
-                let descriptions = approval["optionDescriptions"] as? [String] ?? []
-                let description = options.firstIndex(of: option).flatMap {
-                    descriptions.indices.contains($0) ? descriptions[$0] : nil
-                }
-                try ScreenLock.unlocked {
-                    try ClaudeDesktop.answerQuestion(
-                        option: option, description: description, host: host, stillPending: stillPending
-                    ) {
-                        self.permissions.waitAnswered(requestID, decision: "once", seconds: $0)
+            guard let ticket else { throw CLIError(L10n.text("core.invalid_request")) }
+            try Self.submitApproval(
+                receipts: operationReceipts, ticket: ticket, session: session, fingerprint: fingerprint,
+                requestID: requestID, decision: approval["options"] is [String] || allow == true ? "once" : "deny",
+                confirmation: { [weak self] id, decision, seconds in
+                    self?.permissions.waitAnswered(id, decision: decision, seconds: seconds) == true
+                },
+                submit: { confirmed in
+                    if let options = approval["options"] as? [String] {
+                        guard let option, options.contains(option) else {
+                            throw CLIError(L10n.text("provider.select_a_valid_option"))
+                        }
+                        let descriptions = approval["optionDescriptions"] as? [String] ?? []
+                        let description = options.firstIndex(of: option).flatMap {
+                            descriptions.indices.contains($0) ? descriptions[$0] : nil
+                        }
+                        try ScreenLock.unlocked {
+                            try ClaudeDesktop.answerQuestion(
+                                option: option, description: description, host: host, stillPending: stillPending
+                            ) {
+                                confirmed($0)
+                            }
+                        }
+                    } else {
+                        guard let allow else { throw CLIError(L10n.text("provider.invalid_approval_request")) }
+                        try ScreenLock.unlocked {
+                            try ClaudeDesktop.answerPermission(
+                                allow: allow, plan: approval["plan"] as? Bool == true, host: host,
+                                stillPending: stillPending
+                            ) { confirmed($0) }
+                        }
                     }
-                }
-            } else {
-                guard let allow else { throw CLIError(L10n.text("provider.invalid_approval_request")) }
-                try ScreenLock.unlocked {
-                    try ClaudeDesktop.answerPermission(
-                        allow: allow, plan: approval["plan"] as? Bool == true, host: host, stillPending: stillPending
-                    ) { self.permissions.waitAnswered(requestID, decision: allow ? "once" : "deny", seconds: $0) }
-                }
-            }
+                })
             refresh(session)
             schedule(session)
             return ["submitted": true, "threadId": session, "fingerprint": fingerprint]
         default: throw CLIError(L10n.text("session.unsupported_session_operation"))
         }
     }
+    /// Isolated submission boundary; tests inject the click and log reader without desktop access.
+    static func submitApproval(
+        receipts: ProviderOperationReceipts, ticket: ProviderOperationReceipts.Ticket,
+        session: String, fingerprint: String, requestID: String, decision: String,
+        confirmation: @escaping @Sendable (String, String, Double) -> Bool,
+        submit: (@escaping (Double) -> Bool) throws -> Void
+    ) throws {
+        // Reserve before any click. The observer is process-local and never submits an action.
+        try receipts.observe(
+            ticket,
+            bytes: session.utf8.count + fingerprint.utf8.count + requestID.utf8.count + decision.utf8.count + 512
+        ) {
+            guard confirmation(requestID, decision, 0) else { return nil }
+            return ["ok": true, "submitted": true, "threadId": session, "fingerprint": fingerprint]
+        }
+        try submit { seconds in
+            // ClaudeDesktop calls confirmation only after its single prepared click returns.
+            receipts.arm(ticket)
+            return confirmation(requestID, decision, seconds)
+        }
+    }
+
     private func waitFor(_ seconds: Double, _ condition: () -> Bool) -> Bool {
         let deadline = ProcessInfo.processInfo.systemUptime + seconds
         repeat {

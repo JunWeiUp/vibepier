@@ -13,7 +13,8 @@ import org.json.JSONObject
 object ToolGroupingProbe {
     private fun views(root: View): List<View> = listOf(root) + if (root is ViewGroup) (0 until root.childCount).flatMap { views(root.getChildAt(it)) } else emptyList()
     private fun js(index: Int) = JSONObject().put("id", "tool-$index").put("index", index).put("kind", "tool")
-        .put("title", "cua_repl · js").put("status", "completed").put("bodyDeferred", true).put("bodyVersion", "version-$index")
+        .put("title", "cua_repl · js").put("toolName", "cua_repl.js").put("groupType", "tool:cua_repl.js")
+        .put("status", "completed").put("bodyDeferred", true).put("bodyVersion", "version-$index")
         .apply { if (index == 11) put("images", JSONArray().put(JSONObject().put("id", "shot-11"))) }
     private fun group(view: View, count: Int) = views(view).first { it.contentDescription?.toString()?.contains(view.resources.getQuantityString(R.plurals.group_named_calls, count, "cua_repl · js", count)) == true }
     private fun steps(view: View) = views(view).filter { it.contentDescription?.toString()?.startsWith(view.context.getString(R.string.step_description_no_status, "cua_repl · js", "")) == true }

@@ -14,11 +14,7 @@ final class RelayClientTests: XCTestCase {
         XCTAssertNil(RelaySettings(url: "wss://example.com/r", room: "mac", secret: "short"))
         XCTAssertNil(RelaySettings(url: "wss://example.com/r", room: "mac", secret: secret + " x"))
         XCTAssertNil(RelaySettings(url: "", room: "mac", secret: secret))
-        var config = Config()
-        config.relayURL = "ws://127.0.0.1:47801/"
-        config.relayRoom = "r"
-        config.relaySecret = secret
-        XCTAssertEqual(RelaySettings(config)?.room, "r")
+
     }
 
     func testDNSRecoveryMustBeExplicitAndUsesEncryptedRelayURL() throws {

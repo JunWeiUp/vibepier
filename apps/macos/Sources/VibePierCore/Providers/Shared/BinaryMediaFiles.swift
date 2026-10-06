@@ -5,6 +5,16 @@ import Foundation
 /// Private immutable snapshots: provider validation owns the source; the helper
 /// receives only this copy and an opaque, per-device download capability.
 enum BinaryMediaFiles {
+    typealias Offer = @Sendable (Snapshot, String, String, String) throws -> [String: Any]
+    static let currentOffer: Offer = { snapshot, device, thread, mime in
+        try offer(snapshot, device: device, thread: thread, mime: mime)
+    }
+
+    static func requireCurrent(_ request: [String: Any]) throws {
+        guard request["binaryVersion"] as? Int == 1 else {
+            throw CLIError(L10n.text("agent.capability_unavailable"))
+        }
+    }
     struct Snapshot {
         let file: URL
         let size: Int

@@ -25,3 +25,10 @@ BlackHole is an optional external audio driver; it is not bundled or relicensed 
 项目基于 Ben Gittins 的 `ihavespoons/vibed` MIT 驱动工作发展而来。压成一个初始提交只改变新仓库历史，不改变原作者署名或许可；源码与分发包均保留 LICENSE、NOTICE。
 
 品牌矢量与图标由仓库内原生生成器维护；README 插画和封面为 AI 生成的概念图，不能代表真实界面。测试密钥、对话和图标状态均为合成样本。BlackHole、平台工具和各桌面 AI 应用为独立外部项目，不打包其账户或模型，也不宣称官方关联。
+
+ZCode integration has been removed. References to ZCode above are retained for
+historical attribution and non-affiliation only, not as a statement of current
+support. Upstream copyright and license terms are unchanged.
+
+ZCode 适配已移除；上文相关名称仅保留作历史来源与非关联声明，
+不代表当前支持。上游版权及许可条款不变。

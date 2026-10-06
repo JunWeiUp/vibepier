@@ -161,7 +161,7 @@ struct RelaySettings: Equatable {
     init?(_ config: Config) {
         self.init(
             url: config.relayURL, room: config.relayRoom,
-            secret: config.relaySecret ?? RelayCredentialStore.read(url: config.relayURL, room: config.relayRoom),
+            secret: RelayCredentialStore.read(url: config.relayURL, room: config.relayRoom),
             dnsRecovery: config.relayDNSRecovery ?? false)
     }
 
@@ -238,7 +238,7 @@ final class RelayClient: @unchecked Sendable {
     ) {
         self.sessionRemote = sessionRemote
         self.security = SecureControlServer(
-            keyForDevice: keyForDevice, capabilities: ControlProtocol.required | ControlProtocol.bulkAuth)
+            keyForDevice: keyForDevice, capabilities: ControlProtocol.required)
         self.settings = settings
         self.leaseSeconds = leaseSeconds
         self.application = application

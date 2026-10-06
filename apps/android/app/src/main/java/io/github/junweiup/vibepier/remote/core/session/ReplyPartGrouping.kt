@@ -22,7 +22,6 @@ internal object ReplyPartGrouping {
                     type in semanticTypes -> type
                     type.startsWith("tool:") && type.length > 5 -> type
                     name.isNotEmpty() -> builtinTypes[name] ?: "tool:$name"
-                    shortTitle != null -> legacyType(shortTitle) ?: shortTitle.takeUnless(::abbreviated)?.let { "tool:$it" }
                     else -> null
                 }
                 else -> null
@@ -38,18 +37,6 @@ internal object ReplyPartGrouping {
         "WebSearch" to "web-search", "webSearch" to "web-search", "WebFetch" to "web-fetch", "Task" to "agent", "Agent" to "agent",
         "imageView" to "image-view", "imageGeneration" to "image-generation")
     private fun abbreviated(title: String) = title.endsWith("…") || title.endsWith("...")
-    /** Old peers emitted these exact title formats; do not infer semantic types from arbitrary substrings. */
-    private fun legacyType(title: String): String? = builtinTypes[title] ?: when {
-        title == "搜索网页" || title.startsWith("搜索网页 ") -> "web-search"
-        title.startsWith("读取 ") -> "file-read"
-        title.startsWith("搜索 ") || title.startsWith("查找 ") -> "file-search"
-        title.startsWith("访问 ") -> "web-fetch"
-        title.startsWith("子任务 · ") || title.startsWith("子代理 · ") -> "agent"
-        title == "查看图片" -> "image-view"
-        title == "生成图片" -> "image-generation"
-        else -> null
-    }
-
     fun runs(entries: List<Entry>): List<List<Int>> {
         val result = mutableListOf<MutableList<Int>>()
         for (index in entries.indices) {

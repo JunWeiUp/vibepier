@@ -101,7 +101,7 @@ internal data class TaskCompletionIdentity(val id: String, val provider: String,
             if (value.optString("event") != "taskCompleted") return null
             val id = value.optString("eventId")
             val provider = value.optString("provider")
-            if (!id.matches(Regex("[0-9a-f]{64}")) || provider !in setOf("codex", "claude", "zcode")) return null
+            if (!id.matches(Regex("[0-9a-f]{64}")) || provider !in SessionProvider.ids) return null
             val thread = value.opt("threadId") as? String ?: return null
             if (thread.isBlank() || thread.length > 512) return null
             return TaskCompletionIdentity(id, provider, thread)

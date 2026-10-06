@@ -1,16 +1,19 @@
 import Darwin
 import Foundation
 
-/// Bounded encrypted RPC chunks; each read revalidates the workspace and the same file version.
+/// Immutable binary snapshot; each offer revalidates the workspace and file version.
 enum SessionVideoFiles {
     static let maximumBytes = 128 * 1024 * 1024
-    static let chunkBytes = 128 * 1024
     private static func version(_ info: stat) -> String {
         "\(info.st_dev):\(info.st_ino):\(info.st_size):\(info.st_mtimespec.tv_sec):\(info.st_mtimespec.tv_nsec):\(info.st_ctimespec.tv_sec):\(info.st_ctimespec.tv_nsec)"
     }
-    static func read(_ request: [String: Any], root: URL, device: String = "", thread: String = "") throws -> [String:
+    static func read(
+        _ request: [String: Any], root: URL, device: String, thread: String,
+        offer: BinaryMediaFiles.Offer = BinaryMediaFiles.currentOffer
+    ) throws -> [String:
         Any]
     {
+        try BinaryMediaFiles.requireCurrent(request)
         let path = request["path"] as? String ?? ""
         guard !path.contains("\0"), path.utf8.count <= 4_096 else {
             throw CLIError(L10n.text("session.invalid_file_path"))
@@ -44,43 +47,17 @@ enum SessionVideoFiles {
         else { throw CLIError(L10n.text("files.video_size_limit")) }
         let offset = request["offset"] as? Int ?? 0
         let revision = version(before)
-        guard offset >= 0, offset < before.st_size,
-            offset == 0 || request["version"] as? String == revision
-        else { throw CLIError(L10n.text("session.the_file_is_being_updated_retry")) }
-        if request["binaryVersion"] as? Int == 1 {
-            guard offset == 0 else { throw CLIError(L10n.text("session.invalid_file_path")) }
-            let snapshot = try BinaryMediaFiles.snapshot(fd: fd, size: Int(before.st_size))
-            var after = stat()
-            guard fstat(fd, &after) == 0, version(after) == revision else {
-                snapshot.discard()
-                throw CLIError(L10n.text("session.the_file_is_being_updated_retry"))
-            }
-            let profile = try BinaryMediaFiles.offer(snapshot, device: device, thread: thread, mime: "video/mp4")
-            return [
-                "path": SessionMarkdownFiles.relative(url, root: root), "size": Int(before.st_size),
-                "version": revision, "offset": 0, "nextOffset": -1, "mime": "video/mp4", "binary": profile,
-            ]
-        }
-        var bytes = [UInt8](repeating: 0, count: min(chunkBytes, Int(before.st_size) - offset))
-        let expected = bytes.count
-        var received = 0
-        while received < bytes.count {
-            let count = bytes.withUnsafeMutableBytes {
-                pread(fd, $0.baseAddress!.advanced(by: received), expected - received, off_t(offset + received))
-            }
-            if count < 0, errno == EINTR { continue }
-            guard count > 0 else { throw CLIError(L10n.text("session.could_not_read_the_file_retry")) }
-            received += count
-        }
+        guard offset == 0 else { throw CLIError(L10n.text("session.invalid_file_path")) }
+        let snapshot = try BinaryMediaFiles.snapshot(fd: fd, size: Int(before.st_size))
         var after = stat()
         guard fstat(fd, &after) == 0, version(after) == revision else {
+            snapshot.discard()
             throw CLIError(L10n.text("session.the_file_is_being_updated_retry"))
         }
+        let profile = try offer(snapshot, device, thread, "video/mp4")
         return [
             "path": SessionMarkdownFiles.relative(url, root: root), "size": Int(before.st_size),
-            "version": revision, "offset": offset,
-            "nextOffset": offset + bytes.count == before.st_size ? -1 : offset + bytes.count,
-            "video": Data(bytes).base64EncodedString(), "mime": "video/mp4",
+            "version": revision, "offset": 0, "nextOffset": -1, "mime": "video/mp4", "binary": profile,
         ]
     }
 }

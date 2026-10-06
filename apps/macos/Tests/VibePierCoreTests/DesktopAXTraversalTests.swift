@@ -73,7 +73,7 @@ final class DesktopAXTraversalTests: XCTestCase {
         }
         guard AXIsProcessTrusted() else { throw XCTSkip("Native accessibility read access unavailable") }
         var inspected = 0
-        for id in ["com.openai.codex", "com.anthropic.claudefordesktop", "dev.zcode.app"] {
+        for id in ["com.openai.codex", "com.anthropic.claudefordesktop"] {
             guard let app = NSRunningApplication.runningApplications(withBundleIdentifier: id).first else { continue }
             let root = AXUIElementCreateApplication(app.processIdentifier)
             AXUIElementSetMessagingTimeout(root, 0.1)

@@ -16,7 +16,7 @@ import org.json.JSONObject
 /** Isolated native-page data: never modifies the real Mac or the real app's records. */
 internal object AppUsageProbe {
     fun fixture(): JSONObject {
-        val names = listOf("ChatGPT", "Claude", "ZCode", "Microsoft Edge", "飞书", "Finder", "很长的第七个应用名称用于确认字体布局")
+        val names = listOf("ChatGPT", "Claude", "Terminal", "Microsoft Edge", "飞书", "Finder", "很长的第七个应用名称用于确认字体布局")
         val minutes = listOf(140, 95, 70, 52, 35, 12, 1)
         val colors = listOf("#BBDDB2", "#DB9788", "#B6A2D7", "#8EBAD1", "#CFBE94", "#94A9B5", "#B5CFCA")
         val day = java.time.LocalDate.now(java.time.ZoneId.of("Asia/Shanghai")).toString()

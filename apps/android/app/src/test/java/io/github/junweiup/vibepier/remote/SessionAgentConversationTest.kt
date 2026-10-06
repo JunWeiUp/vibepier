@@ -7,6 +7,132 @@ import org.junit.Assert.*
 import org.junit.Test
 
 class SessionAgentConversationTest {
+    @Test fun freshClientRejectsAllSessionBusinessWithoutWireFallback() {
+        val harness = Harness(); harness.client.clearConnection()
+        for (op in SessionProfilePolicy.operations) {
+            var result: JSONObject? = null
+            assertNotNull(op, harness.conversation.request(op, harness.fields()) { result = it })
+            assertEquals(op, false, result?.opt("ok"))
+            assertTrue(op, result?.optString("code") in setOf("agent_state_not_ready", "receipt_unknown"))
+        }
+        assertTrue(harness.wires.isEmpty()); assertTrue(harness.store.rows.isEmpty())
+    }
+    @Test fun independentServicesRemainOutsideConversationRouter() {
+        val harness = Harness(); harness.client.clearConnection()
+        for (op in listOf("image", "readFile", "readImageFile", "readVideoFile", "readMarkdownFile",
+            "attachmentStart", "newAttachmentComplete", "lockScreen", "codexUsageReset", "providers")) {
+            assertNull(op, harness.conversation.request(op, JSONObject()) { fail(op) })
+        }
+        assertTrue(harness.wires.isEmpty())
+    }
+    @Test fun currentInteropUsesTypedItemsAndRejectsObsoleteReceiptAliases() {
+        val harness = Harness()
+        var result: JSONObject? = null
+        harness.conversation.request("composerOptions", harness.fields()) { result = it }
+        assertEquals(true, result?.opt("ok"))
+        assertEquals(listOf("session.snapshot", "session.items"), harness.methods())
+        assertEquals("composerOptions", harness.wires.last().getJSONObject("body").getJSONObject("params").getString("kind"))
+        val count = harness.wires.size
+        for (op in listOf("receipt", "receiptCheck", "newReceiptCheck", "settingsReceiptCheck", "interruptReceiptCheck", "queueReceiptCheck")) {
+            assertNotNull(harness.conversation.request(op, JSONObject().put("operation", SessionAgentProtocol.id())) { assertFalse(it.optBoolean("ok")) })
+        }
+        assertEquals(count, harness.wires.size)
+    }
+
+    @Test fun cancelledCreationOptionsCannotDeliverOrRememberCapabilities() {
+        val harness = Harness(); harness.holdReads = true
+        var callbacks = 0; var remembered = 0
+        harness.capabilityRemembered = { remembered++ }
+        val id = harness.conversation.request("newOptions", harness.creationFields()) { callbacks++ }!!
+        val held = harness.held.single()
+        harness.conversation.cancelCreationOptions(id)
+        harness.answer(held.first, held.second)
+        assertEquals("cancelled option read must not complete UI", 0, callbacks)
+        assertEquals("cancelled option read must not replace capabilities", 0, remembered)
+        assertTrue(harness.store.rows.isEmpty())
+    }
+    @Test fun cancelledWorkspaceResolutionCannotStartCreationOptions() {
+        val harness = Harness(); harness.holdReads = true
+        var callbacks = 0
+        val id = harness.conversation.request("newOptions", harness.creationFields().put("cwd", "/another-project")) { callbacks++ }!!
+        val held = harness.held.single()
+        harness.conversation.cancelCreationOptions(id)
+        harness.answer(held.first, held.second)
+        assertEquals("late workspace response must not launch options", listOf("workspace.list"), harness.methods())
+        assertNull(harness.client.workspace("codex", "/another-project"))
+        assertEquals(0, callbacks)
+    }
+
+    @Test fun repeatedOptionRefreshCancelsWireIdsWithoutFillingTransportCapacity() {
+        val harness = Harness(); harness.holdReads = true
+        var prior: String? = null; var callbacks = 0
+        repeat(72) {
+            harness.conversation.cancelCreationOptions(prior)
+            prior = harness.conversation.request("newOptions", harness.creationFields()) { callbacks++ }
+            assertEquals(1, harness.transportPending.size)
+        }
+        assertEquals(71, harness.cancelledReads.size)
+        assertTrue(harness.preservedReads.isEmpty())
+        harness.held.dropLast(1).forEach { harness.answer(it.first, it.second) }
+        assertEquals(0, callbacks)
+        val latest = harness.held.last(); harness.answer(latest.first, latest.second)
+        assertEquals(1, callbacks)
+        assertTrue(harness.transportPending.isEmpty())
+    }
+    @Test fun cancellingWorkspacePaginationPreventsLatePageFromStartingOptions() {
+        val harness = Harness(); harness.holdReads = true
+        val id = harness.conversation.request("newOptions", harness.creationFields().put("cwd", "/another-project")) { fail("cancelled") }!!
+        val first = harness.held.single()
+        first.second(harness.readReply(first.first, JSONObject().put("workspaces", JSONArray()).put("nextOffset", 100)))
+        assertEquals(2, harness.held.size)
+        val second = harness.held.last()
+        harness.conversation.cancelCreationOptions(id)
+        assertTrue(harness.transportPending.isEmpty())
+        harness.answer(second.first, second.second)
+        assertEquals(listOf("workspace.list", "workspace.list"), harness.methods())
+        assertNull(harness.client.workspace("codex", "/another-project"))
+    }
+    @Test fun cancellingAllOptionsPreservesCreationPreparationAndReceiptReads() {
+        val harness = Harness(); harness.holdReads = true
+        var completed = 0
+        harness.conversation.request("newOptions", harness.creationFields()) { fail("cancelled options") }
+        harness.conversation.request("new", harness.creationFields()) { completed++ }
+        harness.conversation.cancelCreationOptions()
+        harness.transportPending.entries.removeAll { shouldCancelSessionPageRead(it.value, it.key in harness.preservedReads) }
+        assertEquals(1, harness.transportPending.size)
+        val preparation = harness.held.last(); harness.answer(preparation.first, preparation.second)
+        assertEquals(1, completed)
+        assertEquals(1, harness.methods().count { it == "session.create" })
+        val operation = harness.store.rows.keys.single()
+        harness.holdReceipts = true
+        harness.client.reconcile(operation) { completed++ }
+        harness.conversation.cancelCreationOptions()
+        harness.transportPending.entries.removeAll { shouldCancelSessionPageRead(it.value, it.key in harness.preservedReads) }
+        assertEquals("operation.get", harness.transportPending.values.single().getJSONObject("body").getString("method"))
+        val receipt = harness.held.last(); harness.answer(receipt.first, receipt.second)
+        assertEquals(2, completed)
+        assertEquals(1, harness.methods().count { it == "session.create" })
+    }
+    @Test fun pageCancellationKeepsSendPreparationUntilItsCallbackCompletes() {
+        val harness = Harness(); harness.holdReads = true
+        var completed = 0
+        harness.conversation.request("send", harness.fields()) { completed++ }
+        harness.conversation.cancelCreationOptions()
+        harness.transportPending.entries.removeAll { shouldCancelSessionPageRead(it.value, it.key in harness.preservedReads) }
+        assertEquals(1, harness.transportPending.size)
+        val preparation = harness.held.single(); harness.answer(preparation.first, preparation.second)
+        assertEquals(1, completed)
+        assertEquals(1, harness.methods().count { it == "message.submit" })
+    }
+    @Test fun clearConnectionCancelsUnresolvedOptionChain() {
+        val harness = Harness(); harness.holdReads = true
+        harness.conversation.request("newOptions", harness.creationFields().put("cwd", "/another-project")) { fail("cancelled") }
+        harness.conversation.clearConnection()
+        assertTrue(harness.transportPending.isEmpty())
+        val held = harness.held.single(); harness.answer(held.first, held.second)
+        assertEquals(listOf("workspace.list"), harness.methods())
+    }
+
     @Test fun restoredProjectOptionsResolveMissingWorkspaceWithoutReturningToProjectList() {
         val harness = Harness()
         assertNull(harness.client.workspace("codex", "/another-project"))
@@ -27,7 +153,7 @@ class SessionAgentConversationTest {
         assertEquals(listOf("workspace.list", "session.list"), harness.methods())
         val changed = Harness(); changed.holdReads = true
         changed.conversation.request("newOptions", changed.creationFields().put("cwd", "/another-project")) { result = it }
-        changed.provider = "zcode"
+        changed.provider = "claude"
         val held = changed.held.single(); changed.answer(held.first, held.second)
         assertEquals("stale_state", result!!.getString("code"))
         assertNull(changed.client.workspace("codex", "/another-project"))
@@ -37,15 +163,15 @@ class SessionAgentConversationTest {
 
     @Test fun nativeReadFailureKeepsAValidDiagnosticAndRejectsUnsafeDetails() {
         val conversation = Harness().conversation
-        assertEquals("Unlock failed", conversation.legacyReply(SessionAgentProtocol.Reply.Failure("agent_native_unavailable", "Unlock failed"), JSONObject()).getString("error"))
-        assertEquals("agent_native_unavailable", conversation.legacyReply(SessionAgentProtocol.Reply.Failure("agent_native_unavailable", "unsafe\u0000text"), JSONObject()).getString("error"))
+        assertEquals("Unlock failed", conversation.projectReply(SessionAgentProtocol.Reply.Failure("agent_native_unavailable", "Unlock failed"), JSONObject()).getString("error"))
+        assertEquals("agent_native_unavailable", conversation.projectReply(SessionAgentProtocol.Reply.Failure("agent_native_unavailable", "unsafe\u0000text"), JSONObject()).getString("error"))
     }
     @Test fun nativeRejectionKeepsItsActualCodeAndPlainDiagnosticAcrossAllOperations() {
         val conversation = Harness().conversation
         val detail = "上次解锁未成功，请手动解锁 Mac"
         for (op in listOf("new", "send", "settings", "interrupt")) {
             val result = JSONObject().put("code", "agent_native_rejected").put("error", detail)
-            val response = conversation.legacyReply(SessionAgentProtocol.Reply.Mutation(SessionAgentProtocol.Status.REJECTED, "operation", null, result, JSONObject()), JSONObject().put("op", op))
+            val response = conversation.projectReply(SessionAgentProtocol.Reply.Mutation(SessionAgentProtocol.Status.REJECTED, "operation", null, result, JSONObject()), JSONObject().put("op", op))
             assertEquals("agent_native_rejected", response.getString("code"))
             assertEquals(detail, response.getString("error"))
             assertFalse(response.getBoolean("ok")); assertFalse(response.getBoolean("unknown"))
@@ -56,10 +182,10 @@ class SessionAgentConversationTest {
         for (detail: Any in listOf(42, "", "unsafe\u0000text", "x".repeat(4_097))) {
             val result = JSONObject().put("code", "agent_native_rejected").put("error", detail)
             val reply = SessionAgentProtocol.Reply.Mutation(SessionAgentProtocol.Status.REJECTED, "operation", null, result, JSONObject())
-            assertEquals("agent_native_rejected", conversation.legacyReply(reply, JSONObject().put("op", "new")).getString("error"))
+            assertEquals("agent_native_rejected", conversation.projectReply(reply, JSONObject().put("op", "new")).getString("error"))
         }
         val reply = SessionAgentProtocol.Reply.Mutation(SessionAgentProtocol.Status.UNKNOWN, "operation", null, JSONObject().put("error", "Native acknowledgement lost"), JSONObject())
-        val response = conversation.legacyReply(reply, JSONObject().put("op", "send"))
+        val response = conversation.projectReply(reply, JSONObject().put("op", "send"))
         assertTrue(response.getBoolean("unknown")); assertFalse(response.getBoolean("ok"))
         assertTrue(response.getString("error").startsWith("receipt_unknown"))
     }
@@ -82,6 +208,10 @@ class SessionAgentConversationTest {
         val store = Store()
         val wires = mutableListOf<JSONObject>()
         val held = mutableListOf<Pair<JSONObject, (JSONObject) -> Unit>>()
+        val transportPending = linkedMapOf<String, JSONObject>()
+        val preservedReads = mutableSetOf<String>()
+        val cancelledReads = mutableListOf<String>()
+        var holdReceipts = false
         var holdReads = false
         var holdObservation = false
         var capabilityRemembered: () -> Unit = {}
@@ -109,13 +239,19 @@ class SessionAgentConversationTest {
         val client = SessionAgentClient({ identity }, { wire, done ->
             val copy = JSONObject(wire.toString()); wires.add(copy)
             val method = copy.getJSONObject("body").getString("method")
-            if (holdReads && method in setOf("session.list", "workspace.list", "session.snapshot", "session.open", "session.creationOptions") || holdObservation && method == "session.observe") held.add(copy to done)
-            else answer(copy, done)
+            val requestId = copy.getString("id")
+            transportPending[requestId] = JSONObject(copy.toString()).put("op", "agentRequest")
+            // Also permit a deliberately late callback after cancellation to exercise the scope guard.
+            val deliver: (JSONObject) -> Unit = { reply -> transportPending.remove(requestId); done(reply) }
+            if (holdReads && method in setOf("session.list", "workspace.list", "session.snapshot", "session.open", "session.creationOptions") || holdObservation && method == "session.observe" || holdReceipts && method == "operation.get") held.add(copy to deliver)
+            else answer(copy, deliver)
         }, store, { source, selected -> source == "codex" && selected == adapter }, { adapter })
         val conversation = SessionAgentConversation(client, { provider }, { view }, { ++view }, { adapter },
             { _, _ -> capabilityRemembered() }, { fields, key -> permission(fields, key) }, { it },
             { delay, work -> scheduledDelays.add(delay); clock += delay; beforeScheduledRead?.invoke(); work() }, { clock })
         init {
+            client.onPreservedRead = { preservedReads.add(it) }
+            client.onCancelledRead = { cancelledReads.add(it); transportPending.remove(it) }
             client.discover(JSONObject().put("versions", JSONArray().put(2)).put("minimumClientVersion", 2)
                 .put("methods", JSONArray(SessionAgentProtocol.Method.entries.map { it.wire })))
             client.rememberSession("codex", descriptor("old-owner", "old-caps"), "expired-lease")

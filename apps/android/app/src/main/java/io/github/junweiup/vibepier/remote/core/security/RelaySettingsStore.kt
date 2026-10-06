@@ -2,7 +2,6 @@ package io.github.junweiup.vibepier.remote.core.security
 
 import io.github.junweiup.vibepier.remote.R
 import android.content.Context
-import android.content.SharedPreferences
 import android.security.keystore.KeyGenParameterSpec
 import android.security.keystore.KeyProperties
 import android.util.Base64
@@ -30,17 +29,20 @@ internal class RelaySettingsStore(context: Context) {
     }
     fun read(): RelayLink.Settings? = synchronized(lock) {
         try {
-            val stored = prefs.getString("sealed", null) ?: return null
+            if (prefs.all.isEmpty()) return null
+            check(prefs.all.keys == setOf("sealed"))
+            val stored = checkNotNull(prefs.getString("sealed", null))
             val bytes = Base64.decode(stored, Base64.NO_WRAP)
-            if (bytes.size < 28) return null
-            val secret = key(false) ?: return null
+            check(bytes.size >= 28)
+            val secret = checkNotNull(key(false))
             val cipher = Cipher.getInstance("AES/GCM/NoPadding")
             cipher.init(Cipher.DECRYPT_MODE, secret, GCMParameterSpec(128, bytes.copyOfRange(0, 12)))
             cipher.updateAAD(alias.toByteArray())
-            RelayLink.parsePairing(String(cipher.doFinal(bytes.copyOfRange(12, bytes.size)), Charsets.UTF_8))
-        } catch (_: Exception) { null }
+            checkNotNull(RelayLink.parsePairing(String(cipher.doFinal(bytes.copyOfRange(12, bytes.size)), Charsets.UTF_8)))
+        } catch (_: Exception) { error("Relay storage is unavailable or invalid") }
     }
     fun save(settings: RelayLink.Settings) = synchronized(lock) {
+        read() // Refuse to overwrite an unreadable existing record.
         require(settings.valid)
         val cipher = Cipher.getInstance("AES/GCM/NoPadding")
         cipher.init(Cipher.ENCRYPT_MODE, checkNotNull(key(true)))
@@ -48,17 +50,6 @@ internal class RelaySettingsStore(context: Context) {
         val code = settings.pairingCode
         val sealed = Base64.encodeToString(cipher.iv + cipher.doFinal(code.toByteArray()), Base64.NO_WRAP)
         check(prefs.edit().putString("sealed", sealed).commit()) { resources.getString(R.string.relay_store_save_failed) }
-    }
-    fun migrate(legacy: SharedPreferences): RelayLink.Settings? {
-        val saved = read()
-        if (saved != null) {
-            check(legacy.edit().remove("relayPairing").commit()) { resources.getString(R.string.relay_store_cleanup_failed) }
-            return saved
-        }
-        val old = RelayLink.parsePairing(legacy.getString("relayPairing", "") ?: "") ?: return null
-        save(old)
-        check(legacy.edit().remove("relayPairing").commit()) { resources.getString(R.string.relay_store_cleanup_failed) }
-        return old
     }
     companion object { private val lock = Any() }
 }

@@ -275,6 +275,7 @@ final class ConversationActivity: @unchecked Sendable {
         } else {
             ledger = .init()
         }
+        ledger.entries = ledger.entries.filter { SessionProviderPolicy.ids.contains($0.value.provider) }
         cached = ledger.snapshot
         completions = ledger.entries.compactMapValues { $0.unread ?? $0.completion }
         ipc = source == nil ? CodexIPC() : nil

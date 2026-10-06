@@ -13,7 +13,9 @@ internal data class SessionProviderAccess(val revision: Long, val enabled: Set<S
     })
 
     companion object {
-        val legacy = SessionProviderAccess(0, SessionProvider.ids.toSet())
+        fun acceptsProfile(response: JSONObject, previous: SessionProviderAccess?): Boolean =
+            response.opt("ok") == true && decode(response.optJSONObject("providerAccess"))?.replaces(previous) == true
+
         fun decode(value: JSONObject?): SessionProviderAccess? {
             val raw = value?.opt("revision") as? Number ?: return null
             val revision = raw.toString().takeIf { it.matches(Regex("[0-9]+")) }?.toLongOrNull() ?: return null
@@ -24,7 +26,7 @@ internal data class SessionProviderAccess(val revision: Long, val enabled: Set<S
         val receipts = setOf("receipt", "receiptCheck", "newReceiptCheck", "settingsReceiptCheck",
             "interruptReceiptCheck", "queueReceiptCheck", "codexUsageResetReceipt")
         val independent = setOf("providers", "notificationSubscribe", "close", "resend", "relaySetup", "appVersion",
-            "androidUpdateStage", "fileCancel", "apkOffer", "apkChunk", "apkStatus", "apkBinary", "apkProgress",
+            "androidUpdateStage", "fileCancel", "apkOffer", "apkStatus", "apkBinary", "apkProgress",
             "appUsage", "appUsageSet", "applications", "applicationShortcutSet", "screenLockStatus",
             "screenLockPassword", "lockScreen", "unlockScreen")
     }

@@ -32,7 +32,6 @@ internal class PrivatePreferences(
     private val lock = Any()
     private val listeners = WeakHashMap<SharedPreferences.OnSharedPreferenceChangeListener, Boolean>()
     private val values = linkedMapOf<String, Any>()
-    private var integrityFailed = false
     private val alias = "$packageName.private-preferences.v1"
     private val dataKey: SecretKey
     private val nameKey: SecretKey
@@ -43,7 +42,7 @@ internal class PrivatePreferences(
         val wrapped = previous[HEADER] as? String
         val material: ByteArray
         if (wrapped == null) {
-            check(previous.keys.none { it.startsWith(ENTRY) }) { "Encrypted preferences header is missing" }
+            check(previous.isEmpty()) { "Encrypted preferences header is missing or invalid" }
             material = ByteArray(32).also(SecureRandom()::nextBytes)
             wrappedKey = encode(crypt(Cipher.ENCRYPT_MODE, wrappingKey(true), material, namespace))
         } else {
@@ -59,18 +58,11 @@ internal class PrivatePreferences(
         nameKey = SecretKeySpec(derive("names"), "HmacSHA256")
         material.fill(0)
         if (wrapped == null) {
-            // One atomic replacement: credentials/caches are encrypted before any legacy entry is removed.
-            val editor = backing.edit().clear().putString(HEADER, wrappedKey)
-            for ((name, value) in previous) if (value != null) {
-                val copy = copyValue(value)
-                val entry = entryName(name)
-                editor.putString(entry, seal(name, copy, entry))
-                values[name] = copy
-            }
-            check(editor.commit()) { "Cannot migrate private preferences" }
+            check(backing.edit().putString(HEADER, wrappedKey).commit()) { "Cannot initialize private preferences" }
         } else {
             for ((entry, encoded) in previous) {
-                if (!entry.startsWith(ENTRY) || encoded !is String) continue
+                if (entry == HEADER) continue
+                check(entry.startsWith(ENTRY) && encoded is String) { "Invalid private preferences schema" }
                 try {
                     val payload = JSONObject(String(crypt(Cipher.DECRYPT_MODE, dataKey, decode(encoded), "$namespace|$entry"), Charsets.UTF_8))
                     val name = payload.getString("key")
@@ -78,7 +70,7 @@ internal class PrivatePreferences(
                     values[name] = unpack(payload)
                 } catch (_: Exception) {
                     // Preserve original bytes and block writes: losing an uncertain receipt must never permit a resend.
-                    integrityFailed = true
+                    throw IllegalStateException("Invalid private preferences entry")
                 }
             }
         }
@@ -153,7 +145,6 @@ internal class PrivatePreferences(
             val changed = linkedSetOf<String>()
             val callbacks: List<SharedPreferences.OnSharedPreferenceChangeListener>
             synchronized(lock) {
-                if (integrityFailed) return false
                 val editor = backing.edit()
                 if (clearing) { editor.clear().putString(HEADER, wrappedKey); changed.addAll(values.keys) }
                 for ((name, value) in updates) {

@@ -274,19 +274,42 @@ final class AgentSessionService: @unchecked Sendable {
     }
     func receiveAdapterEvent(_ data: Data, adapterID: String, provider: String, client: String) {
         queue.async {
-            // Creation stage notices are informational for the phone; they never revoke an open session's control.
-            guard let page = self.object(data), page["event"] as? String != "creationProgress",
-                let state = self.states[Key(client: client, adapter: adapterID)], state.session.provider == provider,
-                page["threadId"] == nil || page["threadId"] as? String == state.session.nativeID,
-                page["viewVersion"] == nil || AgentSessionProfile.integer(page["viewVersion"]) == state.view
+            // Read observation outlives write authority. A dirty event must not silence all later events.
+            guard let page = self.object(data), page["event"] as? String != "creationProgress" else { return }
+            let key = Key(client: client, adapter: adapterID)
+            let observation: (session: AgentSessionDirectory.Session, view: Int64)
+            if let retained = self.nativeViews[key],
+                self.itemViewMatches(retained.session, key: key, view: retained.view)
+            {
+                observation = retained
+            } else if let pending = self.snapshotReads[key], self.pendingReads[key] == pending.token,
+                self.pendingViews[key]?.ref == pending.session.ref,
+                self.pendingViews[key]?.view == pending.view
+            {
+                // A cold native snapshot can arrive before the opening read's callback establishes nativeViews.
+                observation = (pending.session, pending.view)
+            } else {
+                return
+            }
+            let session = observation.session
+            guard session.provider == provider, self.policy.isEnabled(provider),
+                page["threadId"] as? String == session.nativeID,
+                AgentSessionProfile.integer(page["viewVersion"]) == observation.view
             else { return }
-            let digest = self.controlDigest(page, session: state.session, view: state.view)
-            let controlDirty = digest == nil || state.controlDigest == nil || digest != state.controlDigest
-            if controlDirty { self.invalidate(client: client, ref: state.session.ref) }
+            let state = self.states[key].flatMap {
+                $0.session.ref == session.ref && $0.view == observation.view ? $0 : nil
+            }
+            let digest = self.controlDigest(page, session: session, view: observation.view)
+            let controlDirty = digest == nil || state?.controlDigest == nil || digest != state?.controlDigest
+            if controlDirty { self.invalidate(client: client, ref: session.ref) }
+            if self.streams[session.ref] == nil {
+                guard self.streams.count < 16 else { return }
+                self.streams[session.ref] = AgentObservationStream()
+            }
             self.appendEvent(
-                ref: state.session.ref,
+                ref: session.ref,
                 body: [
-                    "event": "session.stateChanged", "sessionRef": state.session.ref,
+                    "event": "session.stateChanged", "sessionRef": session.ref,
                     "entityRevision": AgentSessionProfile.integer(page["revision"]) ?? 0,
                     "data": [
                         "dirty": true, "controlDirty": controlDirty, "requiresSnapshot": true,
@@ -458,8 +481,10 @@ final class AgentSessionService: @unchecked Sendable {
         pendingReads[key] = token
         pendingViews[key] = (session.ref, request.viewVersion)
         snapshotReads[key] = read
+        let startingSequence = streams[session.ref]?.sequence ?? 0
         call(native, provider: session.provider, client: client, adapter: session.adapterID) { [weak self] result in
             guard let self else { return }
+            var ownsRead = false
             do {
                 guard self.snapshotReads[key] === read, self.pendingReads[key] == token,
                     self.pendingViews[key]?.ref == session.ref,
@@ -467,6 +492,7 @@ final class AgentSessionService: @unchecked Sendable {
                 else {
                     throw AgentSessionProfile.Failure(code: "agent_session_view_closed")
                 }
+                ownsRead = true
                 self.pendingReads.removeValue(forKey: key)
                 self.pendingViews.removeValue(forKey: key)
                 self.snapshotReads.removeValue(forKey: key)
@@ -480,6 +506,14 @@ final class AgentSessionService: @unchecked Sendable {
                 page["contentState"] =
                     page["opening"] as? Bool == true || page["messages"] == nil
                     ? "partial" : page["contentState"] ?? "complete"
+                // Native owner changes can be discovered without a dirty broadcast. Revoke all old
+                // authority for this session before constructing the replacement descriptor/lease.
+                if self.states.values.contains(where: {
+                    $0.session.ref == session.ref
+                        && $0.page["nativeOwnerEpoch"] as? String != page["nativeOwnerEpoch"] as? String
+                }) {
+                    self.invalidate(client: client, ref: session.ref)
+                }
                 let controlDigest = self.controlDigest(page, session: session, view: request.viewVersion)
                 page = self.normalizedApprovals(page, session: session)
                 let caps = page["agentCapabilities"] as? [String: Any] ?? [:]
@@ -504,7 +538,9 @@ final class AgentSessionService: @unchecked Sendable {
                 let stream = self.streams[session.ref]!
                 var output: [String: Any] = [
                     "session": self.descriptor(session, state: state), "snapshot": page,
-                    "streamEpoch": stream.epoch, "throughSequence": stream.sequence,
+                    "streamEpoch": stream.epoch,
+                    // An opening reply has not incorporated cold events received while this read was pending.
+                    "throughSequence": page["opening"] as? Bool == true ? startingSequence : stream.sequence,
                     "consistency": page["opening"] as? Bool == true ? "partial" : "reconciled",
                 ]
                 if page["opening"] as? Bool == true {
@@ -523,6 +559,9 @@ final class AgentSessionService: @unchecked Sendable {
                     self.success(waiter.request, result: output, completion: waiter.completion)
                 }
             } catch {
+                // Only the currently accepted read may revoke authority. A superseded callback must
+                // not invalidate the replacement view, but failed verification cannot retain a lease.
+                if ownsRead { self.invalidate(client: client, ref: session.ref) }
                 if self.snapshotReads[key] === read {
                     self.snapshotReads.removeValue(forKey: key)
                     self.pendingReads.removeValue(forKey: key)
@@ -672,6 +711,7 @@ final class AgentSessionService: @unchecked Sendable {
         case "message": op = "message"
         case "parts": op = "parts"
         case "composerOptions": op = "composerOptions"
+        case "contextUsage": op = "contextUsage"
         case "approvalDetails": op = "approvalDetails"
         default:
             fail(request, code: "agent_method_unsupported", completion: completion)
@@ -786,7 +826,9 @@ final class AgentSessionService: @unchecked Sendable {
     ) {
         do {
             let id = try required(request.params["subscriptionId"])
-            guard let state = states[Key(client: client, adapter: session.adapterID)], state.session.ref == session.ref,
+            guard
+                itemViewMatches(
+                    session, key: Key(client: client, adapter: session.adapterID), view: request.viewVersion),
                 let stream = streams[session.ref]
             else { throw AgentSessionProfile.Failure(code: "agent_session_not_open") }
             let key = client + ":" + id
@@ -1034,9 +1076,16 @@ final class AgentSessionService: @unchecked Sendable {
             if request.method == "approval.resolve" {
                 let decision = try required(request.params["decision"])
                 guard (pending["allowedDecisions"] as? [String] ?? []).contains(decision),
-                    ["allow", "deny"].contains(decision)
+                    ["allow", "deny", "allowSimilar"].contains(decision)
                 else { throw AgentSessionProfile.Failure(code: "agent_decision_unsupported") }
-                native["allow"] = decision == "allow"
+                if decision == "allowSimilar" {
+                    guard session.adapterID == "codex.currentV1" else {
+                        throw AgentSessionProfile.Failure(code: "agent_decision_unsupported")
+                    }
+                    native["decision"] = decision
+                } else {
+                    native["allow"] = decision == "allow"
+                }
             } else {
                 guard let answers = request.params["answers"] as? [String: String], !answers.isEmpty,
                     AgentSessionProfile.data(["answers": answers]).count <= 32_000
@@ -1218,9 +1267,17 @@ final class AgentSessionService: @unchecked Sendable {
                 value["fingerprint"] as? String == native["fingerprint"] as? String
             else { return ("unknown", [:]) }
             let field = request.method == "question.answer" ? "questionId" : "approvalId"
-            return (
-                "confirmed", [field: request.params[field]!, "fingerprint": native["fingerprint"]!, "submitted": true]
-            )
+            var result: [String: Any] = [
+                field: request.params[field]!, "fingerprint": native["fingerprint"]!, "submitted": true,
+            ]
+            if request.method == "approval.resolve", request.params["decision"] as? String == "allowSimilar" {
+                guard value["decision"] as? String == "allowSimilar",
+                    let expectedID = native["nativeRequestId"] as? NSObject,
+                    let confirmedID = value["nativeRequestId"] as? NSObject, expectedID == confirmedID
+                else { return ("unknown", [:]) }
+                result["decision"] = "allowSimilar"
+            }
+            return ("confirmed", result)
         default: return ("unknown", [:])
         }
     }
@@ -1469,7 +1526,7 @@ final class AgentSessionService: @unchecked Sendable {
             guard let rows = nativeQueue as? [[String: Any]] else { return nil }
             queued = rows
         } else {
-            // Claude and ZCode omit this Codex field when their adapter explicitly has no queue contract.
+            // Claude omits this Codex field when its adapter explicitly has no queue contract.
             guard AgentSessionProfile.boolean(actions["queue"]?["supported"]) == false else { return nil }
             queued = []
         }
@@ -1500,7 +1557,9 @@ final class AgentSessionService: @unchecked Sendable {
         states = states.filter { $0.value.session.ref != ref }
     }
     private func pruneStreams() {
-        let needed = Set(states.values.map { $0.session.ref } + subscriptions.values.map(\.ref))
+        let needed = Set(
+            states.values.map { $0.session.ref } + nativeViews.values.map { $0.session.ref }
+                + snapshotReads.values.map { $0.session.ref } + subscriptions.values.map(\.ref))
         streams = streams.filter { needed.contains($0.key) }
     }
     private func issueLease(
@@ -1565,7 +1624,24 @@ final class AgentSessionService: @unchecked Sendable {
                 AgentSessionProfile.boolean(original["canDecide"]) == true && item["kind"] as? String != "questions"
                     && !unsupportedScope
                 ? verifiedOnce ? ["allow", "deny"] : explicit.filter { ["allow", "deny"].contains($0) } : []
+            if session.adapterID == "codex.currentV1",
+                original["method"] as? String == "item/commandExecution/requestApproval",
+                explicit.contains("allowSimilar"),
+                AgentSessionProfile.boolean(original["canDecide"]) == true,
+                let description = original["allowSimilarDescription"] as? String,
+                AgentSessionProfile.bounded(description, maximum: 16_384),
+                var decisions = item["allowedDecisions"] as? [String], !decisions.isEmpty
+            {
+                decisions.append("allowSimilar")
+                item["allowedDecisions"] = decisions
+            } else {
+                item.removeValue(forKey: "allowSimilarDescription")
+            }
             item["decisionScope"] = "once"
+            item["decisionScopes"] = Dictionary(
+                uniqueKeysWithValues: (item["allowedDecisions"] as? [String] ?? []).map {
+                    ($0, $0 == "allowSimilar" ? "commandRule" : "once")
+                })
             if unsupportedScope {
                 item["canDecide"] = false
                 item["reason"] = "permission_scope_unsupported"
@@ -1766,7 +1842,7 @@ final class AgentSessionService: @unchecked Sendable {
         guard var value = object(data), var body = value["body"] as? [String: Any],
             AgentSessionProfile.integer(body["agentProtocol"]) == 2
         else {
-            return mutationReply(request, status: "unknown", result: ["code": "agent_legacy_receipt"])
+            return mutationReply(request, status: "unknown", result: ["code": "agent_receipt_incompatible"])
         }
         value["id"] = request.id
         body["requestId"] = request.id

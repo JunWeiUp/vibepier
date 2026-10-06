@@ -15,6 +15,7 @@ Start with [installation](SETUP.md) if you want to use VibePier, or [development
 | Data, credentials and reports / 隐私与安全 | [PRIVACY](PRIVACY.md), [SECURITY](../SECURITY.md) |
 | Source modules and ownership / 架构与职责 | [ARCHITECTURE](ARCHITECTURE.md) |
 | Unified agent control / 统一 Agent 控制 | [Agent architecture](AGENT-CONTROL-ARCHITECTURE.md), [Session API](../protocol/specs/agent-session.md) |
+| Session QA / 会话测试与排障 | [API 37 plan](AGENT-SESSION-TEST-PLAN.md), [Call chain / 调用链](SESSION-TESTABILITY.md), [Validation / 修复与验收](AGENT-SESSION-VALIDATION.md), [Current contracts / 当前契约](CURRENT-PROTOCOLS.md) |
 | Visual and interaction rules / 设计规范 | [DESIGN](../DESIGN.md), [PAGE-STRUCTURE](PAGE-STRUCTURE.md) |
 | Build components and verify changes / 组件与开发 | [COMPONENT-GUIDELINES](COMPONENT-GUIDELINES.md), [DEVELOPMENT](DEVELOPMENT.md), [ANDROID-LINT](ANDROID-LINT.md) |
 | Translate interface text / 界面本地化 | [LOCALIZATION](LOCALIZATION.md) |

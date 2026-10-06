@@ -1,6 +1,6 @@
 # Unified agent control / 统一 Agent 控制架构
 
-**状态：开发实现已接入双端，安装与真实原生效果分别验收。** `AgentSessionService`、Android typed client、当前三服务商适配器及两项可选运行时均已落地；隔离测试与真实桌面验收分别记录。现有支持范围仍以 [COMPATIBILITY](COMPATIBILITY.md) 为准。这里的 Claude 指 **Claude Desktop 的 Claude Code / Code tab**；普通 Claude Chat、Cowork 和云端任务属于不同产品边界。
+**状态：开发实现已接入双端，安装与真实原生效果分别验收。** `AgentSessionService`、Android typed client、当前 Codex 与 Claude Code 适配器及两项可选运行时均已落地；隔离测试与真实桌面验收分别记录。现有支持范围仍以 [COMPATIBILITY](COMPATIBILITY.md) 为准。这里的 Claude 指 **Claude Desktop 的 Claude Code / Code tab**；普通 Claude Chat、Cowork 和云端任务属于不同产品边界。
 
 ## 结论
 
@@ -41,7 +41,6 @@ flowchart TB
     Registry --> CR[CodexRuntimeAdapter]
     Registry --> CC[ClaudeDesktopAdapter]
     Registry --> CM[ClaudeRuntimeAdapter]
-    Registry --> Z[ZCodeDesktopAdapter]
     CD --> IPC[原桌面 owner 的版本化 IPC]
     CD --> BG[登记的自有后台 App Server 会话]
     CR --> AS[显式共享的官方 App Server]
@@ -112,7 +111,7 @@ Codex App Server 文档将相关命令/WebSocket 标为 experimental，并提供
 
 模型、推理和权限选项由 adapter 返回有版本的 option ID、标签、说明和有效范围，手机提交选中的 ID 与 revision。权限模式不跨 provider 强行等价；比如会话允许与规则更新必须显示各自作用范围。初期用有限的组件类型渲染选项，不加载任意远端 UI 或代码。
 
-手机已有会话和新建会话提供「任务模式：计划/执行」，以 `executionMode: default|plan` 表达，与消息的 start/queue/steer 及权限 `mode` 分开。入口需实际 `executionMode` 能力及 `executionModes` 目录；已有任务仅空闲时可切换。Codex 通过原生 collaboration mode 并保持独立权限；ZCode 将计划复选项与文件权限单选项分别核验，允许两者同时勾选且切换任务模式不改变权限；Claude 通过显式 `executionModePermissionCoupled` 与目录 `permissionMode` 绑定，计划中隐藏权限入口，执行默认回到安全权限。原生实际设置、首轮身份与模式分别核验，setter ACK 或本地草稿不能替代证据。详见[兼容性边界](COMPATIBILITY.md#phone-plan-mode--手机计划模式)。
+手机已有会话和新建会话提供「任务模式：计划/执行」，以 `executionMode: default|plan` 表达，与消息的 start/queue/steer 及权限 `mode` 分开。入口需实际 `executionMode` 能力及 `executionModes` 目录；已有任务仅空闲时可切换。Codex 通过原生 collaboration mode 并保持独立权限；Claude 通过显式 `executionModePermissionCoupled` 与目录 `permissionMode` 绑定，计划中隐藏权限入口，执行默认回到安全权限。原生实际设置、首轮身份与模式分别核验，setter ACK 或本地草稿不能替代证据。详见[兼容性边界](COMPATIBILITY.md#phone-plan-mode--手机计划模式)。
 
 ## 发送、回执和恢复
 
@@ -187,7 +186,7 @@ Mac `AgentAdapter` 最小接口：`describe / discover / open / snapshot / obser
 | 阶段 | 交付 | 退出条件 |
 | --- | --- | --- |
 | P0：固化当前协议 | 当前 v1 的操作分类/字段/回执 fixture，Swift/Kotlin 同源定义 | 两端对相同输入有相同拒绝与未知判断；不改变生产行为 |
-| P1：统一业务边界 | adapter wrapper、registry、完整能力、协调层 | 三个现有 provider 保持行为；手机不以 Agent 名猜能力；未知 journal 不丢失 |
+| P1：统一业务边界 | adapter wrapper、registry、完整能力、协调层 | 两个现有 provider 保持行为；手机不以 Agent 名猜能力；未知 journal 不丢失 |
 | P2a：Claude Desktop 原型 | 只读 Mods 登记/观察，再做发送/停止契约 | 目标版本实际可用，原桌面显示同一原生消息和轮次；禁用/重载/竞态结果正确 |
 | P2b：Codex 共享运行时原型 | 本机隔离 App Server 与可选 adapter | 手机/终端/桌面共享同一 native thread；网关重启不结束 turn；普通 This Mac 路径保留 |
 | P3：恢复与产品验收 | cursor/resync、正文补齐、诊断、有限配置表单 | 双手机隔离、断线/迟到/重启、审批竞态、未知回执、版本升级失配均通过 |
@@ -210,7 +209,7 @@ Capabilities are the intersection of verified interface support, runtime health,
 
 ## 本地可选运行时 / Optional local runtime setup
 
-默认保留 `codex.currentV1`、`claude.currentV1`、`zcode.currentV1`。新写操作要求 capability version 1；手机仅在 Mac 宣告 profile 2 后使用 `agentRequest`。应同步更新 Mac 和手机；旧端可以读取或查询原回执，缺少协商不能新发起 Agent 变更。
+默认保留 `codex.currentV1`、`claude.currentV1`。新写操作要求 capability version 1；手机仅在 Mac 宣告 profile 2 后使用 `agentRequest`。应同步更新 Mac 和手机；旧端可以读取或查询原回执，缺少协商不能新发起 Agent 变更。
 
 默认 Codex 后台创建无需执行下列 enable 命令，也不建立独立账号 home。它单独核验内置 **0.160.0** 的 stable／experimental schema，并保留模型、推理、权限、计划／执行、加速和附件的真实选项；配置及首条副作用缺少原生证据时保持 unknown。下面的 **0.159.0** 私有 socket adapter 是可选的独立共享运行时，不能据其版本或设置推断默认路径已通过验收。
 
@@ -246,12 +245,8 @@ Optional drivers require explicit local configuration. They do not reuse default
 
 The phone's native Plan / Execute selection is separate from message submission and permission options. Codex retains independent permissions; Claude explicitly declares native permission coupling and uses a safe default when leaving Plan. Native readback is required for configuration, and creation verifies the requested first-turn mode. The managed Codex driver confirms settings only from a matching native update notification, then applies the verified configuration to future turns. Fixture/emulator evidence does not replace live native acceptance.
 
-新会话选项读取遇到原生状态暂不可用时，在同一可见、已授权草稿范围内最多追加两次只读重试；持续失败会提示点「开始」重载，空消息也可重载。ZCode 的每个执行方式条目必须包含非空 `name`，手机继续严格拒绝不完整目录；创建和发送不会因此自动重复。
+新会话选项读取遇到原生状态暂不可用时，在同一可见、已授权草稿范围内最多追加两次只读重试；持续失败会提示点「开始」重载，空消息也可重载。
 
 新会话入口直接打开当前草稿，不自动恢复未知创建弹窗；所有同项目旧创建回执均可从“核对先前新建结果”显式打开。停止等待一次结束当前适配器/项目已有的新建等待，保留原请求和附件，旧版无 draftId 请求也释放原草稿文字；这不表示原生任务已经中断。同文或同附件未知请求仍禁止重复提交。
 
-New session opens the current draft without automatically reopening an unknown creation. Earlier creation receipts remain explicitly accessible. Stop waiting ends existing creation waits in the selected adapter/workspace and releases legacy drafts without deleting requests or attachments; it does not confirm native task cancellation. Duplicate unconfirmed text or attachments remain blocked.
-
-ZCode 已核验首条消息的成功回执以原生 user message ID 作为轮次锚点（`turnIdentityKind=nativeMessageAnchor`），与当前任务的 `activeTurnId` 保持一致；新建、发送及回执查询共用此归一化，未知回执不补造成功。模型调用失败与消息接收分别展示：1113 显示账户额度不足，其他原生错误显示失败并引导到 Mac 查看，不传输原始错误正文。
-
-Verified ZCode message receipts use the native user message ID as the turn anchor, matching `activeTurnId`. Creation, send and receipt lookup share this normalization; unknown outcomes remain unknown. Provider error 1113 displays an account-quota failure separately from message acceptance. Other failures direct the user to the Mac; raw provider diagnostics are not forwarded.
+New session opens the current draft without automatically reopening an unknown creation. Earlier creation receipts remain explicitly accessible. Stop waiting ends existing creation waits in the selected adapter/workspace without deleting current requests or attachments; it does not confirm native task cancellation. Duplicate unconfirmed text or attachments remain blocked.

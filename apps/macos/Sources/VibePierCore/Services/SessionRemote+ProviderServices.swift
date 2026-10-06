@@ -6,7 +6,7 @@ import Security
 /// Provider and desktop services routed after gateway admission: applications, account usage, screen lock and
 /// the provider adapters reached through the session coordinator.
 extension SessionRemote {
-    /// All providers share the authorized device channel; older phones default to Codex.
+    /// All providers share the authorized device channel and require an explicit provider identity.
     func perform(
         _ data: Data, provider: String?, client: String, completion: @escaping @Sendable (Data) -> Void
     ) {

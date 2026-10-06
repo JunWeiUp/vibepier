@@ -9,10 +9,6 @@ struct SessionPacketInbox {
     private struct Assembly {
         let count: Int
         let created: Double
-        let upload: String?
-        let fragmentChars: Int
-        var recoveryScheduled = false
-        var recoveryAttempts = 0
         var chunks: [Int: String] = [:]
     }
     private var partial: [Token: Assembly] = [:]
@@ -40,40 +36,23 @@ struct SessionPacketInbox {
         partial = partial.filter { $0.key.device != device }
     }
 
-    mutating func receive(_ data: Data, sender: String, key: Data, allowsUploads: Bool = false) -> (
+    mutating func receive(_ data: Data, sender: String, key: Data) -> (
         clear: Data, request: [String: Any]
     )? {
-        guard data.count <= (allowsUploads ? SecureControlEnvelope.maximumPlaintext : 4096),
+        guard data.count <= 4096,
             UUID(uuidString: sender) != nil, key.count == 32,
             let frame = try? JSONSerialization.jsonObject(with: data) as? [String: Any]
         else { return nil }
-        let upload = frame["upload"] as? String
-        let fragmentChars: Int
-        if upload == nil {
-            fragmentChars = 900
-        } else if frame["fragmentChars"] != nil {
-            guard let span = Self.integer(frame["fragmentChars"], range: 512...7200), [512, 7200].contains(span) else {
-                return nil
-            }
-            fragmentChars = span
-        } else {
-            fragmentChars = 7200
-        }
         let expected: Set<String> = ["type", "sender", "device", "packet", "part", "parts", "data"]
-        guard
-            upload == nil
-                ? Set(frame.keys) == expected
-                : allowsUploads && UUID(uuidString: upload!) != nil
-                    && (Set(frame.keys) == expected.union(["upload"])
-                        || Set(frame.keys) == expected.union(["upload", "fragmentChars"])),
+        guard Set(frame.keys) == expected,
             frame["type"] as? String == "vibepier-session1",
             frame["sender"] as? String == sender, frame["device"] as? String == sender,
             let packet = frame["packet"] as? String, UUID(uuidString: packet) != nil,
-            let index = Self.integer(frame["part"], range: 0...(upload == nil ? 511 : fragmentChars == 512 ? 255 : 55)),
+            let index = Self.integer(frame["part"], range: 0...511),
             let count = Self.integer(
-                frame["parts"], range: 1...(upload == nil ? 512 : fragmentChars == 512 ? 256 : 56)), index < count,
-            let body = frame["data"] as? String, !body.isEmpty, body.utf8.count <= fragmentChars,
-            index == count - 1 || body.utf8.count == fragmentChars,
+                frame["parts"], range: 1...512), index < count,
+            let body = frame["data"] as? String, !body.isEmpty, body.utf8.count <= 900,
+            index == count - 1 || body.utf8.count == 900,
             body.utf8.allSatisfy({
                 (65...90).contains($0) || (97...122).contains($0) || (48...57).contains($0)
                     || [43, 47, 61].contains($0)
@@ -90,11 +69,8 @@ struct SessionPacketInbox {
         if partial[token] == nil {
             guard partial.count < 8, partial.keys.filter({ $0.device == sender }).count < 4 else { return nil }
         }
-        var assembly =
-            partial[token] ?? Assembly(count: count, created: now, upload: upload, fragmentChars: fragmentChars)
-        guard assembly.count == count, assembly.upload == upload, assembly.fragmentChars == fragmentChars else {
-            return nil
-        }
+        var assembly = partial[token] ?? Assembly(count: count, created: now)
+        guard assembly.count == count else { return nil }
         if let previous = assembly.chunks[index] {
             // Retransmission cannot replace bytes or extend this packet's absolute lifetime.
             guard previous == body else { return nil }
@@ -114,37 +90,8 @@ struct SessionPacketInbox {
             CFGetTypeID(sentAt) != CFBooleanGetTypeID(), sentAt.doubleValue.isFinite,
             abs(wallClock() - sentAt.doubleValue) < 180_000
         else { return nil }
-        if let upload {
-            guard ["attachmentChunk", "newAttachmentChunk"].contains(request["op"] as? String ?? ""),
-                request["attachmentId"] as? String == upload,
-                Self.integer(request["uploadVersion"], range: 1...1) == 1
-            else { return nil }
-        }
         seen[token] = now
         return (clear, request)
-    }
-
-    mutating func recoveryPacket(_ data: Data, sender: String) -> String? {
-        guard let frame = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
-            let packet = frame["packet"] as? String
-        else { return nil }
-        let token = Token(device: sender, packet: packet)
-        guard var assembly = partial[token], assembly.upload != nil, !assembly.recoveryScheduled else { return nil }
-        assembly.recoveryScheduled = true
-        partial[token] = assembly
-        return packet
-    }
-    mutating func missingUpload(sender: String, packet: String) -> [String: Any]? {
-        let token = Token(device: sender, packet: packet)
-        guard var assembly = partial[token], let upload = assembly.upload,
-            clock() - assembly.created < 30, assembly.recoveryAttempts < 3
-        else { return nil }
-        assembly.recoveryAttempts += 1
-        partial[token] = assembly
-        return [
-            "event": "uploadMissing", "packet": packet, "attachmentId": upload,
-            "missing": (0..<assembly.count).filter { assembly.chunks[$0] == nil },
-        ]
     }
 
     private static func integer(_ value: Any?, range: ClosedRange<Int>) -> Int? {

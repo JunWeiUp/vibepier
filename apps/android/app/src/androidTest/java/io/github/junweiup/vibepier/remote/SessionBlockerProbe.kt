@@ -17,6 +17,7 @@ object SessionBlockerProbe {
             .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK).putExtra("codexFixture", "queued")) as MainActivity
         fun field(target: Any, name: String) = target.javaClass.getDeclaredField(name).apply { isAccessible = true }
         fun settle() { test.waitForIdleSync(); SystemClock.sleep(300); test.waitForIdleSync() }
+        val journal = SessionJournalFixture(test)
         try {
             settle()
             test.runOnMainSync { activity.sessionNavigation.show() }
@@ -74,15 +75,15 @@ object SessionBlockerProbe {
                 check((field(panel, "waitBanner").get(panel) as View).visibility == View.GONE) { "Periodic render restarted the same wait" }
                 check((field(panel, "editor").get(panel) as EditText).text.toString() == "Keep my draft")
                 // Exercise durable wait detachment using synthetic receipts in the isolated review package.
-                val client = field(panel, "client").get(panel) as io.github.junweiup.vibepier.remote.core.session.SessionClient
-                val prefs = io.github.junweiup.vibepier.remote.core.security.PrivatePreferences.open(activity, "sessions")
+                val client = journal.client
+                val prefs = journal.prefs
                 val id = java.util.UUID.randomUUID().toString()
                 val other = java.util.UUID.randomUUID().toString()
                 val target = "wait-detach-$id"
-                val original = JSONObject().put("id", id).put("op", "send").put("threadId", target)
-                    .put("provider", client.provider).put("text", "synthetic original").put("attachments", JSONArray().put("synthetic-file"))
+                val original = journal.seed(JSONObject().put("id", id).put("op", "send").put("threadId", target)
+                    .put("provider", client.provider).put("text", "synthetic original").put("attachments", JSONArray().put("synthetic-file")))
                 val separate = JSONObject(original.toString()).put("id", other).put("threadId", "other-$id")
-                check(prefs.edit().putString("pending.$id", original.toString()).putString("pending.$other", separate.toString()).commit())
+                journal.seed(separate)
                 try {
                     check(client.waitingOperations(target).size == 1)
                     check(client.stopWaiting(target))
@@ -93,15 +94,15 @@ object SessionBlockerProbe {
                     check(!client.duplicateUnconfirmedSend(target, "synthetic new", JSONArray()))
                     check(prefs.getStringSet("stoppedWaiting.${client.sessionScope(target)}", emptySet()) == setOf(id))
                     val next = java.util.UUID.randomUUID().toString()
-                    check(prefs.edit().putString("pending.$next", JSONObject(original.toString()).put("id", next).toString()).commit())
+                    journal.seed(JSONObject(original.toString()).put("id", next))
                     check(client.waitingOperations(target).single().optString("id") == next) { "A new operation inherited the stopped wait" }
-                    client.clearReceipt(next)
+                    check(client.agent.abandon(next))
                 } finally {
-                    client.clearReceipt(id); client.clearReceipt(other)
+                    check(client.agent.abandon(id)); check(client.agent.abandon(other))
                     prefs.edit().remove("stoppedWaiting.${client.sessionScope(target)}").commit()
                 }
             }
             return "PASS: rate-limit banner, visible cancellation with draft, confirmed fixture stop, slow/idle reset, local stop-waiting. Synthetic UI only."
-        } finally { test.runOnMainSync { activity.finish() } }
+        } finally { journal.close(); test.runOnMainSync { activity.finish() } }
     }
 }

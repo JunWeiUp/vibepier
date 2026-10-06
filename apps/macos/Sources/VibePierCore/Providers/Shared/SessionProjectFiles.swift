@@ -22,7 +22,8 @@ enum SessionProjectFiles {
     /// One session request; `rows` is the provider's full projection (with file parts), read only for `fileChanges`.
     static func reply(
         _ op: String, _ request: [String: Any], cwd: String, rows: () -> [[String: Any]],
-        reader: SessionMarkdownFiles, device: String, thread: String, expectedGeneration: UUID? = nil
+        reader: SessionMarkdownFiles, device: String, thread: String, expectedGeneration: UUID? = nil,
+        mediaOffer: BinaryMediaFiles.Offer = BinaryMediaFiles.currentOffer
     ) throws -> [String: Any] {
         let root = try SessionMarkdownFiles.root(cwd)
         var value: [String: Any]
@@ -32,24 +33,21 @@ enum SessionProjectFiles {
             value = try readFile(
                 request, cwd: cwd, root: root, reader: reader, device: device, thread: thread,
                 expectedGeneration: expectedGeneration)
-        case "readVideoFile": value = try SessionVideoFiles.read(request, root: root, device: device, thread: thread)
+        case "readVideoFile":
+            value = try SessionVideoFiles.read(request, root: root, device: device, thread: thread, offer: mediaOffer)
         case "readImageFile":
+            try BinaryMediaFiles.requireCurrent(request)
             let url = try file(request, root: root)
             guard imageExtensions.contains(url.pathExtension.lowercased()) else {
                 throw CLIError(L10n.text("files.this_image_type_cannot_be_previewed"))
             }
             let large = request["size"] as? String == "large"
             let image = try ConversationReply.jpeg(
-                url.path, cwd: root.path, maxPixel: large ? (request["binaryVersion"] as? Int == 1 ? 2048 : 1600) : 480,
-                maximumBytes: request["binaryVersion"] as? Int == 1 ? 4 * 1024 * 1024 : 200_000)
+                url.path, cwd: root.path, maxPixel: large ? 2048 : 480,
+                maximumBytes: 4 * 1024 * 1024)
             value = ["path": SessionMarkdownFiles.relative(url, root: root)]
-            if request["binaryVersion"] as? Int == 1 {
-                value["binary"] = try BinaryMediaFiles.offer(
-                    BinaryMediaFiles.snapshot(image), device: device,
-                    thread: thread, mime: "image/jpeg")
-            } else {
-                value["image"] = image.base64EncodedString()
-            }
+            value["binary"] = try mediaOffer(
+                BinaryMediaFiles.snapshot(image), device, thread, "image/jpeg")
 
         case "fileDiff": value = try diff(request, root: root)
         case "searchFiles": value = try search(request["query"] as? String ?? "", root: root)

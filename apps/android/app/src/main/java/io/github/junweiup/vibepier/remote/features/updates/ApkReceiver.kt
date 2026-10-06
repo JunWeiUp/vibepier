@@ -4,7 +4,6 @@ import io.github.junweiup.vibepier.remote.core.security.PrivatePreferences
 
 import io.github.junweiup.vibepier.remote.core.ui.showProtected
 import io.github.junweiup.vibepier.remote.R
-import io.github.junweiup.vibepier.remote.BuildConfig
 import io.github.junweiup.vibepier.remote.core.session.SessionClient
 
 import android.app.Activity
@@ -16,7 +15,6 @@ import android.net.Uri
 import android.os.Handler
 import android.os.Looper
 import android.provider.Settings
-import android.util.Base64
 import io.github.junweiup.vibepier.remote.core.files.BinaryFileClient
 import android.widget.Toast
 import org.json.JSONObject
@@ -36,10 +34,8 @@ class ApkReceiver(
     private val io = Executors.newSingleThreadExecutor()
     @Volatile private var foreground = false
     private val fileGuard = ApkDownloadGuard()
-    private var download: ApkDownloadWindow? = null
     private var binaryTransfer: BinaryFileClient? = null
     private var binaryTicket: String? = null
-    private var writing = false
     private var downloadStarted = 0L
     private var downloadStartOffset = 0L
     @Volatile private var downloadConnection: String? = null
@@ -49,7 +45,7 @@ class ApkReceiver(
             client.request("fileCancel", JSONObject().put("ticket", binaryTicket)) {}
         binaryTicket = null
         fileGuard.cancel()
-        download = null; writing = false; busy = false
+        busy = false
         client.cancelAPKReads()
     }
     private fun downloadActive(token: Int) = active(token) && downloadConnection != null && downloadConnection == client.versionConnectionID
@@ -94,7 +90,7 @@ class ApkReceiver(
         if (!force && now - lastCheck < 8_000) return
         lastCheck = now; busy = true
         val token = generation
-        client.request("apkOffer", JSONObject().apply { if (client.relayDownload) put("downloadVersion", 1) }) { value ->
+        client.request("apkOffer", JSONObject()) { value ->
             if (!active(token)) return@request
             busy = false
             if (!value.optBoolean("ok") || value.optString("transfer").isEmpty() || value.optString("transfer") == handled) return@request
@@ -144,22 +140,13 @@ class ApkReceiver(
                         if (!downloadActive(token)) return@binaryOffer
                         val profile = response.optJSONObject("binary")
                         if (response.optBoolean("ok") && profile != null) startBinary(value, token, offset, profile)
-                        else if (response.optBoolean("binaryUnavailable") && BuildConfig.DESIGN_REVIEW) startLegacy(value, token, offset)
                         else fail(value, activity.getString(R.string.file_binary_required))
                     }
                     return@post
                 }
-                if (BuildConfig.DESIGN_REVIEW) startLegacy(value, token, offset)
-                else fail(value, activity.getString(R.string.file_binary_required))
+                fail(value, activity.getString(R.string.file_binary_required))
             }
         }
-    }
-    private fun startLegacy(value: JSONObject, token: Int, offset: Long) {
-        val fast = client.relayDownload && value.optJSONObject("download")?.optInt("version") == 1
-        download = ApkDownloadWindow(value.getLong("size"), offset, client.attachmentChunkBytes, if (fast) 4 else 1)
-        downloadStarted = android.os.SystemClock.elapsedRealtime(); downloadStartOffset = offset
-        pump(value, token)
-        watchConnection(token)
     }
     private fun startBinary(value: JSONObject, token: Int, offset: Long, profile: JSONObject) {
         val transfer = BinaryFileClient { downloadActive(token) }; binaryTransfer = transfer; binaryTicket = profile.getString("id")
@@ -199,65 +186,10 @@ class ApkReceiver(
     }
     private fun watchConnection(token: Int) {
         main.postDelayed({
-            if (active(token) && (download != null || binaryTransfer != null)) {
+            if (active(token) && binaryTransfer != null) {
                 if (!downloadActive(token)) interruptDownload() else watchConnection(token)
             }
         }, 250)
-    }
-    private fun pump(value: JSONObject, token: Int) {
-        if (!active(token)) return
-        if (!downloadActive(token)) { interruptDownload(); return }
-        val window = download ?: return
-        val offset = window.durableOffset
-        val elapsed = (android.os.SystemClock.elapsedRealtime() - downloadStarted).coerceAtLeast(1)
-        val rate = (offset - downloadStartOffset) * 1000 / elapsed
-        val speed = if (rate > 0) activity.getString(R.string.apk_transfer_speed, rate / 1024, (window.size - offset + rate - 1) / rate) else ""
-        dialog?.setMessage("${value.optString("name")}\n${offset * 100 / window.size}% · ${offset / 1024} / ${window.size / 1024} KB" + speed + if (client.bluetooth) activity.getString(R.string.apk_ble_hint) else "")
-        if (window.complete) { download = null; verify(value, token); return }
-        while (downloadActive(token) && download === window) {
-            val requested = window.reserve() ?: break
-            val fields = JSONObject().put("transfer", value.getString("transfer")).put("offset", requested).put("limit", window.chunkBytes)
-            value.optJSONObject("download")?.let { profile ->
-                if (window.capacity == 4) fields.put("downloadToken", profile.getString("token")).put("durableOffset", window.durableOffset)
-            }
-            client.request("apkChunk", fields) { reply ->
-                if (!active(token) || download !== window) return@request
-                if (!downloadActive(token)) { interruptDownload(); return@request }
-                if (!reply.optBoolean("ok")) {
-                    interruptDownload()
-                    if (reply.optBoolean("cancelled")) finish(value, "cancelled", activity.getString(R.string.apk_mac_cancelled))
-                    else Toast.makeText(activity, reply.optString("error", activity.getString(R.string.apk_interrupted)), Toast.LENGTH_LONG).show()
-                    return@request
-                }
-                try {
-                    require(reply.getString("transfer") == value.getString("transfer") && reply.getLong("offset") == requested)
-                    val encoded = reply.getString("data")
-                    require(encoded.length <= 4 * ((window.chunkBytes + 2) / 3))
-                    window.accept(requested, Base64.decode(encoded, Base64.NO_WRAP))
-                    drain(value, token, window)
-                } catch (_: Exception) { fail(value, activity.getString(R.string.apk_invalid_length)) }
-            }
-        }
-    }
-    private fun drain(value: JSONObject, token: Int, window: ApkDownloadWindow) {
-        if (writing || !downloadActive(token) || download !== window) return
-        val bytes = window.ready() ?: return
-        val offset = window.durableOffset
-        writing = true
-        io.execute {
-            val error = runCatching {
-                fileGuard.append(token, file(value), offset, bytes) { downloadActive(token) }
-            }.exceptionOrNull()
-            main.post {
-                if (!active(token) || download !== window) return@post
-                writing = false
-                if (!downloadActive(token)) { interruptDownload(); return@post }
-                if (error != null) { fail(value, activity.getString(R.string.apk_write_failed)); return@post }
-                window.committed(offset, bytes)
-                pump(value, token)
-                drain(value, token, window)
-            }
-        }
     }
     private fun verify(value: JSONObject, token: Int) {
         busy = true; dialog?.setMessage(activity.getString(R.string.apk_verifying, value.optString("name")))

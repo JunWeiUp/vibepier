@@ -32,59 +32,6 @@ enum RuntimeCommands {
             return ["ok": true, "cleared": ConversationActivity.shared.markAllViewed(keys: Set(keys))]
         case "screen-unlock-diagnostics":
             return ScreenLock.diagnostics()
-        case "zcode-ax-state":
-            let recent: [String: Any] = [
-                "recentCreationReads": ZCodeBridge.recentCreationReads(),
-                "recentMutations": ZCodeBridge.recentMutations(),
-            ]
-            do {
-                return try ZCodeDesktop.diagnostics().merging(recent.merging(["ok": true]) { _, fresh in fresh }) {
-                    _, fresh in fresh
-                }
-            } catch {
-                return recent.merging(["ok": false, "error": String(describing: error)]) { _, fresh in fresh }
-            }
-        case "zcode-creation-prepare":
-            guard let cwd = req["cwd"] as? String, let execution = req["executionMode"] as? String else {
-                return ["ok": false, "error": L10n.text("core.invalid_request")]
-            }
-            do { return try ZCodeDesktop.prepareCreationDiagnostics(cwd: cwd, execution: execution) } catch {
-                return ["ok": false, "error": String(describing: error)]
-            }
-        case "zcode-request":
-            // Local diagnostics use the existing owner-only (0600) control socket
-            // and the signed app's desktop permissions. Never opened over a network.
-            guard var request = req["request"] as? [String: Any],
-                let op = request["op"] as? String,
-                [
-                    "list", "projects", "open", "sync", "history", "parts", "message", "image", "composerOptions",
-                    "newOptions", "new", "send", "settings", "interrupt", "receiptCheck",
-                ].contains(op)
-            else { return ["ok": false, "error": L10n.text("core.invalid_local_zcode_request")] }
-            request["id"] = request["id"] ?? UUID().uuidString
-            request["viewVersion"] = 1
-            let bridge = ZCodeBridge(desktop: ZCodeDesktop.access)
-            let client = "local-" + UUID().uuidString
-            defer { bridge.stopAll() }
-            func perform(_ value: [String: Any]) async -> [String: Any] {
-                guard let data = try? JSONSerialization.data(withJSONObject: value) else {
-                    return ["ok": false, "error": L10n.text("core.invalid_request")]
-                }
-                let reply: Data = await withCheckedContinuation { continuation in
-                    bridge.perform(data, client: client) { continuation.resume(returning: $0) }
-                }
-                return (try? JSONSerialization.jsonObject(with: reply) as? [String: Any]) ?? [
-                    "ok": false, "error": L10n.text("core.invalid_receipt"),
-                ]
-            }
-            if !["list", "projects", "newOptions", "new", "open"].contains(op) {
-                guard let session = request["threadId"] as? String else {
-                    return ["ok": false, "error": L10n.text("core.missing_session_id")]
-                }
-                let opened = await perform(["op": "open", "threadId": session, "viewVersion": 1])
-                guard opened["ok"] as? Bool == true else { return opened }
-            }
-            return await perform(request)
         case "android-update-publish":
             guard let path = req["path"] as? String, path.hasPrefix("/") else {
                 return ["ok": false, "error": L10n.text("updates.invalid_metadata")]

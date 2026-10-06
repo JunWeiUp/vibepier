@@ -1,5 +1,7 @@
 # VibePier initial release
 
+- [x] Update current documentation for removal of ZCode support; retain historical release and legal attribution records. 当前文档仅列 Codex 与 Claude Code；历史发布及法律来源记录保留。
+
 This checklist records implemented work and follow-ups for the first public preview. The maintainer explicitly chose to skip real sending acceptance and publish; unchecked device/provider items below are deferred, not successful tests.
 
 ## Release / 发布
@@ -64,7 +66,7 @@ Current source build 11 improvements and validation boundaries: [PROJECT-IMPROVE
 
 ## Additional requested controls
 
-- [ ] Accept model/reasoning, approval mode and image/file selection when creating a phone session. Implementation now covers Codex, Claude and ZCode first-turn settings; ZCode attachments remain unsupported. Phone controls, encrypted draft recovery, late receipt cleanup, scoped upload and small/large-type layouts have emulator coverage. Claude inline images have isolated subprocess/transcript coverage; Codex ownership/receipt and ZCode menu identity/selection have synthetic coverage. Actual native-provider acceptance is deferred for this preview; it is not inferred from synthetic tests or APK delivery.
+- [ ] Accept model/reasoning, approval mode and image/file selection when creating a phone session. Implementation now covers Codex and Claude first-turn settings. Phone controls, encrypted draft recovery, late receipt cleanup, scoped upload and small/large-type layouts have emulator coverage. Claude inline images have isolated subprocess/transcript coverage; Codex ownership/receipt checks have synthetic coverage. Actual native-provider acceptance is deferred for this preview; it is not inferred from synthetic tests or APK delivery.
 - [x] Move the home Delete button below the voice panel into the fixed bottom dock. Native emulator controls and visual inspection passed; the new APK has not been installed on a physical phone.
 - [x] Add cancellable Android relay recovery on default-network changes and stale peer liveness. Encrypted loopback validates a fresh connection, old-worker shutdown and rejection of stale callbacks; the user recovered the separate mobile-carrier outage by toggling mobile data. Updated APK delivery remains pending the designated phone.
 - [x] Prevent a blocked file read/provider from exhausting all session requests. Directory/Markdown reads use bounded asynchronous workers and six-second deadlines; fixed provider/account/control/receipt partitions preserve the original aggregate request/memory bounds. Mac build 4 is installed and both relay phones reconnected; synthetic blocked-I/O and bilingual regression tests passed. The old unknown Claude send remains unresolved and was not replayed.
@@ -86,3 +88,16 @@ Current source build 11 improvements and validation boundaries: [PROJECT-IMPROVE
 
 - [x] Prevent image file reads from blocking session queues. Bounded shared preview workers and timeouts are tested; the updated Mac restored the 250 relay session, confirmed by the user. OS folder authorization remains required for protected image paths.
 - [x] Add a phone-side Mac application picker with search, shared dock updates and stale/source-change protection. EN/zh/small UI probes and native read-only catalog passed; signed build 3 was delivered to 250 via Mac and reported installed by Android.
+
+## API 37 session QA / 会话专项
+
+- [x] Document current Android/Mac/provider/receipt call chains and a detailed API 37 test plan. 补齐调用链与专项计划。
+- [x] Add real-touch approval controls and production SessionClient cancellation regressions using isolated synthetic hosts. 补齐审批触摸与真实客户端取消边界回归。
+- [x] Fix approval refresh, preserved preparation cancellation, option-read cancellation and creation option recovery; add Claude ambiguity and delayed-confirmation regressions. 修复状态恢复与请求生命周期问题。
+- [x] Complete API 37 frozen core and extended matrices: 48/48 across en and zh-CN. 同候选中英文核心与扩展共 48 组通过。
+- [x] Revalidate Codex cached native reads and revoke stale leases while preserving newer views; synthetic IPC/Service regressions passed. 修复 Codex 漏广播/换 owner 的缓存恢复缺口。
+- [x] Verify Codex native creation/send and allow/deny, plus encrypted test-TCP phone creation/send readback. Codex 原生与测试 TCP 链路分层取证完成。
+- [ ] Complete Claude native replies/approvals after HTTP 429 clears, and production UDP/WSS phone-UI/multi-device acceptance. Claude 限流及生产路由/多设备验收仍未闭环。
+- [x] Complete 30-minute authenticated disconnect/reconnect soak on API 37 (123 cycles; synthetic encrypted UDP peer). API 37 已通过 30 分钟、123 次认证断线重连；为合成加密 UDP 对端。
+
+Plan: [AGENT-SESSION-TEST-PLAN](docs/AGENT-SESSION-TEST-PLAN.md). Architecture: [SESSION-TESTABILITY](docs/SESSION-TESTABILITY.md). Report: [AGENT-SESSION-VALIDATION](docs/AGENT-SESSION-VALIDATION.md). Evidence is local to `.local/agent-session-qa/VALIDATION.md`; this task does not install Mi 10.

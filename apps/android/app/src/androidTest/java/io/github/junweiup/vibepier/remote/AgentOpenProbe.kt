@@ -17,7 +17,7 @@ import javax.crypto.Cipher
 import javax.crypto.spec.GCMParameterSpec
 import javax.crypto.spec.SecretKeySpec
 
-/** Fresh production SessionClient reads over an encrypted synthetic Mac, for all three adapters. */
+/** Fresh production SessionClient reads over an encrypted synthetic Mac, for all supported adapters. */
 internal object AgentOpenProbe {
     private class Transport : SessionTransport {
         override val mode = "bluetooth"
@@ -182,10 +182,14 @@ internal object AgentOpenProbe {
                 var closed = false; main { client.request("close") { closed = it.opt("ok") == true } }
                 waitFor("$provider close", { closed })
             }
-            check(requests.count { it.optJSONObject("body")?.opt("method") == "session.open" } == 3)
-            check(requests.count { it.optJSONObject("body")?.opt("method") == "session.snapshot" } == 3)
-            check(requests.count { it.optJSONObject("body")?.opt("method") == SessionAgentProtocol.Method.ITEMS.wire } == 6)
-            return "PASS: agent-open fresh isolated client; Codex, Claude and ZCode empty-search workspace/session discovery → opaque target open → partial loading snapshot → complete refresh → two earlier history pages with oldest boundary; read-only gates retained; host receipt reads require target {}; AES/GCM loopback only, no host, real messages or device configuration."
+            for ((method, perProvider) in listOf("session.open" to 1, "session.snapshot" to 1, SessionAgentProtocol.Method.ITEMS.wire to 2)) {
+                val matching = requests.filter { it.optJSONObject("body")?.opt("method") == method }
+                check(matching.size == SessionProvider.ids.size * perProvider) { "$method: unexpected total request count ${matching.size}" }
+                for (provider in SessionProvider.ids) {
+                    check(matching.count { it.opt("provider") == provider } == perProvider) { "$provider $method: unexpected request count" }
+                }
+            }
+            return "PASS: agent-open fresh isolated client; Codex and Claude empty-search workspace/session discovery → opaque target open → partial loading snapshot → complete refresh → two earlier history pages with oldest boundary; read-only gates retained; host receipt reads require target {}; AES/GCM loopback only, no host, real messages or device configuration."
         } finally {
             main { if (created) client.close() }
             if (created) DeviceKeys(context).clear()

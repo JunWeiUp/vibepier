@@ -13,7 +13,6 @@ final class PreferencesArchiveTests: XCTestCase {
         var config = Config.defaults
         config.relayURL = "wss://private.example.test/relay"
         config.relayRoom = "private-room"
-        config.relaySecret = "synthetic-secret-never-export-this"
         config.herdrPointer = "/private/synthetic/path"
         config.actions?["talk"]?.run = "echo synthetic-command-secret"
         config.actions?["talk"]?.applescript = "synthetic-automation-secret"
@@ -50,7 +49,6 @@ final class PreferencesArchiveTests: XCTestCase {
         var current = Config.defaults
         current.relayURL = "wss://destination.example.test/r"
         current.relayRoom = "destination"
-        current.relaySecret = "destination-secret"
         current.herdrPointer = "/private/destination"
         current.actions?["talk"]?.run = "destination-command"
         current.agentLightsEnabled = false
@@ -61,7 +59,6 @@ final class PreferencesArchiveTests: XCTestCase {
         var saved: Config?
         let next = try archive.apply(to: current, bindings: destination) { saved = $0 }
         XCTAssertEqual(next, saved)
-        XCTAssertEqual(next.relaySecret, "destination-secret")
         XCTAssertEqual(next.relayURL, current.relayURL)
         XCTAssertEqual(next.herdrPointer, current.herdrPointer)
         XCTAssertEqual(next.actions?["talk"]?.run, "destination-command")

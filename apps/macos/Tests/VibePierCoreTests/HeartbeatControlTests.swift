@@ -8,12 +8,12 @@ final class HeartbeatControlTests: XCTestCase {
     }
 
     func testStatusUsesEffectiveProviderPolicyWithoutStartingRemoteSessions() async {
-        let policy = SessionProviderPolicy(enabled: ["codex": false, "claude": true, "zcode": false], revision: 7)
+        let policy = SessionProviderPolicy(enabled: ["codex": false, "claude": true], revision: 7)
         let driver = Daemon(config: Config(), verbose: false, readProviderAccess: { policy.object })
         let status = await driver.handle(["cmd": "status"])
         let reported = status["providerAccess"] as? [String: Any]
         XCTAssertEqual(reported?["revision"] as? Int64, 7)
-        XCTAssertEqual(reported?["enabled"] as? [String: Bool], ["codex": false, "claude": true, "zcode": false])
+        XCTAssertEqual(reported?["enabled"] as? [String: Bool], ["codex": false, "claude": true])
     }
 
     func testAutomaticModeStartsIdleAndSupportsManualFallback() async {

@@ -132,7 +132,6 @@ struct DirectAdmissions {
             return String(fields[1])
         }
         if (fields.count == 5 && ["vibepier-audio1", SecureControlEnvelope.frame].contains(String(fields[0])))
-            || (fields.count == 6 && String(fields[0]) == SecureControlEnvelope.bulk)
             || (fields.count == 7 && String(fields[0]) == SecureControlEnvelope.hello)
         {
             return String(fields[1])

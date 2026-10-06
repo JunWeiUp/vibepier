@@ -133,8 +133,6 @@ struct Config: Codable, Equatable {
     var relayURL: String?
     /// Room shared by this Mac and its phones on the relay.
     var relayRoom: String?
-    /// Read only for migration of development configs; ordinary saves refuse plaintext credentials.
-    var relaySecret: String?
     /// Explicit opt-in: recover failed Android relay DNS through validated AliDNS HTTPS.
     var relayDNSRecovery: Bool?
     /// New installs start with verified voice behavior and no hardware-setting writes.
@@ -148,13 +146,14 @@ struct Config: Codable, Equatable {
     static func load(_ url: URL = Paths.configFile) throws -> Config {
         guard FileManager.default.fileExists(atPath: url.path) else { return defaults }
         let data = try Data(contentsOf: url)
+        guard let object = try JSONSerialization.jsonObject(with: data) as? [String: Any],
+            !object.keys.contains("relaySecret")
+        else { throw CLIError("Unsupported configuration schema") }
         return try JSONDecoder().decode(Config.self, from: data)
     }
 
     func save(_ url: URL = Paths.configFile) throws {
-        guard relaySecret == nil else {
-            throw CLIError(L10n.text("core.migrate_the_relay_secret_to_keychain_before_saving_it_cannot_be_writ"))
-        }
+        _ = try Self.load(url)  // Validate existing data before replacing it.
         try FileManager.default.createDirectory(at: url.deletingLastPathComponent(), withIntermediateDirectories: true)
         let enc = JSONEncoder()
         enc.outputFormatting = [.prettyPrinted, .sortedKeys]

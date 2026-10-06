@@ -26,7 +26,7 @@
     <string name="icons_syncing">正在同步应用图标…</string>
     <string name="app_hide_scroll_hint">再点已选应用隐藏 · 左右滑动</string>
     <string name="app_hide_hint">再点已选应用隐藏</string>
-    <string name="open_sessions_accessibility">打开 Codex / Claude Code / ZCode 会话</string>
+    <string name="open_sessions_accessibility">打开 Codex / Claude Code 会话</string>
     <string name="open_settings_accessibility">打开设置，连接、语音、快捷键和应用更新</string>
     <string name="edit_keys_accessibility">编辑按键，通用与应用专属配置</string>
     <string name="keys">按键</string>

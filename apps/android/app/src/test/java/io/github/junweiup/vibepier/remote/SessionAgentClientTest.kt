@@ -7,6 +7,38 @@ import org.junit.Assert.*
 import org.junit.Test
 
 class SessionAgentClientTest {
+    @Test fun oldSchemaAndOldProtocolCannotBecomeCurrentJournalContexts() {
+        val store = Store(); val sent = mutableListOf<JSONObject>()
+        val client = SessionAgentClient({ "host" }, { wire, _ -> sent.add(wire) }, store)
+        client.discover(profile())
+        val operation = SessionAgentProtocol.id()
+        val projection = JSONObject().put("id", operation).put("provider", "codex").put("threadId", "same").put("op", "send")
+        val request = SessionAgentProtocol.Request(SessionAgentProtocol.id(), SessionAgentProtocol.Method.SUBMIT, target,
+            JSONObject().put("mode", "start"), operation, "lease")
+        for (row in listOf(projection, JSONObject().put("identity", "host").put("legacy", projection),
+            JSONObject().put("identity", "host").put("legacy", projection).put("body", request.json().put("agentProtocol", 1)))) {
+            store.values[operation] = row.toString()
+            assertNull(client.context(operation))
+            assertTrue(client.pendingContexts("codex", "same").isEmpty())
+            client.resend(operation) { assertTrue(it is SessionAgentProtocol.Reply.Failure) }
+            client.reconcile(operation) { assertTrue(it is SessionAgentProtocol.Reply.Failure) }
+            assertTrue(sent.isEmpty()); assertEquals(row.toString(), store.values[operation])
+        }
+    }
+    @Test fun currentJournalProjectionRestoresWithoutAlternateSchemaLookup() {
+        val store = Store(); var sent: JSONObject? = null
+        val client = SessionAgentClient({ "host" }, { wire, _ -> sent = wire }, store, selectedAdapter = { "codex.currentV1" })
+        client.discover(profile())
+        val operation = SessionAgentProtocol.id()
+        client.mutate(SessionAgentProtocol.Method.SUBMIT, target, JSONObject().put("mode", "start"), "lease", operation,
+            JSONObject().put("provider", "codex").put("threadId", "same").put("agentAdapterId", "codex.currentV1")) { }
+        assertNotNull(sent)
+        assertEquals(operation, client.pendingContexts("codex", "same").single().getString("id"))
+        val row = JSONObject(store.values.getValue(operation))
+        row.put("context", row.remove("legacy")); store.values[operation] = row.toString()
+        assertNull(client.context(operation)) // No dual-reader alias for the current persisted field.
+    }
+
     private class Store : SessionAgentClient.Storage {
         val values = linkedMapOf<String, String>(); var canSave = true; var canRemove = true
         override fun pending() = values.toMap()
@@ -68,6 +100,27 @@ class SessionAgentClientTest {
             .put("requestId", lookup.getString("requestId")).put("result", JSONObject().put("operation", proof(request).getJSONObject("body")))))
         assertFalse(store.values.containsKey(operation)); assertEquals(2, sent.size)
         identity = "different-host"; assertFalse(client.negotiated)
+    }
+    @Test fun retiredProviderPendingIntentIsNeitherDisplayedNorExecuted() {
+        val store = Store(); val sent = mutableListOf<JSONObject>()
+        val client = SessionAgentClient({ "host" }, { request, _ -> sent.add(request) }, store)
+        client.discover(profile())
+        val operation = SessionAgentProtocol.id()
+        client.mutate(SessionAgentProtocol.Method.SUBMIT, target, JSONObject().put("mode", "start"), "lease", operation,
+            JSONObject().put("provider", "codex").put("threadId", "same")) { }
+        val old = JSONObject(store.values.getValue(operation))
+        old.getJSONObject("legacy").put("provider", "retired-provider")
+        store.values[operation] = old.toString()
+        val preserved = store.values.getValue(operation)
+        sent.clear()
+        client.resend(operation) { assertTrue(it is SessionAgentProtocol.Reply.Failure) }
+        assertTrue(sent.isEmpty())
+        assertEquals(preserved, store.values.getValue(operation))
+        assertTrue(client.pendingContexts("codex", "same").isEmpty())
+        assertNull(client.context(operation))
+        client.reconcile(operation) { assertTrue(it is SessionAgentProtocol.Reply.Failure) }
+        assertTrue(sent.isEmpty())
+        assertEquals(preserved, store.values.getValue(operation))
     }
     @Test fun sameLogicalOperationCannotBeSubmittedAgainWithAnotherTarget() {
         val store = Store(); var sent = 0

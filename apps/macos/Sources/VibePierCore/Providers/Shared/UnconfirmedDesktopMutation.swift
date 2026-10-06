@@ -34,16 +34,6 @@ final class DesktopMutationScope {
         }
     }
 
-    /// A new-session preparation may change draft controls, but cannot have submitted a message.
-    /// Keep uncertainty for settings themselves while reporting creation as not submitted.
-    static func beforeCreationSubmission<T>(_ prepare: () throws -> T) throws -> T {
-        do { return try prepare() } catch let error as UnconfirmedDesktopMutation {
-            throw CLIError(
-                L10n.text("provider.native_settings_for_the_new_zcode_task_are_unconfirmed_nothing_was_sent")
-                    + " " + error.reason)
-        }
-    }
-
     /// Prepare without side effects, recheck identity, submit once, then observe. Never fall back after submission.
     static func confirmedAction(
         isCurrent: () -> Bool, prepare: () throws -> (() throws -> Void)?,

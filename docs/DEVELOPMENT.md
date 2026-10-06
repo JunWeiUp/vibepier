@@ -54,11 +54,11 @@ A JVM test is not an Android Keystore test; an instrumentation APK build is not 
 
 `swift test --package-path apps/macos --filter 'SessionReceiptJournalTests|SessionWorkBudgetTests|SessionProviderReplyTests'` uses temporary files, injected publication failures and synthetic work/cache entries. It covers completion-space reservation, per-device/global budgets, record caps, retained retired IDs, immutable results, corrupt/oversized/non-regular stores, lock symlinks, stale writers, pre/post-publication errors and unknown replies after save failure. Work tests exercise concurrent admission, exclusive password verification, callback claiming, exact lease release and pending-cache preservation. They do not initialize `SessionRemote.shared`, access real Keychain data or run provider actions; real transport/provider acceptance remains separate.
 
-`swift test --package-path apps/macos --filter 'DesktopInputTests|DesktopClipboardTests|DesktopMutationTests|ZCodeBridgeTests|ZCodeDesktopTests'` injects pointer/action callbacks, uses uniquely named private pasteboards, and creates temporary native-schema SQLite fixtures. It checks single submission, balanced release on focus loss, conditional clipboard cleanup, complete first/next-message receipts, cross-project creation baselines, and trusted client routing. These tests never post real input, touch the general clipboard, or mutate provider databases. Actual accessibility recognition, menu cancellation and delivery must still be exercised separately with explicit opt-in.
+`swift test --package-path apps/macos --filter 'DesktopInputTests|DesktopClipboardTests|DesktopMutationTests'` injects pointer/action callbacks and uses uniquely named private pasteboards. It checks single submission, balanced release on focus loss, conditional clipboard cleanup. These tests never post real input, touch the general clipboard, or mutate provider databases. Actual accessibility recognition, menu cancellation and delivery must still be exercised separately with explicit opt-in.
 
-上述输入测试只使用注入事件、独立命名剪贴板和临时数据库，不点击真实应用、不修改系统剪贴板；模拟通过不能替代原生桌面验收。
+上述输入测试只使用注入事件、独立命名剪贴板，不点击真实应用、不修改系统剪贴板；模拟通过不能替代原生桌面验收。
 
-`swift test --package-path apps/macos --filter 'ProviderOperationReceiptsTests|ClaudeCreationReceiptTests|ZCodeBridgeTests|SessionProviderReplyTests'` checks client/request isolation, in-flight replay, quota refusal, completed-body retirement without identity loss, immutable final results, observer admission/arming, two-phone late creation without another submission, and native first-message/session/directory confirmation. Fixtures use temporary JSONL/SQLite files and injected provider responses; a real native delivery is still a separate opt-in acceptance step.
+`swift test --package-path apps/macos --filter 'ProviderOperationReceiptsTests|ClaudeCreationReceiptTests|SessionProviderReplyTests'` checks client/request isolation, in-flight replay, quota refusal, completed-body retirement without identity loss, immutable final results, observer admission/arming, two-phone late creation without another submission, and native first-message/session/directory confirmation. Fixtures use temporary JSON/JSONL files and injected provider responses; a real native delivery is still a separate opt-in acceptance step.
 
 进程内回执测试覆盖两机隔离、容量不足时拒绝新操作、旧正文退役后仍不重执行、迟到新建回执和审批指纹校验；只读查询不会发送新消息。原生窗口和应用升级验收仍单独完成。
 
@@ -144,9 +144,9 @@ Useful selectors: `codex` (full session/receipt regression), `composer`, `codex-
 
 `plan-mode` 探针使用隔离加密模拟 Mac，验证已有/新建原生模式、权限联动与安全默认提示；中英各跑一次并恢复应用语言。截图等待菜单关闭及动画结束；普通 Swift 测试注入原生接口，不启动真实 Agent，不把模拟通过当成实际原生验收。
 
-`agent-open` starts a fresh isolated encrypted client without cached references, discovers all three current providers with empty search, opens by the returned opaque identity, handles a partial opening page and refreshes to complete content. It also verifies host-wide `operation.get` uses `target:{}`. Swift's discovery-to-open regression must decode the exact phone request first; injected native replies alone cannot catch a gateway rejection before dispatch.
+`agent-open` starts a fresh isolated encrypted client without cached references, discovers both supported providers with empty search, opens by the returned opaque identity, handles a partial opening page and refreshes to complete content. It also verifies host-wide `operation.get` uses `target:{}`. Swift's discovery-to-open regression must decode the exact phone request first; injected native replies alone cannot catch a gateway rejection before dispatch.
 
-`agent-open` 从无缓存的隔离加密客户端验证三助手空搜索发现、身份绑定、打开与刷新。Swift 回归必须先解码手机实际请求，避免只测试注入原生回复而漏掉入口校验错误。
+`agent-open` 从无缓存的隔离加密客户端验证Codex 与 Claude Code 的空搜索发现、身份绑定、打开与刷新。Swift 回归必须先解码手机实际请求，避免只测试注入原生回复而漏掉入口校验错误。
 
 `session-response` uses an isolated preference namespace and real Android Keystore with a synthetic host. It verifies malformed booleans/foreign receipts preserving the unknown result and draft, valid reconciliation, late native creation identity, a 270 KB out-of-order reply burst, active request/byte/callback/receipt limits, corrupt receipt preservation, and one-shot password verification without persistence. It never contacts a real Mac or types a password. Run it in both app languages alongside `codex`, `providers`, `new-session-receipts` and `screen-controls`. JVM `SessionResponseInboxTest` separately checks packet bounds, conflicting duplicates, absolute expiry, timer generations, replay capacity, UTF-8, authentication and operation-specific receipt evidence. Synthetic host frames must include the production `type` and recipient-bound `sender` fields; do not relax production validation to fit an incomplete fixture.
 
@@ -156,7 +156,7 @@ Useful selectors: `codex` (full session/receipt regression), `composer`, `codex-
 
 `swift test --package-path apps/macos --filter CodexCreationTests` uses temporary native-shaped SQLite/JSONL fixtures and injected actions. It checks complete-body and first-human-message receipts, moved/foreign/ambiguous threads, project identity, timeout boundaries and single submission. It never opens Codex, unlocks the screen, presses a button or reads a real conversation. Actual composer recognition and delivery require a separately authorized native-desktop acceptance run; do not count these isolated tests as that evidence.
 
-On an API 33+ emulator, run the session-localization probes (`screen-controls`, `composer`, `markdown`, `tool-groups`) once per app locale. Set it before starting instrumentation, using `adb -s EMULATOR_SERIAL shell cmd locale set-app-locales io.github.junweiup.vibepier.remote.review --locales en` or `--locales zh-CN`; record the original value with `get-app-locales` and restore it afterward. Do not change the locale while a probe is running. Raw fixture messages intentionally remain untranslated. The `new-session-receipts` probe checks fresh timeouts, dialog reopen, unknown/complete receipts, and explicit same-ID retry after `notFound`; run it in both languages too. The full `codex` probe separately verifies encrypted new-session persistence across client recreation for Codex, Claude and ZCode, and proves that a timeout does not automatically retransmit.
+On an API 33+ emulator, run the session-localization probes (`screen-controls`, `composer`, `markdown`, `tool-groups`) once per app locale. Set it before starting instrumentation, using `adb -s EMULATOR_SERIAL shell cmd locale set-app-locales io.github.junweiup.vibepier.remote.review --locales en` or `--locales zh-CN`; record the original value with `get-app-locales` and restore it afterward. Do not change the locale while a probe is running. Raw fixture messages intentionally remain untranslated. The `new-session-receipts` probe checks fresh timeouts, dialog reopen, unknown/complete receipts, and explicit same-ID retry after `notFound`; run it in both languages too. The full `codex` probe separately verifies encrypted new-session persistence across client recreation for Codex and Claude, and proves that a timeout does not automatically retransmit.
 
 `controls-localization` covers English/Chinese resources and real key editing at small/normal widths and normal/large type. The resource contract and remaining migration scope are described in [LOCALIZATION.md](LOCALIZATION.md).
 
@@ -250,10 +250,6 @@ The `image-zoom` emulator probe uses synthetic bitmaps and injected touch events
 
 `image-zoom` 通过合成位图及模拟器触摸事件验证真实全屏图片入口：图片区域占屏幕主要空间、完整画面、缩放/拖动边界、双击及重开重置、大图替换、关闭和系统返回；不读取真实会话图片或修改真机数据。`agent-open` 加密 loopback 还验证各适配器两页旧消息、精确的 `before` 锚点与最后一页 `hasOlder: false`。
 
-ZCode composer controls show loading feedback while reading native options and display failures in a dialog. When the focused AX window is missing, the adapter may use a unique native window; ambiguous or unavailable windows do not permit settings changes.
-
-ZCode 会话配置按钮读取原生选项时显示加载提示，失败时弹出原因。AX 焦点窗口缺失时仅允许使用唯一原生窗口；窗口不可用或存在歧义时不执行设置变更。
-
 The opt-in `binary-media` API37 probe uses a synthetic helper profile file to verify raw HTTPS JPEG/MP4 bytes, digest mismatch refusal, native conversation-image dialog/cache hits and single-offer video playback/seek. `BinaryMediaFilesTests` verifies private snapshots and device-scoped cancellation; the Go helper tests include local and cloud media capabilities. These are synthetic loopback/emulator results, not a public IPv6/NAT or real-phone throughput measurement.
 
 `binary-media` API37 探针使用合成文件助手验证二进制图片/视频、摘要拒绝、真实大图缓存和单次视频下载播放；Swift/Go验证私有快照、设备隔离和本地/云媒体凭据。不能把模拟器结果称作公网IPv6/NAT打洞或真机速度验收。
@@ -271,3 +267,9 @@ Run Swift `SessionProviderPolicyTests`/`SessionProviderModelTests`, Kotlin `Sess
 Agent unit tests inject adapters, native JSON-RPC and temporary directories. They cover journal-before-effect, native owner and capability changes, late callbacks, approval races, bounded replay gaps and partial evidence across restart. They do not use production provider homes, load a real Mods plugin or start a model turn. Optional runtime configuration is owner-only and disabled until explicitly enabled; native and real-device acceptance remain separate. See [Agent control](AGENT-CONTROL-ARCHITECTURE.md).
 
 统一 Agent 的普通验证仅使用合成数据、临时目录与注入接口；当前生产端不会由测试或构建自动更新。双端新写操作需要协商成功，未确定操作不迁移后端重发。
+
+## API 37 session regression / 会话专项回归
+
+Use [the session QA plan](AGENT-SESSION-TEST-PLAN.md) and [the call-chain map](SESSION-TESTABILITY.md) to separate UI state, control preparation, encrypted transport, native effects and receipt recovery. The explicit local runner `scripts/check/android-session-qa.py` accepts only an already running API 37 emulator and isolated review APKs. It does not build or select a physical phone.
+
+本机会话专项仅运行 API 37；先构建，再显式传入模拟器序列号和两个 review APK。`--reset-review-data` 仅适用于独立用例；恢复测试不得在中间清数据。审批 `approval-actions` 使用真实触摸事件和合成原生回执，不能充当真实 Agent 审批验收。结果与源码、APK 必须对应；失败、阻塞、未执行均单独记录。

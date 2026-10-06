@@ -7,7 +7,7 @@
 
 ![A phone and a Mac connected across a mint-green pier — concept illustration](assets/readme/work-within-reach.png)
 
-VibePier pairs a native Android remote with a macOS menu bar app. Read and continue supported Codex, Claude Code, and ZCode sessions; handle supported approvals; use application shortcuts, configurable keys, and optional phone microphone input. An optional self-hosted relay keeps the connection available across networks.
+VibePier pairs a native Android remote with a macOS menu bar app. Read and continue supported Codex and Claude Code sessions; handle supported approvals; use application shortcuts, configurable keys, and optional phone microphone input. An optional self-hosted relay keeps the connection available across networks.
 
 **[Download v0.1.0-beta.1](https://github.com/JunWeiUp/vibepier/releases/tag/v0.1.0-beta.1)** · Android 13+ · Apple-silicon Mac · Self-hosted Linux relay
 
@@ -47,15 +47,15 @@ This is an early preview. Real first-message acceptance was explicitly skipped f
 
 ## Provider support
 
-| Capability | Codex | Claude Code | ZCode |
-| --- | --- | --- | --- |
-| Sessions, history and scoped Markdown | Verified desktop or VibePier-owned App Server session | Local transcripts and supported desktop state | Read-only native history |
-| Replies, new sessions, settings and interrupt | Existing desktop owner, or healthy owned App Server session; background replies require idle | Depends on desktop/terminal ownership and available CLI | Verified native session and supported menus required |
-| Attachments | Supported | Inline images on new sessions; file references in the prompt | Unavailable |
-| Approvals and questions | Recognized native/async requests | Recognized, unambiguous desktop requests | Unavailable |
-| Follow-up queue and steering | Compatible desktop threads only | No equivalent queue controls | Unavailable |
+| Capability | Codex | Claude Code |
+| --- | --- | --- |
+| Sessions, history and scoped Markdown | Verified desktop or VibePier-owned App Server session | Local transcripts and supported desktop state |
+| Replies, new sessions, settings and interrupt | Existing desktop owner, or healthy owned App Server session; background replies require idle | Depends on desktop/terminal ownership and available CLI |
+| Attachments | Supported | Inline images on new sessions; file references in the prompt |
+| Approvals and questions | Recognized native/async requests | Recognized, unambiguous desktop requests |
+| Follow-up queue and steering | Compatible desktop threads only | No equivalent queue controls |
 
-Codex desktop compatibility is checked through native interfaces and receipts; desktop build numbers alone do not disable sessions or settings. Phone-created Codex sessions now use the bundled App Server in the background with the Mac's existing account, so creation does not require unlocking the Mac. A persistent registry keeps those sessions on that backend; existing desktop sessions retain their original IPC owner. Background sessions accept messages while idle and do not offer queue, steer or queue deletion. A live Claude terminal session is not resumed through a competing process. ZCode new-session support has additional native-provider restrictions. See the [compatibility guide](docs/COMPATIBILITY.md) for native-contract and acceptance limits.
+Codex desktop compatibility is checked through native interfaces and receipts; desktop build numbers alone do not disable sessions or settings. Phone-created Codex sessions now use the bundled App Server in the background with the Mac's existing account, so creation does not require unlocking the Mac. A persistent registry keeps those sessions on that backend; existing desktop sessions retain their original IPC owner. Background sessions accept messages while idle and do not offer queue, steer or queue deletion. A live Claude terminal session is not resumed through a competing process. See the [compatibility guide](docs/COMPATIBILITY.md) for native-contract and acceptance limits.
 
 Codex new-session options include a Fast mode checkbox for supported models, effective from the first message. Fast mode may increase usage.
 
@@ -225,6 +225,7 @@ Every control path requires device authorization. Control traffic uses authentic
 | Operate or move it | [Deployment](docs/DEPLOYMENT.md) · [Mac updates and permissions](docs/MACOS-UPDATES.md) · [Migration](docs/MIGRATION.md) · [Portable settings](docs/SETTINGS-TRANSFER.md) |
 | Understand the project | [Product scope](docs/PROJECT-SPEC.md) · [Architecture](docs/ARCHITECTURE.md) · [Design](DESIGN.md) · [Screens](docs/PAGE-STRUCTURE.md) |
 | Agent protocol and optional runtimes | [Unified control](docs/AGENT-CONTROL-ARCHITECTURE.md) · [Session API](protocol/specs/agent-session.md) |
+| Session testing and debugging | [API 37 test plan](docs/AGENT-SESSION-TEST-PLAN.md) · [Call chain and test seams](docs/SESSION-TESTABILITY.md) · [Validation report](docs/AGENT-SESSION-VALIDATION.md) · [Current contracts](docs/CURRENT-PROTOCOLS.md) |
 | Contribute | [Contribution guide](CONTRIBUTING.md) · [Components](docs/COMPONENT-GUIDELINES.md) · [Development](docs/DEVELOPMENT.md) · [AGENTS.md](AGENTS.md) |
 | Review a release | [Artifacts and distribution](docs/REGISTRY.md) · [Changelog](CHANGELOG.md) · [Release gates](TODO.md) |
 

@@ -16,7 +16,7 @@ import org.json.JSONObject
 
 /** Explicit emulator-only test. A loopback fake Mac never sends controls to the user's desktop. */
 object BackgroundConnectionProbe {
-    fun run(test: Instrumentation): String {
+    fun run(test: Instrumentation, soak: Boolean = false): String {
         check(BuildConfig.DESIGN_REVIEW && android.os.Build.MODEL.contains("sdk", ignoreCase = true))
         val deviceKeys = DeviceKeys(test.targetContext)
         check(!deviceKeys.authorized) { "Use an unenrolled, disposable review app for this probe" }
@@ -29,11 +29,13 @@ object BackgroundConnectionProbe {
         prefs.edit().putString("host", "127.0.0.1").putString("transport", "wifi").commit()
         val fake = DatagramSocket(RemoteSender.PORT, InetAddress.getByName("127.0.0.1"))
         val watches = AtomicInteger()
+        val responding = java.util.concurrent.atomic.AtomicBoolean(true)
         val identities = java.util.Collections.synchronizedSet(mutableSetOf<String>())
         val worker = Thread {
             val bytes = ByteArray(SecureControlClient.MAX_FRAME)
             while (!fake.isClosed) try {
                 val packet = DatagramPacket(bytes, bytes.size); fake.receive(packet)
+                if (!responding.get()) continue
                 val line = String(packet.data, 0, packet.length)
                 val response = secureHost.receive(line) { plaintext ->
                     if (plaintext != "vibepier-watch1 ${deviceKeys.device}") return@receive null
@@ -63,6 +65,26 @@ object BackgroundConnectionProbe {
             SystemClock.sleep(14_000) // Longer than the 12-second peer timeout.
             check(watches.get() >= before + 3) { "Background heartbeat stopped" }
             check(first.connectedHost == "127.0.0.1")
+            if (soak) {
+                val started = SystemClock.elapsedRealtime()
+                var cycles = 0
+                while (SystemClock.elapsedRealtime() - started < 30 * 60_000L || cycles < 100) {
+                    responding.set(false)
+                    SystemClock.sleep(14_000)
+                    check(first.connectedHost == null) { "Lost peer remained connected in cycle $cycles" }
+                    responding.set(true)
+                    val recovery = SystemClock.elapsedRealtime() + 8_000
+                    while (first.connectedHost == null && SystemClock.elapsedRealtime() < recovery) SystemClock.sleep(100)
+                    check(first.connectedHost == "127.0.0.1") { "Peer failed to recover in cycle $cycles" }
+                    check(identities.size == 1) { "Peer identity changed during reconnect" }
+                    cycles++
+                    test.sendStatus(1, android.os.Bundle().apply {
+                        putString("phase", "background-soak")
+                        putInt("cycles", cycles)
+                        putLong("elapsedMs", SystemClock.elapsedRealtime() - started)
+                    })
+                }
+            }
             test.runOnMainSync { activity!!.finish() }
             test.waitForIdleSync(); SystemClock.sleep(300)
             activity = launch()
@@ -71,7 +93,8 @@ object BackgroundConnectionProbe {
             test.runOnMainSync { test.targetContext.stopService(Intent(test.targetContext, RemoteConnectionService::class.java)) }
             test.waitForIdleSync(); SystemClock.sleep(300)
             check(first.connectedHost == null) { "Explicit disconnect did not clear connection" }
-            return "PASS: authenticated encrypted loopback connected; background heartbeats >12s; stable peer identity; Activity recreation reuses transport; explicit stop disconnects\n"
+            return "PASS: authenticated encrypted loopback connected; background heartbeats >12s; stable peer identity; Activity recreation reuses transport; explicit stop disconnects" +
+                if (soak) "; 30-minute/100-cycle authenticated disconnect/reconnect soak\n" else "\n"
         } finally {
             test.runOnMainSync {
                 activity?.finish()

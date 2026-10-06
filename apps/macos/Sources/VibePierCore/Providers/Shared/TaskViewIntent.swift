@@ -14,7 +14,7 @@ struct TaskViewIntent: Equatable, Sendable {
         else { return nil }
         let supplied = request["provider"] as? String ?? "codex"
         let provider = supplied.isEmpty ? "codex" : supplied
-        guard ["codex", "claude", "zcode"].contains(provider) else { return nil }
+        guard ["codex", "claude"].contains(provider) else { return nil }
         self.provider = provider
         self.id = id
         self.version = version

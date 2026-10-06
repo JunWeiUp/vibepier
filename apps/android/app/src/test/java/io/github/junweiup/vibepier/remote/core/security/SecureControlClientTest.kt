@@ -163,20 +163,27 @@ class SecureControlClientTest {
         assertTrue(peer.receive(hostFrame(session, 1)) is SecureControlClient.Result.Message)
     }
 
-    @Test fun bulkAuthenticationUsesIndependentVectorAndOnlyNegotiatedEncryptedUploads() {
-        val fixture = org.json.JSONObject(javaClass.classLoader!!.getResourceAsStream("control-bulk-v1.json")!!.bufferedReader().use { it.readText() })
+    @Test fun retiredBulkSelectionAndFramesAreRejectedWhileCurrentRpcUsesAes() {
         val peer = client(); val offer = peer.hello()!!
-        assertSame(SecureControlClient.Result.Ready, peer.receive(ready(offer, session = fixture.getString("session"), capabilities = "31")))
-        val payload = fixture.getString("payload").toByteArray()
-        assertEquals(fixture.getString("wire"), peer.seal(payload))
-        val udp = org.json.JSONObject(fixture.getString("payload")).put("data", "a".repeat(512)).put("fragmentChars", 512).put("parts", 256)
-        assertTrue(peer.seal(udp.toString().toByteArray())!!.toByteArray().size <= 1280)
-        assertTrue(peer.seal("confirm".toByteArray())!!.startsWith(SecureControlClient.FRAME))
-        peer.disconnect(); assertNull(peer.seal(payload))
-        assertSame(SecureControlClient.Result.Ready, peer.receive(ready(peer.hello()!!, capabilities = "15")))
-        assertTrue(peer.seal(payload)!!.startsWith(SecureControlClient.FRAME))
-        val changed = org.json.JSONObject(fixture.getString("payload")).put("type", "vibepier-mic1")
-        assertFalse(SecureControlClient.isBulkUpload(changed.toString().toByteArray(), device))
+        assertEquals("15", offer.split(' ')[5])
+        assertSame(SecureControlClient.Result.Incompatible, peer.receive(ready(offer, capabilities = "31")))
+        assertFalse(peer.ready)
+        val response = ready(peer.hello()!!)
+        assertSame(SecureControlClient.Result.Ready, peer.receive(response))
+        val session = response.split(' ')[3]
+        val retired = "vibepier-bulk1 $device $session 9000 c2VhbGVk " + "0".repeat(64)
+        assertSame(SecureControlClient.Result.Rejected, peer.receive(retired))
+        val payload = "{\"type\":\"vibepier-session1\",\"data\":\"synthetic\"}"
+        val outgoing = peer.seal(payload.toByteArray())!!.split(' ')
+        assertEquals(SecureControlClient.FRAME, outgoing[0])
+        val box = Base64.getDecoder().decode(outgoing[4])
+        val cipher = Cipher.getInstance("AES/GCM/NoPadding")
+        cipher.init(Cipher.DECRYPT_MODE, keys.phone, GCMParameterSpec(128, box.copyOfRange(0, 12)))
+        cipher.updateAAD(SecureControlClient.aad("phone", device, session, 1))
+        assertEquals(payload, String(cipher.doFinal(box, 12, box.size - 12)))
+        val current = hostFrame(session, 1, payload)
+        assertTrue(peer.receive(current) is SecureControlClient.Result.Message)
+        assertSame(SecureControlClient.Result.Rejected, peer.receive(current))
     }
 
     @Test fun legacyAndMalformedRepliesNeverDowngradeTheHandshake() {

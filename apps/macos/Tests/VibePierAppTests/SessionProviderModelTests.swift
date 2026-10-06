@@ -19,7 +19,7 @@ final class SessionProviderModelTests: XCTestCase {
                 exitCode: 0,
                 stdout: """
                     {"ok":true,"dongleConnected":false,"micLinked":false,
-                     "providerAccess":{"revision":1,"enabled":{"codex":\(enabled),"claude":true,"zcode":false}}}
+                     "providerAccess":{"revision":1,"enabled":{"codex":\(enabled),"claude":true}}}
                     """, stderr: "")
         })
         await model.refreshStatus()

@@ -46,7 +46,7 @@ def generate():
             raise ValueError("Unknown capability")
         if entry["durableMutation"] and not entry["uncertainOnTimeout"]:
             raise ValueError("Durable mutation must preserve timeout uncertainty")
-    if manifest["providers"] != ["codex", "claude", "zcode"]:
+    if manifest["providers"] != ["codex", "claude"]:
         raise ValueError("Unexpected current provider inventory")
     if len(manifest["capabilityKeys"]) != len(set(manifest["capabilityKeys"])):
         raise ValueError("Duplicate capability")

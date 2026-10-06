@@ -33,12 +33,9 @@ interface SessionTransport {
 
 class SessionClient(context: Context, private val sender: SessionTransport, private val replyTimeoutMs: Long = 0, private val completionNotifications: Boolean = false) {
     val receivingContent get() = inbox.receivingContent
-    val relayDownload get() = sender.mode == "relay"
     val bluetooth get() = sender.mode == "bluetooth"
     val canRequestAuthorization get() = bluetooth && sender.enrollmentReady
     val binaryHost: String? get() = sender.binaryHost
-    val attachmentFragmentChars get() = if (sender.mode == "wifi" || sender is io.github.junweiup.vibepier.remote.core.transport.RemoteSender && sender.isDirect) 512 else 7200
-    val attachmentChunkBytes get() = if (sender.mode == "bluetooth") 8 * 1024 else 128 * 1024
     private val responseTimeout get() = if (replyTimeoutMs > 0) replyTimeoutMs else if (sender.mode == "bluetooth") 45_000L else 12_000L
     private val context = context.applicationContext
     private val prefs = PrivatePreferences.open(context, "sessions")
@@ -49,16 +46,6 @@ class SessionClient(context: Context, private val sender: SessionTransport, priv
     private val main = Handler(Looper.getMainLooper())
     private val transmission = java.util.concurrent.Executors.newSingleThreadExecutor()
     private val transmissionBytes = java.util.concurrent.atomic.AtomicInteger()
-    private data class UploadTransmission(val request: String, val attachment: String, val authorization: String,
-        val frames: List<String>, val created: Long, val bytes: Int, val resends: java.util.concurrent.atomic.AtomicInteger = java.util.concurrent.atomic.AtomicInteger())
-    private val uploadTransmissions = java.util.concurrent.ConcurrentHashMap<String, UploadTransmission>()
-    private val uploadTransmissionBytes = java.util.concurrent.atomic.AtomicInteger()
-    private val cancelledUploads = java.util.concurrent.ConcurrentHashMap<String, Long>()
-    private fun clearUploadTransmissions(keep: (UploadTransmission) -> Boolean) {
-        uploadTransmissions.entries.forEach { (packet, value) ->
-            if (!keep(value) && uploadTransmissions.remove(packet, value)) uploadTransmissionBytes.addAndGet(-value.bytes)
-        }
-    }
     val paired get() = keys.authorized
     val authorizationIdentity: String get() = keys.authorizationIdentity.orEmpty()
     var viewVersion = prefs.getLong("viewVersion", 0); private set
@@ -108,6 +95,9 @@ class SessionClient(context: Context, private val sender: SessionTransport, priv
         selectedAdapter = { source -> selectedAgentAdapter(source)?.id },
     ).apply {
         onPreservedRead = { id -> preservedAgentReads.add(id) }
+        onCancelledRead = { id ->
+            if (id !in preservedAgentReads && pending[id]?.json?.let { shouldCancelSessionPageRead(it, false) } == true) pending.remove(id)
+        }
         onSession = { session ->
             val key = "agentSession.$authorizationIdentity.${session.adapterId}.${session.nativeThreadId}"
             val encoded = session.descriptor.toString()
@@ -141,9 +131,9 @@ class SessionClient(context: Context, private val sender: SessionTransport, priv
                 clearSentAttachmentsInScope(thread, original.optJSONArray("attachments"), source)
             }
             if (original != null && reply.status in setOf(SessionAgentProtocol.Status.CONFIRMED, SessionAgentProtocol.Status.REJECTED)) {
-                val legacy = agentConversation.legacyReply(reply, original)
-                agentConversation.rememberSettled(operation, legacy)
-                onEvent(JSONObject(legacy.toString()).put("event", "lateReceipt").put("operation", original))
+                val projected = agentConversation.projectReply(reply, original)
+                agentConversation.rememberSettled(operation, projected)
+                onEvent(JSONObject(projected.toString()).put("event", "lateReceipt").put("operation", original))
             }
             onEvent(JSONObject().put("event", "agentOperationUpdated").put("operationId", operation).put("status", reply.status.wire))
         }
@@ -189,7 +179,7 @@ class SessionClient(context: Context, private val sender: SessionTransport, priv
     /** UI offers supported actions; only the fresh Mac state decides whether this new action can run. */
     internal fun agentActionSupported(key: String, sourceProvider: String = provider): Boolean =
         providerEnabled(sourceProvider) && selectedAgentAdapter(sourceProvider)?.actions?.get(key)?.supported == true
-    internal fun sessionControlKnown(thread: String) = if (agent.negotiated) agent.session(provider, thread) != null else agentCapabilitiesKnown
+    internal fun sessionControlKnown(thread: String) = agent.negotiated && agent.session(provider, thread) != null
     // Draft declarations can disappear after discovery or reconnect. The UI only
     // checks adapter support; the agent conversation obtains fresh authorization before each write.
     internal fun creationCapability(key: String, draft: SessionCreationDraft) =
@@ -202,16 +192,13 @@ class SessionClient(context: Context, private val sender: SessionTransport, priv
         request("providers", JSONObject().put("agentCapabilityVersion", SessionAgentCapabilities.VERSION).put("agentProtocolVersion", 2)) { result ->
             refreshingProviderAccess = false
             if (authorization != authorizationIdentity || connection != versionConnectionID) return@request
-            agentNegotiation.discover(if (result.opt("ok") == true) result.optJSONObject("agentCapabilities") else null)
+            val currentProfile = SessionProviderAccess.acceptsProfile(result, providerAccess)
+            agentNegotiation.discover(if (currentProfile) result.optJSONObject("agentCapabilities") else null)
             agentNegotiation.host?.adapters?.filter { it.isDefault }?.let { defaults ->
                 prefs.edit().apply { defaults.forEach { putString("agentDefaultAdapter.$authorizationIdentity.${it.provider}", it.id) } }.apply()
             }
-            agent.discover(if (result.opt("ok") == true) result.optJSONObject("agentProfiles") else null)
+            agent.discover(if (currentProfile) result.optJSONObject("agentProfiles") else null)
             if (agent.negotiated) SessionProvider.ids.forEach(::invalidateLists)
-            // An authenticated pre-policy Mac exposes all three existing providers.
-            if (result.optBoolean("ok") && !result.has("providerAccess") && providerAccess == null) {
-                rememberProviderAccess(SessionProviderAccess.legacy)
-            }
             onEvent(JSONObject().put("event", "agentCapabilitiesChanged"))
             if (result.optBoolean("ok")) request("notificationSubscribe") { }
         }
@@ -252,18 +239,17 @@ class SessionClient(context: Context, private val sender: SessionTransport, priv
     }
     private var pairDeadline = 0L
     private val pairRetry = Runnable { if (System.currentTimeMillis() < pairDeadline) sender.readSessionPair() else { pairDeadline = 0; reportAuthorization(context.getString(R.string.client_approval_timeout)) } }
-    private fun mutable(op: String) = SessionV1Contract.operation(op)?.durableMutation == true
+    private fun mutable(op: String) = SessionProfilePolicy.independentMutation(op)
     // Password verification is not retried, but must never enter durable phone storage.
     private fun uncertainOnTimeout(op: String, body: JSONObject? = null) =
         if (op == "agentRequest") SessionAgentProtocol.Method.parse(body?.opt("method"))?.mutation == true
         else SessionV1Contract.operation(op)?.uncertainOnTimeout == true
     private fun agentReceipt(request: JSONObject) = request.optString("op") == "agentRequest" &&
         SessionAgentProtocol.Method.parse(request.optJSONObject("body")?.opt("method")) == SessionAgentProtocol.Method.OPERATION
-    private data class Request(val json: JSONObject, val callbacks: MutableList<(JSONObject) -> Unit>, val readKey: String? = null, val cacheKey: String? = null, var attempts: Int = 0, val byteSize: Int = json.toString().toByteArray(Charsets.UTF_8).size) {
+    private data class Request(val json: JSONObject, val callbacks: MutableList<(JSONObject) -> Unit>, val readKey: String? = null, var attempts: Int = 0, val byteSize: Int = json.toString().toByteArray(Charsets.UTF_8).size) {
         fun deliver(value: JSONObject) { callbacks.toList().forEach { it(JSONObject(value.toString())) } }
     }
     private val content = ConversationCache(prefs)
-    var cacheHits = 0; private set
     var coalescedReads = 0; private set
     var networkReads = 0; private set
     private val pages = linkedMapOf<String, String>()
@@ -329,8 +315,6 @@ class SessionClient(context: Context, private val sender: SessionTransport, priv
         content.put("page:$key", value)
     }
     private val inbox = SessionResponseInbox(device, android.os.SystemClock::elapsedRealtime)
-    private var apkDownloadToken: String? = null
-    private var apkDownloadConnection: String? = null
     private val pending = java.util.concurrent.ConcurrentHashMap<String, Request>()
     @Volatile private var closed = false
     private val queuedFrameBytes = java.util.concurrent.atomic.AtomicInteger()
@@ -364,7 +348,6 @@ class SessionClient(context: Context, private val sender: SessionTransport, priv
         if (!connected) {
             refreshingProviderAccess = false
             if (!sender.enrollmentReady) { pairDeadline = 0; main.removeCallbacks(pairRetry) }
-            apkDownloadToken = null; apkDownloadConnection = null
             inbox.clearPartial()
             // Mutations keep waiting through a brief transport drop: their own deadline still applies, and a reply
             // delivered after reconnecting settles them. Marking them unknown here only produced false uncertainty.
@@ -409,6 +392,16 @@ class SessionClient(context: Context, private val sender: SessionTransport, priv
         return JSONObject().apply { fields.forEach { (key, item) -> put(key, item) } }.toString()
     }
     fun request(op: String, fields: JSONObject = JSONObject(), callback: (JSONObject) -> Unit): String {
+        val source = fields.optString("provider", provider)
+        if (source !in SessionProvider.ids && op !in SessionProviderAccess.independent &&
+            op !in SessionProviderAccess.receipts && !(op == "agentRequest" && fields.optJSONObject("body")?.optString("method") == "operation.get")) {
+            val id = fields.optString("id").ifBlank(SessionAgentProtocol::id)
+            callback(JSONObject().put("id", id).put("ok", false).put("code", "unsupported")
+                .put("error", context.getString(R.string.agent_capability_unavailable)))
+            return id
+        }
+        // The gateway receipt operation is shared with independent controls, never with old session intents.
+        if (op == "receipt" && controlIntent(fields.optString("operation")) != null) return wireRequest(op, fields, callback)
         if (online && paired && op != "agentRequest") {
             if (agent.negotiated && op == "open" && agent.session(provider, fields.optString("threadId")) == null) {
                 val adapter = selectedAgentAdapter()?.id
@@ -429,32 +422,27 @@ class SessionClient(context: Context, private val sender: SessionTransport, priv
                 return id
             }
         }
-        if (op in sessionMutations && online && paired) {
+        if (op in SessionProfilePolicy.operations) {
             val id = fields.optString("id").ifBlank(SessionAgentProtocol::id)
-            if (agent.hasPendingOperation(id)) {
-                val original = agent.context(id)
-                agent.reconcile(id) { reply -> callback(if (original != null) agentConversation.legacyReply(reply, original)
-                    else JSONObject().put("id", id).put("ok", false).put("unknown", true).put("error", context.getString(R.string.client_unknown_result))) }
-                return id
-            }
-            val saved = runCatching { prefs.getString("pending.$id", null) }.getOrElse {
-                callback(JSONObject().put("id", id).put("ok", false).put("unknown", true).put("error", context.getString(R.string.client_receipt_save_failed)))
-                return id
-            }
-            // Every phone write goes through the unified agent profile. Until it is negotiated on this connection, a
-            // write is refused before any effect (no legacy fallback); negotiation is requested again.
-            if (saved == null) {
-                if (!refreshingProviderAccess) refreshProviderAccess()
-                callback(JSONObject().put("id", id).put("ok", false).put("code", "agent_state_not_ready")
-                    .put("error", context.getString(R.string.agent_state_not_ready)))
-                return id
-            }
+            if (online && paired && !refreshingProviderAccess) refreshProviderAccess()
+            callback(JSONObject().put("id", id).put("ok", false).put("code", "agent_state_not_ready")
+                .put("error", context.getString(R.string.agent_state_not_ready)))
+            return id
         }
         return wireRequest(op, fields, callback)
     }
-    private val sessionMutations = setOf("send", "new", "settings", "approve", "interrupt", "queueSteer", "queueDelete")
     private fun wireRequest(op: String, fields: JSONObject, callback: (JSONObject) -> Unit): String {
         val id = fields.optString("id").ifBlank { UUID.randomUUID().toString() }
+        if (!SessionTransferPolicy.accepts(op, fields)) {
+            callback(JSONObject().put("id", id).put("ok", false).put("code", "unsupported")
+                .put("error", context.getString(R.string.agent_capability_unavailable)))
+            return id
+        }
+        if (op in SessionProfilePolicy.operations && !(op == "receipt" && controlIntent(fields.optString("operation")) != null)) {
+            callback(JSONObject().put("id", id).put("ok", false).put("code", "agent_state_not_ready")
+                .put("error", context.getString(R.string.agent_state_not_ready)))
+            return id
+        }
         val request = JSONObject().apply {
             fields.keys().forEach { key ->
                 val value = fields.get(key)
@@ -462,6 +450,12 @@ class SessionClient(context: Context, private val sender: SessionTransport, priv
             }
         }.put("op", op).put("id", id).put("sentAt", System.currentTimeMillis())
         if (!request.has("provider")) request.put("provider", provider)
+        if (request.optString("provider") !in SessionProvider.ids && op !in SessionProviderAccess.independent &&
+            op !in SessionProviderAccess.receipts && !agentReceipt(request)) {
+            callback(JSONObject().put("id", id).put("ok", false).put("code", "unsupported")
+                .put("error", context.getString(R.string.agent_capability_unavailable)))
+            return id
+        }
         if (providerAccess != null && providerAccess?.permits(request.optString("provider"), op) != true &&
             op !in SessionProviderAccess.independent && op !in SessionProviderAccess.receipts && !agentReceipt(request)) {
             callback(JSONObject().put("id", id).put("ok", false).put("code", "provider_disabled")
@@ -469,43 +463,9 @@ class SessionClient(context: Context, private val sender: SessionTransport, priv
             return id
         }
         if (op in setOf("image", "readImageFile", "readVideoFile")) request.put("binaryVersion", 1)
-        if (!online && paired && (op == "image" || (op == "message" && request.optString("cacheVersion").isNotBlank()))) {
-            val key = "read:${localScope(request.optString("provider"))}:${request.optString("threadId")}:$op:" + readKey(request, false)
-            content.get(key)?.let { value -> cacheHits++; callback(value.put("id", id).put("viewVersion", viewVersion)); return id }
-        }
         if (closed || !online || !paired) { callback(JSONObject().put("ok", false).put("error", if (!online) context.getString(R.string.client_connect_first) else context.getString(R.string.client_authorize_first))); return id }
         if (!SessionResponseInbox.uuid(id)) { callback(JSONObject().put("ok", false).put("error", context.getString(R.string.client_request_id_conflict))); return id }
-        val changesView = op == "open" || op == "close"
-        if (changesView && viewVersion == Long.MAX_VALUE) { callback(JSONObject().put("ok", false).put("error", context.getString(R.string.client_state_save_failed))); return id }
-        val nextView = if (changesView) viewVersion + 1 else viewVersion
-        if (!request.has("viewVersion")) request.put("viewVersion", nextView)
-        if (op in setOf("open", "sync", "newOptions") && !request.has("agentAdapterId")) selectedAgentAdapter(request.optString("provider"))?.id?.let { request.put("agentAdapterId", it) }
-        if (!request.has("provider")) request.put("provider", provider)
-        val savedOriginal = try { if (mutable(op)) prefs.getString("pending.$id", null) else null }
-        catch (_: Exception) {
-            callback(JSONObject().put("id", id).put("ok", false).put("unknown", true).put("error", context.getString(R.string.client_receipt_save_failed))); return id
-        }
-        // Another creation may finish preparation while this request is reading
-        // options. Recheck at the journal boundary without blocking original-ID retries.
-        if (op == "new" && savedOriginal == null && SessionWaitingPolicy.duplicateCreation(
-                uncertain("", request.optString("provider")), request.optString("cwd"), request.optString("text"),
-                request.optJSONArray("attachments") ?: JSONArray(), id)) {
-            callback(JSONObject().put("id", id).put("ok", false).put("code", "operation_conflict")
-                .put("error", context.getString(R.string.creation_duplicate_pending)))
-            return id
-        }
-        if (op in setOf("send", "new", "settings", "approve", "interrupt", "queueSteer", "queueDelete") && savedOriginal == null) {
-            val capability = SessionV1Contract.operation(op)?.capability
-            val declaration = agentNegotiation.target(request)
-            if (capability == null || declaration?.allows(capability) != true ||
-                (op in setOf("new", "settings") && request.has("executionMode") && !declaration.allows("executionMode"))) {
-                callback(JSONObject().put("id", id).put("ok", false)
-                    .put("code", if (agentCapabilitiesKnown) "agent_capability_unavailable" else "agent_upgrade_required")
-                    .put("error", context.getString(if (agentCapabilitiesKnown) R.string.agent_capability_unavailable else R.string.agent_upgrade_required)))
-                return id
-            }
-            declaration.fields().keys().forEach { key -> request.put(key, declaration.fields().get(key)) }
-        }
+        if (!request.has("viewVersion")) request.put("viewVersion", viewVersion)
         val encodedRequest = request.toString().toByteArray(Charsets.UTF_8)
         val requestBytes = encodedRequest.size
         if (requestBytes > SessionResponseInbox.PLAINTEXT_LIMIT) { callback(JSONObject().put("ok", false).put("error", context.getString(R.string.client_request_too_large))); return id }
@@ -519,16 +479,6 @@ class SessionClient(context: Context, private val sender: SessionTransport, priv
         }
         val reading = SessionV1Contract.operation(op)?.cacheableRead == true
         val readIdentity = if (reading) readKey(request, true) else null
-        val cacheAge = when {
-            op == "image" && request.optInt("binaryVersion") != 1 -> 10 * 60_000L
-            op == "composerOptions" -> 15_000L
-            op == "message" && request.optString("cacheVersion").isNotBlank() -> 24 * 60 * 60_000L
-            else -> 0L
-        }
-        val cacheKey = if (cacheAge > 0) "read:${localScope(request.optString("provider"))}:${request.optString("threadId")}:$op:" + readKey(request, false) else null
-        if (cacheKey != null) content.get(cacheKey, cacheAge)?.let { value ->
-            cacheHits++; callback(value.put("id", id).put("viewVersion", viewVersion)); return id
-        }
         if (readIdentity != null) pending.values.firstOrNull { it.readKey == readIdentity }?.let { item ->
             if (item.callbacks.size >= 16) callback(JSONObject().put("ok", false).put("error", context.getString(R.string.client_request_busy)))
             else { coalescedReads++; item.callbacks.add(callback) }
@@ -552,11 +502,7 @@ class SessionClient(context: Context, private val sender: SessionTransport, priv
                 callback(JSONObject().put("ok", false).put("error", context.getString(R.string.client_receipt_save_failed))); return id
             }
         }
-        if (changesView) {
-            if (!prefs.edit().putLong("viewVersion", nextView).commit()) { callback(JSONObject().put("ok", false).put("error", context.getString(R.string.client_state_save_failed))); return id }
-            viewVersion = nextView
-        }
-        val item = Request(request, mutableListOf(callback), readIdentity, cacheKey, byteSize = requestBytes)
+        val item = Request(request, mutableListOf(callback), readIdentity, byteSize = requestBytes)
         pending[id] = item
         if (reading) networkReads++
         transmit(request, encodedRequest)
@@ -577,21 +523,17 @@ class SessionClient(context: Context, private val sender: SessionTransport, priv
     }
     /** Leaving a page cancels its reads, so their timeout retries cannot reopen an obsolete subscription. */
     internal fun cancelAttachmentRequests(attachment: String) {
-        cancelledUploads[attachment] = android.os.SystemClock.elapsedRealtime() + 30_000
-        clearUploadTransmissions { it.attachment != attachment }
         pending.entries.removeAll { it.value.json.optString("attachmentId") == attachment &&
-            it.value.json.optString("op") in setOf("attachmentStart", "attachmentChunk", "attachmentComplete", "newAttachmentStart", "newAttachmentChunk", "newAttachmentComplete") }
+            it.value.json.optString("op") in setOf("attachmentStart", "attachmentComplete", "newAttachmentStart", "newAttachmentComplete") }
     }
     fun cancelAPKReads() {
-        pending.entries.removeAll { it.value.json.optString("op") in setOf("apkOffer", "apkChunk", "apkBinary") }
-        apkDownloadToken = null; apkDownloadConnection = null
-        inbox.clearFastPartial()
+        pending.entries.removeAll { it.value.json.optString("op") in setOf("apkOffer", "apkBinary") }
     }
     fun cancelMarkdownReads(thread: String, sourceProvider: String) {
         pending.entries.removeAll { it.value.json.optString("op") == "readMarkdownFile" && it.value.json.optString("threadId") == thread && it.value.json.optString("provider") == sourceProvider }
     }
     internal fun cancelCreationOptions(id: String?) {
-        if (id != null && pending[id]?.json?.optString("op") == "newOptions") pending.remove(id)
+        agentConversation.cancelCreationOptions(id)
     }
     internal fun cancelCreationReceiptReads(operation: String) {
         pending.entries.removeAll { SessionCreationWaitState.isReceiptRead(it.value.json, operation) }
@@ -599,15 +541,15 @@ class SessionClient(context: Context, private val sender: SessionTransport, priv
     /** Agent reads that a mutation preparation or receipt lookup waits on; dropping them would strand that wait. */
     private val preservedAgentReads = java.util.Collections.newSetFromMap(java.util.concurrent.ConcurrentHashMap<String, Boolean>())
     fun cancelPageReads() {
+        agentConversation.cancelCreationOptions()
         preservedAgentReads.retainAll(pending.keys)
-        pending.entries.removeAll { it.key !in preservedAgentReads && it.value.json.optString("op") in setOf("open", "close", "list", "projects", "sync", "history", "parts", "message", "image", "composerOptions", "newOptions", "contextUsage", "browseFiles", "readMarkdownFile", "approvalDetails", "fileChanges", "readFile", "readImageFile", "readVideoFile", "fileDiff", "searchFiles") ||
-            it.value.json.optString("op") == "agentRequest" && !uncertainOnTimeout("agentRequest", it.value.json.optJSONObject("body")) }
+        pending.entries.removeAll { shouldCancelSessionPageRead(it.value.json, it.key in preservedAgentReads) }
     }
-    private fun uncertainLegacy(thread: String, sourceProvider: String): List<JSONObject> = prefs.all.filterKeys { it.startsWith("pending.") }.values.mapNotNull {
-        try { JSONObject(it as String).takeIf { j -> j.optString("threadId") == thread && j.optString("provider", "codex") == sourceProvider &&
+    private fun uncertainControls(thread: String, sourceProvider: String): List<JSONObject> = prefs.all.filterKeys { it.startsWith("pending.") }.values.mapNotNull {
+        try { JSONObject(it as String).takeIf { j -> mutable(j.optString("op")) && j.optString("threadId") == thread && j.optString("provider", "codex") == sourceProvider &&
             receiptScope(j) == localScope(sourceProvider) } } catch (_: Exception) { null }
     }
-    fun uncertain(thread: String, sourceProvider: String = provider): List<JSONObject> = uncertainLegacy(thread, sourceProvider) + agent.pendingLegacy(sourceProvider, thread)
+    fun uncertain(thread: String, sourceProvider: String = provider): List<JSONObject> = uncertainControls(thread, sourceProvider) + agent.pendingContexts(sourceProvider, thread)
     // Local waiting state is separate from the durable operation journal.
     private fun stoppedWaitingKey(thread: String) = "stoppedWaiting.${sessionScope(thread)}"
     fun waitingStopped(thread: String, operation: JSONObject): Boolean =
@@ -636,34 +578,30 @@ class SessionClient(context: Context, private val sender: SessionTransport, priv
     fun waitingOperations(thread: String): List<JSONObject> = uncertain(thread).filter { !waitingStopped(thread, it) }
     fun duplicateUnconfirmedSend(thread: String, text: String, attachments: JSONArray): Boolean =
         SessionWaitingPolicy.duplicateSend(uncertain(thread), text, attachments)
-    fun clearReceipt(id: String) { prefs.edit().remove("pending.$id").apply() }
+    private fun controlIntent(id: String): JSONObject? = runCatching {
+        prefs.getString("pending.$id", null)?.let { JSONObject(it) }?.takeIf { it.opt("id") == id && SessionResponseInbox.uuid(id) && mutable(it.optString("op")) }
+    }.getOrNull()
+    fun clearReceipt(id: String) {
+        if (controlIntent(id) != null) prefs.edit().remove("pending.$id").apply()
+    }
     /** Only a settings change may be abandoned: choosing settings again is harmless, unlike resending a message. */
     fun abandonSettings(id: String): Boolean {
-        val v2 = agent.context(id)
-        val original = v2 ?: prefs.getString("pending.$id", null)?.let { runCatching { JSONObject(it) }.getOrNull() } ?: return false
-        if (original.optString("op") != "settings") return false
-        if (v2 != null) return agent.abandon(id)
-        return prefs.edit().remove("pending.$id").commit()
+        val original = agent.context(id) ?: return false
+        return original.optString("op") == "settings" && agent.abandon(id)
     }
     fun retryPending(id: String, callback: (JSONObject) -> Unit) {
         agent.context(id)?.let { original ->
             // Only reached after the Mac reported notFound: the same operation ID and body, never a fresh mutation.
-            agent.resend(id) { reply -> callback(agentConversation.legacyReply(reply, original)) }
+            agent.resend(id) { reply -> callback(agentConversation.projectReply(reply, original)) }
             return
         }
-        val saved = prefs.getString("pending.$id", null)
-        if (saved == null) { callback(JSONObject().put("ok", false).put("unknown", true).put("error", context.getString(R.string.client_unknown_result))); return }
-        val original = runCatching { JSONObject(saved) }.getOrNull()
+        val original = controlIntent(id)
         if (original == null) { callback(JSONObject().put("ok", false).put("unknown", true).put("error", context.getString(R.string.client_unknown_result))); return }
-        wireRequest(original.getString("op"), original, callback) // A recorded v1 intent never changes profile or driver.
+        wireRequest(original.getString("op"), original, callback)
     }
     private fun scopedValue(kind: String, thread: String, fallback: String, sourceProvider: String): String {
         val source = localScope(sourceProvider)
         val key = "$kind.$source.$thread"
-        if (!prefs.contains(key) && sourceProvider != "zcode" && source == sourceProvider) {
-            val legacy = "$kind.$thread"
-            prefs.getString(legacy, null)?.let { prefs.edit().putString(key, it).remove(legacy).apply() }
-        }
         return prefs.getString(key, fallback) ?: fallback
     }
     fun draft(thread: String, sourceProvider: String = provider) = scopedValue("draft", thread, "", sourceProvider)
@@ -691,7 +629,7 @@ class SessionClient(context: Context, private val sender: SessionTransport, priv
             val entry = entries.getJSONObject(i)
             if (entry.getString("attachmentId") in sentIDs) removed.add(entry.optString("cachePath")) else keep.put(entry)
         }
-        val edit = prefs.edit().putString(attachmentsKey, keep.toString()).remove("pending.${original.getString("id")}")
+        val edit = prefs.edit().putString(attachmentsKey, keep.toString())
         if (saved?.matches(original) == true && keep.length() == 0) edit.remove(key)
         if (!edit.commit()) false else {
             val root = java.io.File(context.filesDir, "codex-drafts").canonicalPath + "/"
@@ -725,65 +663,33 @@ class SessionClient(context: Context, private val sender: SessionTransport, priv
         val authorization = authorizationIdentity
         val requestID = value.optString("id")
         val requestToken = pending[requestID]
-        val fragmentHint = value.optInt("uploadFragmentChars", 7200)
         val untrackedResend = value.optString("op") == "resend"
-        val attachment = value.optString("attachmentId").takeIf { value.optString("op") in setOf("attachmentStart", "attachmentChunk", "attachmentComplete", "newAttachmentStart", "newAttachmentChunk", "newAttachmentComplete") }
-        val upload = value.optString("attachmentId").takeIf {
-            value.optInt("uploadVersion") == 1 && value.optString("op") in setOf("attachmentChunk", "newAttachmentChunk")
-        }
         if (transmissionBytes.addAndGet(encoded.size) > 2 * 1024 * 1024) {
             transmissionBytes.addAndGet(-encoded.size)
             onState(context.getString(R.string.client_request_busy)); return
         }
         try { transmission.execute {
             try {
-                if (closed || !online || authorizationIdentity != authorization || (!untrackedResend && pending[requestID] !== requestToken) || attachment != null && cancelledUploads.containsKey(attachment)) return@execute
+                if (closed || !online || authorizationIdentity != authorization || (!untrackedResend && pending[requestID] !== requestToken)) return@execute
                 val packet = UUID.randomUUID().toString()
                 val cipher = Cipher.getInstance("AES/GCM/NoPadding")
                 cipher.init(Cipher.ENCRYPT_MODE, secret()); cipher.updateAAD(aad(packet, "phone"))
                 val data = Base64.encodeToString(cipher.iv + cipher.doFinal(encoded), Base64.NO_WRAP)
-                val fragmentChars = if (upload != null && !bluetooth) fragmentHint else 900
+                val fragmentChars = 900
                 val parts = (data.length + fragmentChars - 1) / fragmentChars
                 val frames = (0 until parts).map { i ->
                     JSONObject().put("type", "vibepier-session1").put("device", device)
                         .put("packet", packet).put("part", i).put("parts", parts)
                         .put("data", data.substring(i * fragmentChars, minOf((i + 1) * fragmentChars, data.length)))
-                        .apply { if (upload != null && !bluetooth) put("upload", upload).put("fragmentChars", fragmentChars) }.toString()
-                }
-                if (upload != null) {
-                    val now = android.os.SystemClock.elapsedRealtime()
-                    cancelledUploads.entries.removeAll { it.value <= now }
-                    clearUploadTransmissions { now - it.created < 30_000 && it.request != requestID }
-                    val bytes = frames.sumOf { it.toByteArray(Charsets.UTF_8).size }
-                    if (uploadTransmissionBytes.addAndGet(bytes) > 2 * 1024 * 1024) {
-                        uploadTransmissionBytes.addAndGet(-bytes); return@execute
-                    }
-                    uploadTransmissions[packet] = UploadTransmission(requestID, upload, authorization, frames, now, bytes)
+                        .toString()
                 }
                 for (frame in frames) {
-                    if (closed || !online || authorizationIdentity != authorization || (!untrackedResend && pending[requestID] !== requestToken) || attachment != null && cancelledUploads.containsKey(attachment)) break
+                    if (closed || !online || authorizationIdentity != authorization || (!untrackedResend && pending[requestID] !== requestToken)) break
                     sender.sendBinding(JSONObject(frame))
                 }
             } catch (_: Exception) { main.post { if (!closed) onState(context.getString(R.string.client_key_unavailable)) } }
             finally { transmissionBytes.addAndGet(-encoded.size) }
         } } catch (_: java.util.concurrent.RejectedExecutionException) { transmissionBytes.addAndGet(-encoded.size) }
-    }
-    private fun recoverUpload(value: JSONObject) {
-        val packet = value.optString("packet")
-        val saved = uploadTransmissions[packet] ?: return
-        val waiting = pending[saved.request] ?: return
-        val missing = value.optJSONArray("missing") ?: return
-        if (saved.attachment != value.optString("attachmentId") || waiting.json.optString("attachmentId") != saved.attachment ||
-            saved.authorization != authorizationIdentity || cancelledUploads.containsKey(saved.attachment) || missing.length() !in 1..256) return
-        val indices = (0 until missing.length()).map { missing.opt(it) as? Int ?: return }
-        if (indices.any { it !in saved.frames.indices } || indices.distinct().size != indices.size || saved.resends.incrementAndGet() > 3) return
-        try { transmission.execute {
-            if (closed || !online || saved.authorization != authorizationIdentity || cancelledUploads.containsKey(saved.attachment) ||
-                uploadTransmissions[packet] !== saved || android.os.SystemClock.elapsedRealtime() - saved.created >= 30_000) return@execute
-            indices.forEach { index ->
-                if (!closed && !cancelledUploads.containsKey(saved.attachment)) sender.sendBinding(JSONObject(saved.frames[index]))
-            }
-        } } catch (_: java.util.concurrent.RejectedExecutionException) {}
     }
     private fun receive(frame: JSONObject) {
         if (closed || !paired) return
@@ -793,10 +699,6 @@ class SessionClient(context: Context, private val sender: SessionTransport, priv
                 cipher.init(Cipher.DECRYPT_MODE, secret(), GCMParameterSpec(128, bytes.copyOfRange(0, 12)))
                 cipher.updateAAD(aad(packet, "mac"))
                 cipher.doFinal(bytes.copyOfRange(12, bytes.size))
-            }, acceptsFastRequest = { id ->
-                val request = pending[id]?.json
-                relayDownload && apkDownloadToken != null && apkDownloadConnection == versionConnectionID &&
-                    request?.optString("op") == "apkChunk" && request.optString("downloadToken") == apkDownloadToken
             }) ?: return
             if (progress.started && progress.message == null) main.postDelayed({ missing(progress.ticket) }, 1800)
             val value = progress.message ?: return
@@ -806,35 +708,20 @@ class SessionClient(context: Context, private val sender: SessionTransport, priv
                 rememberProviderAccess(access)
             }
             if (value.optString("event") == "providersChanged") return
-            if (value.optString("event") == "uploadMissing") { recoverUpload(value); return }
             if (value.optString("event") == "agentEvent") { if (!agent.event(value)) onState(context.getString(R.string.agent_protocol_invalid)); return }
             val id = value.optString("id")
             if (id.isNotEmpty()) {
-                val original = prefs.getString("pending.$id", null)?.let { JSONObject(it) }
+                val original = controlIntent(id)
                 val waiting = pending[id]
                 if (waiting == null && original == null && value.optJSONObject("body")?.opt("agentProtocol") == SessionAgentProtocol.VERSION) {
                     if (!agent.late(value)) onState(context.getString(R.string.agent_protocol_invalid))
                     return
                 }
-                if (waiting?.json?.optString("op") == "apkOffer") {
-                    val profile = value.optJSONObject("download")
-                    apkDownloadToken = if (relayDownload && waiting.json.optInt("downloadVersion") == 1 &&
-                        profile?.optInt("version") == 1 && profile.optString("token") == id &&
-                        profile.optInt("fragmentChars") == 7200 && profile.optInt("chunkBytes") == 128 * 1024 && profile.optInt("window") == 4) id else null
-                    apkDownloadConnection = if (apkDownloadToken != null) versionConnectionID else null
-                    if (apkDownloadToken == null) value.remove("download")
-                }
                 val intent = original ?: waiting?.json?.takeIf { mutable(it.optString("op")) }
                 if (intent != null && !SessionResponseInbox.confirms(value, intent)) { onState(context.getString(R.string.client_message_invalid)); return }
                 pending.remove(id)
-                clearUploadTransmissions { it.request != id }
                 val sourceProvider = waiting?.json?.optString("provider") ?: original?.optString("provider", "codex")
                 if (!value.has("provider") && sourceProvider != null) value.put("provider", sourceProvider)
-                if (waiting != null && waiting.json.optString("op") in setOf("open", "sync", "newOptions") && value.opt("ok") == true &&
-                    waiting.json.optString("provider") == provider && waiting.json.optLong("viewVersion", -1) == viewVersion &&
-                    waiting.json.optString("agentAdapterId") == selectedAgentAdapter()?.id) {
-                    agentNegotiation.remember(waiting.json, value.optJSONObject("agentCapabilities"))
-                }
                 if (providerAccess != null && waiting != null && !mutable(waiting.json.optString("op")) &&
                     providerAccess?.permits(sourceProvider.orEmpty(), waiting.json.optString("op")) != true &&
                     waiting.json.optString("op") !in SessionProviderAccess.independent &&
@@ -843,23 +730,9 @@ class SessionClient(context: Context, private val sender: SessionTransport, priv
                         .put("error", context.getString(R.string.provider_disabled_on_mac)))
                     return
                 }
-                if (!value.optBoolean("unknown")) {
-                    if (original?.optString("op") == "send" && value.optBoolean("accepted")) {
-                        val thread = original.optString("threadId")
-                        val scope = receiptScope(original)
-                        if ((prefs.getString("draft.$scope.$thread", "") ?: "").trim() == original.optString("text")) prefs.edit().putString("draft.$scope.$thread", "").apply()
-                        clearSentAttachmentsInScope(thread, original.optJSONArray("attachments"), scope)
-                    }
-                    val created = original?.optString("op") == "new" && original.has("draftId") && value.optBoolean("ok")
-                    if (!created || finishCreation(original!!)) clearReceipt(id)
-                }
+                if (original != null && !value.optBoolean("unknown")) clearReceipt(id)
                 if (waiting != null) {
-                    if (waiting.json.optString("op") in listOf("list", "projects")) rememberCapabilities(value, waiting.json.optString("provider", "codex"))
-                    if (value.optBoolean("ok") && waiting.cacheKey != null) content.put(waiting.cacheKey, JSONObject(value.toString()).apply {
-                        remove("id"); remove("viewVersion")
-                        if (waiting.json.optString("op") == "composerOptions") remove("composer") // Reuse model choices without rolling live usage/settings back.
-                    })
-                    if (value.optBoolean("ok") && waiting.json.optString("op") in setOf("send", "new", "settings", "interrupt", "queueSteer", "queueDelete", "lockScreen", "unlockScreen")) invalidateLists(waiting.json.optString("provider"))
+                    if (value.optBoolean("ok") && waiting.json.optString("op") in setOf("lockScreen", "unlockScreen")) invalidateLists(waiting.json.optString("provider"))
                     waiting.deliver(value)
                 }
                 else if (original != null) {
@@ -872,11 +745,8 @@ class SessionClient(context: Context, private val sender: SessionTransport, priv
             }
             else if (value.optString("event") == "apkAvailable") onAPKAvailable()
             else if (!value.has("provider") || providerEnabled(value.optString("provider"))) {
-                if (value.optString("event") in setOf("snapshot", "delta") && value.optString("provider") == provider &&
-                    value.opt("viewVersion") is Number && value.optLong("viewVersion") == viewVersion &&
-                    value.optJSONObject("agentCapabilities")?.optString("adapterId") == selectedAgentAdapter()?.id) {
-                    agentNegotiation.remember(value, value.optJSONObject("agentCapabilities"))
-                }
+                // Session state arrives only through validated profile-2 agentEvent envelopes.
+                if (value.optString("event") in setOf("snapshot", "delta")) return
                 onEvent(value)
             }
         } catch (_: Exception) { onState(context.getString(R.string.client_message_invalid)) }
@@ -895,5 +765,10 @@ class SessionClient(context: Context, private val sender: SessionTransport, priv
             }
         }
     }
-    fun close() { closed = true; transmission.shutdownNow(); uploadTransmissions.clear(); cancelledUploads.clear(); online = false; content.flush(); pairDeadline = 0; main.removeCallbacksAndMessages(null); inbox.clearPartial(); pending.clear() }
+    fun close() { closed = true; transmission.shutdownNow(); online = false; content.flush(); pairDeadline = 0; main.removeCallbacksAndMessages(null); inbox.clearPartial(); pending.clear() }
 }
+
+/** Shared with JVM transport regressions; no Android runtime needed. */
+internal fun shouldCancelSessionPageRead(request: JSONObject, preserved: Boolean): Boolean =
+    !preserved && (request.optString("op") in setOf("open", "close", "list", "projects", "sync", "history", "parts", "message", "image", "composerOptions", "newOptions", "contextUsage", "browseFiles", "readMarkdownFile", "approvalDetails", "fileChanges", "readFile", "readImageFile", "readVideoFile", "fileDiff", "searchFiles") ||
+            request.optString("op") == "agentRequest" && SessionAgentProtocol.Method.parse(request.optJSONObject("body")?.opt("method"))?.mutation != true)

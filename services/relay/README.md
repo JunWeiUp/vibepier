@@ -1,6 +1,6 @@
 # vibepier-relay
 
-Self-hosted WebSocket relay for VibePier, implemented in Go using only the standard library. One room connects one Mac and up to 32 phones. The relay routes encrypted application frames; a relay credential does not grant phone authorization.
+Self-hosted WebSocket relay for VibePier, implemented in Go using only the standard library. One room connects one Mac and up to 32 phones. Only `vibepier-relay2` hosts (Mac) and `vibepier-relay1` clients (Android) are accepted. Retired relay1 hosts are rejected; no single-phone replacement or unwrapped host routing fallback remains. The current `vibepierrelay1` pairing-code format is unchanged. The relay routes encrypted application frames; a relay credential does not grant phone authorization.
 
 See the root [English deployment guide](../../README.md#deploy-your-own-relay) or [中文部署指南](../../README.zh-CN.md#自建云中继部署命令与接入方法) for complete commands: server preparation, binary installation, Nginx/WSS, private secret import, phone synchronization and verification.
 
@@ -31,7 +31,7 @@ go build ./cmd/vibepier-relay
 
 The module's interoperability tests also read `../../protocol/fixtures` relative to the repository root; keep the full repository when running tests.
 
-本中继需自行部署，不提供公共服务。中继认证与 Mac 对手机的授权相互独立；密钥不应出现在日志、问题反馈或公开配对码中。安装脚本保留已有密钥，不自动修改 Nginx。完整中文命令保留在根 README。
+本中继需自行部署，不提供公共服务。仅允许当前 Mac host2 与 Android client1，拒绝旧 host1；保留多设备定向隔离、HMAC 协议绑定和 `vibepierrelay1` 配对格式。中继认证与 Mac 对手机的授权相互独立；密钥不应出现在日志、问题反馈或公开配对码中。安装脚本保留已有密钥，不自动修改 Nginx。完整中文命令保留在根 README。
 
 ## Sending capacity and diagnostics / 发送额度与诊断
 
@@ -41,6 +41,6 @@ All rooms share a 12 MiB output-payload budget, including data queued and being 
 
 ## Streaming files / 文件流
 
-Install the additional `/vibepier/relay/files/` location from `nginx-vibepier-relay.conf`. File registration uses fresh host HMAC admission; one-use read/write capabilities route a bounded live pipe. Attachment and APK content are visible to the HTTPS relay; authorized endpoints still validate complete expected digests. No file bodies are stored on the relay. See [binary file transport](../../docs/BINARY-FILE-TRANSFER.md).
+Install the additional `/vibepier/relay/files/` location from `nginx-vibepier-relay.conf`. File registration uses fresh relay2 host HMAC admission (retired host1 is rejected); one-use read/write capabilities route a bounded live pipe. Attachment and APK content are visible to the HTTPS relay; authorized endpoints still validate complete expected digests. No file bodies are stored on the relay. See [binary file transport](../../docs/BINARY-FILE-TRANSFER.md).
 
 增加该路径的 Nginx 配置，关闭双向缓冲；文件正文仅流式转发，不落服务器磁盘。图片及 APK 均仅采用 HTTPS，服务器可读取正文，现有设备授权与控制加密不变。

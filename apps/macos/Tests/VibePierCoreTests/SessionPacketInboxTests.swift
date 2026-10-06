@@ -139,77 +139,29 @@ final class SessionPacketInboxTests: XCTestCase {
         XCTAssertNotNil(inbox.receive(try frames()[0], sender: first, key: key))
     }
 
-    func testBulkFramesAreBoundToAnAttachmentOperationAndDisabledOnBLE() throws {
-        let upload = UUID().uuidString
-        func bulk(op: String = "attachmentChunk", attachment: String? = nil) throws -> [Data] {
-            let packet = UUID().uuidString
-            let clear = try JSONSerialization.data(withJSONObject: [
-                "id": UUID().uuidString, "op": op,
-                "attachmentId": attachment ?? upload, "uploadVersion": 1, "sentAt": wall,
-                "data": String(repeating: "a", count: 174_764),
-            ])
-            let sealed = try SessionEnvelope.seal(clear, key: key, device: first, packet: packet, direction: "phone")
-            let text = sealed.base64EncodedString()
-            return try stride(from: 0, to: text.count, by: 7200).map { offset in
-                let bytes = Array(text.utf8)
-                return try JSONSerialization.data(withJSONObject: [
-                    "type": "vibepier-session1", "sender": first,
-                    "device": first, "packet": packet, "part": offset / 7200, "parts": (bytes.count + 7199) / 7200,
-                    "upload": upload,
-                    "data": String(decoding: bytes[offset..<min(offset + 7200, bytes.count)], as: UTF8.self),
-                ])
-            }
+    func testRetiredUploadMetadataCannotConsumeOrdinaryPacketCapacity() throws {
+        var inbox = inbox(perDevice: 1, total: 1)
+        let valid = try frames()[0]
+        for (field, value) in [
+            ("upload", UUID().uuidString), ("uploadVersion", 1),
+            ("fragmentChars", 512), ("fragmentChars", 7200), ("fragmentChars", 900),
+        ] as [(String, Any)] {
+            XCTAssertNil(inbox.receive(try change(valid, field, value), sender: first, key: key))
         }
-        var inbox = inbox()
-        let valid = try bulk()
-        for frame in valid { XCTAssertNil(inbox.receive(frame, sender: first, key: key)) }
-        for frame in try bulk(op: "send") {
-            XCTAssertNil(inbox.receive(frame, sender: first, key: key, allowsUploads: true))
-        }
-        for frame in try bulk(attachment: UUID().uuidString) {
-            XCTAssertNil(inbox.receive(frame, sender: first, key: key, allowsUploads: true))
-        }
-        for frame in valid.dropLast().reversed() {
-            XCTAssertNil(inbox.receive(frame, sender: first, key: key, allowsUploads: true))
-        }
-        XCTAssertNotNil(inbox.receive(valid.last!, sender: first, key: key, allowsUploads: true))
-        for frame in valid { XCTAssertNil(inbox.receive(frame, sender: first, key: key, allowsUploads: true)) }
+        XCTAssertNotNil(inbox.receive(valid, sender: first, key: key))
+        XCTAssertNil(inbox.receive(valid, sender: first, key: key))
     }
 
-    func testMTUSizedUploadMissingPartsAreBoundedAndCompletionStopsRecovery() throws {
-        let upload = UUID().uuidString
-        let packet = UUID().uuidString
-        let clear = try JSONSerialization.data(withJSONObject: [
-            "id": UUID().uuidString, "op": "attachmentChunk",
-            "attachmentId": upload, "uploadVersion": 1, "sentAt": wall, "data": String(repeating: "a", count: 87_384),
-        ])
-        let sealed = try SessionEnvelope.seal(clear, key: key, device: first, packet: packet, direction: "phone")
-        let bytes = Array(sealed.base64EncodedString().utf8)
-        let partCount = (bytes.count + 511) / 512
-        let frames: [Data] = try stride(from: 0, to: bytes.count, by: 512).map { offset -> Data in
-            let end = min(offset + 512, bytes.count)
-            let fragment = String(decoding: bytes[offset..<end], as: UTF8.self)
-            let frame: [String: Any] = [
-                "type": "vibepier-session1", "sender": first, "device": first,
-                "packet": packet, "part": offset / 512, "parts": partCount, "fragmentChars": 512,
-                "upload": upload, "data": fragment,
-            ]
-            return try JSONSerialization.data(withJSONObject: frame)
-        }
+    func testOnlyFull900CharacterIntermediateFragmentsCanCompleteMissingPacket() throws {
         var inbox = inbox()
-        for frame in frames.dropFirst() {
-            XCTAssertNil(inbox.receive(frame, sender: first, key: key, allowsUploads: true))
-        }
-        XCTAssertNil(inbox.recoveryPacket(frames[1], sender: second))
-        XCTAssertEqual(inbox.recoveryPacket(frames[1], sender: first), packet)
-        XCTAssertNil(inbox.recoveryPacket(frames[1], sender: first))
-        XCTAssertEqual(inbox.missingUpload(sender: first, packet: packet)?["missing"] as? [Int], [0])
-        XCTAssertNotNil(inbox.receive(frames[0], sender: first, key: key, allowsUploads: true))
-        XCTAssertNil(inbox.missingUpload(sender: first, packet: packet))
-        var incomplete = self.inbox()
-        XCTAssertNil(incomplete.receive(frames[0], sender: first, key: key, allowsUploads: true))
-        for _ in 0..<3 { XCTAssertNotNil(incomplete.missingUpload(sender: first, packet: packet)) }
-        XCTAssertNil(incomplete.missingUpload(sender: first, packet: packet))
+        let parts = try frames(text: String(repeating: "x", count: 800))
+        XCTAssertEqual(parts.count, 2)
+        let firstObject = try XCTUnwrap(JSONSerialization.jsonObject(with: parts[0]) as? [String: Any])
+        let body = try XCTUnwrap(firstObject["data"] as? String)
+        XCTAssertNil(inbox.receive(try change(parts[0], "data", String(body.prefix(512))), sender: first, key: key))
+        XCTAssertNil(inbox.receive(parts[1], sender: first, key: key))
+        XCTAssertNotNil(inbox.receive(parts[0], sender: first, key: key))
+        XCTAssertNil(inbox.receive(parts[1], sender: first, key: key))
     }
 
     func testRevocationClearsOnlyTargetAssemblyAndRetainsReplayState() throws {

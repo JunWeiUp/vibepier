@@ -26,7 +26,7 @@ object CodexComposerProbe {
         fun set(o: Any, name: String, value: Any) = member(o, name).set(o, value)
         fun invoke(o: Any, name: String) = o.javaClass.getDeclaredMethod(name).apply { isAccessible = true }.invoke(o)
         fun views(root: View): List<View> = listOf(root) + if (root is ViewGroup) (0 until root.childCount).flatMap { views(root.getChildAt(it)) } else emptyList()
-        val prefs = io.github.junweiup.vibepier.remote.core.security.PrivatePreferences.open(test.targetContext, "sessions")
+        val journal = SessionJournalFixture(test)
         var pendingID = ""
         val client = activity.javaClass.getDeclaredMethod("getCodex").apply { isAccessible = true }.invoke(activity) as SessionClient
         val originalProvider = client.provider
@@ -98,12 +98,18 @@ object CodexComposerProbe {
                 val client = get(panel, "client") as SessionClient
                 set(panel, "reviews", false); set(client, "online", true)
                 val thread = get(panel, "thread") as String
-                pendingID = "composer-probe-" + java.util.UUID.randomUUID()
-                prefs.edit().putString("pending.$pendingID", JSONObject().put("id", pendingID).put("op", "settings").put("threadId", thread).put("mode", "auto").toString()).commit()
+                pendingID = java.util.UUID.randomUUID().toString()
+                journal.seed(JSONObject().put("id", pendingID).put("op", "settings").put("threadId", thread).put("mode", "auto"))
+                set(panel, "client", journal.client)
+                check(journal.client.uncertain(thread).single().getString("id") == pendingID)
                 invoke(panel, "updateComposer")
                 check(!send.isEnabled && !controls.mode.isEnabled && !controls.model.isEnabled)
-                check((get(panel, "stopButton") as View).isEnabled && (get(panel, "stopButton") as View).isShown)
-                prefs.edit().remove("pending.$pendingID").commit(); set(panel, "reviews", true)
+                set(panel, "client", client); invoke(panel, "updateComposer")
+                // Fixture capabilities are not authenticated authority after leaving review mode.
+                check(!client.agentCapabilitiesKnown)
+                check(!(get(panel, "stopButton") as View).isEnabled)
+                check(!(get(panel, "editor") as EditText).isEnabled)
+                check(journal.client.agent.abandon(pendingID)); set(panel, "reviews", true)
                 // Opening another conversation resets transient work; delayed callbacks use generation tokens.
                 set(panel, "uploading", true); set(panel, "settingsOperation", "old-thread-operation")
                 val before = get(panel, "uploadGeneration") as Int
@@ -111,9 +117,9 @@ object CodexComposerProbe {
                 check(get(panel, "uploading") == false && get(panel, "settingsOperation") == "")
                 check((get(panel, "uploadGeneration") as Int) > before)
             }
-            return "PASS: Activity background/foreground retains panel, timeline and draft; unchanged icon and binding caches survive watch stop; picker cancel/resume preserves panel and watched transport without reset, pending settings blocks send, unknown settings blocks send/model/mode, stop works with draft, upload blocks send, remove disabled while sending, thread switch clears transient settings/upload and invalidates callbacks\n"
+            return "PASS: Activity background/foreground retains panel, timeline and draft; unchanged icon and binding caches survive watch stop; picker cancel/resume preserves panel and watched transport without reset, pending settings blocks send, unknown settings blocks send/model/mode, stop works with draft in the fixture; unnegotiated real mode refuses stop/editing, upload blocks send, remove disabled while sending, thread switch clears transient settings/upload and invalidates callbacks\n"
         } finally {
-            if (pendingID.isNotEmpty()) prefs.edit().remove("pending.$pendingID").commit()
+            journal.close()
             main { client.provider = originalProvider; activity.finish() }
         }
     }

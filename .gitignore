@@ -3,6 +3,7 @@
 .build/
 .swiftpm/
 .gradle/
+.kotlin/
 **/build/
 !scripts/build/
 !scripts/build/**

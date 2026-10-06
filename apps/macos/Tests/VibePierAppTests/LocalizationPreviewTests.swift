@@ -92,7 +92,7 @@ final class LocalizationPreviewTests: XCTestCase {
     func testSessionProviderMenuLayout() async throws {
         let model = model()
         await model.refreshStatus()
-        model.sessionProviders = ["codex": true, "claude": true, "zcode": false]
+        model.sessionProviders = ["codex": true, "claude": true]
         try render(
             SessionProviderSection(model: model).padding(12).frame(width: 340), width: 340, name: "providers",
             dark: true)

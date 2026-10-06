@@ -20,7 +20,7 @@ The first public beta is still in preparation. Until a release is published, use
 | Automation | A desktop action that uses Apple Events, if configured. |
 | BlackHole 2ch | Optional phone-to-Mac microphone routing; not needed for ordinary controls or the default Mac-microphone path. |
 
-Provider accounts and projects must already work on the Mac. VibePier does not install or sign into Codex, Claude Code or ZCode for you. For voice-trigger shortcuts, configure the intended receiving application on the Mac; sending a keyboard shortcut does not itself provide speech recognition.
+Provider accounts and projects must already work on the Mac. VibePier does not install or sign into Codex, Claude Code for you. For voice-trigger shortcuts, configure the intended receiving application on the Mac; sending a keyboard shortcut does not itself provide speech recognition.
 
 For Mac upgrades, use the [explicit updater and permission-status guidance](MACOS-UPDATES.md). A file-access denial reopens repair guidance even after the first-launch guide has already been shown. The permission page reports the latest real file read, not a guessed Full Disk Access grant.
 

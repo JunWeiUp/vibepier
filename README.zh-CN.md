@@ -5,7 +5,7 @@
 
 ![手机与 Mac 通过薄荷绿栈桥连接的概念插画](assets/readme/work-within-reach.png)
 
-VibePier 由原生 Android 遥控器、macOS 菜单栏应用和可选的自建中继组成。它支持查看和继续适配版本的 Codex、Claude Code、ZCode 会话，也提供按键、应用切换与语音入口。手机不需要 AU05 硬件即可使用。
+VibePier 由原生 Android 遥控器、macOS 菜单栏应用和可选的自建中继组成。它支持查看和继续适配版本的 Codex、Claude Code 会话，也提供按键、应用切换与语音入口。手机不需要 AU05 硬件即可使用。
 
 **[下载 v0.1.0-beta.1](https://github.com/JunWeiUp/vibepier/releases/tag/v0.1.0-beta.1)** · Android 13+ · Apple silicon Mac · 自建 Linux 中继
 
@@ -47,15 +47,15 @@ VibePier 由原生 Android 遥控器、macOS 菜单栏应用和可选的自建�
 
 ## 不同会话来源的能力
 
-| 能力 | Codex | Claude Code | ZCode |
-| --- | --- | --- | --- |
-| 会话、历史与受限 Markdown 阅读 | 已核验桌面或自有 App Server 会话 | 本地记录与适配的桌面状态 | 原生记录只读访问 |
-| 回复、新建、设置与停止 | 原桌面 owner 或健康的自有后台；后台发送须空闲 | 取决于桌面/终端占用状态和 CLI | 需校验原生会话与可用菜单 |
-| 附件 | 支持 | 新会话图片直接发送；其他附件作为文件引用 | 不支持 |
-| 审批与问答 | 识别出的原生/异步请求 | 已适配且无歧义的桌面请求 | 不支持 |
-| 后续消息队列与引导 | 仅兼容桌面会话 | 不支持对应队列功能 | 不支持 |
+| 能力 | Codex | Claude Code |
+| --- | --- | --- |
+| 会话、历史与受限 Markdown 阅读 | 已核验桌面或自有 App Server 会话 | 本地记录与适配的桌面状态 |
+| 回复、新建、设置与停止 | 原桌面 owner 或健康的自有后台；后台发送须空闲 | 取决于桌面/终端占用状态和 CLI |
+| 附件 | 支持 | 新会话图片直接发送；其他附件作为文件引用 |
+| 审批与问答 | 识别出的原生/异步请求 | 已适配且无歧义的桌面请求 |
+| 后续消息队列与引导 | 仅兼容桌面会话 | 不支持对应队列功能 |
 
-Codex 桌面兼容性根据实际原生接口与回执判断，不再仅因桌面构建号变化而禁用会话或设置。手机新建 Codex 会话改用内置 App Server 后台执行，沿用 Mac 现有账号，创建时无需解锁 Mac；持久登记表将这些会话继续路由到后台，已有桌面会话仍使用原 owner 的 IPC。后台会话仅空闲时可发送，不提供队列、引导或队列删除。Claude 终端占用的会话不会被另起进程续写；ZCode 新建会话还受原生 provider 配置限制。原生契约及实际验收边界见[兼容性说明](docs/COMPATIBILITY.md)。
+Codex 桌面兼容性根据实际原生接口与回执判断，不再仅因桌面构建号变化而禁用会话或设置。手机新建 Codex 会话改用内置 App Server 后台执行，沿用 Mac 现有账号，创建时无需解锁 Mac；持久登记表将这些会话继续路由到后台，已有桌面会话仍使用原 owner 的 IPC。后台会话仅空闲时可发送，不提供队列、引导或队列删除。Claude 终端占用的会话不会被另起进程续写。原生契约及实际验收边界见[兼容性说明](docs/COMPATIBILITY.md)。
 
 Codex 新建会话支持勾选加速（限支持的模型），从首条消息起生效；加速可能增加用量。
 
@@ -220,6 +220,7 @@ docs/             产品、开发与部署文档
 | 部署或迁移 | [部署运维](docs/DEPLOYMENT.md) · [Mac 更新与权限状态](docs/MACOS-UPDATES.md) · [迁移更新](docs/MIGRATION.md) · [设置导入导出](docs/SETTINGS-TRANSFER.md) |
 | 了解项目 | [产品范围](docs/PROJECT-SPEC.md) · [架构](docs/ARCHITECTURE.md) · [设计](DESIGN.md) · [页面结构](docs/PAGE-STRUCTURE.md) |
 | Agent 协议与可选运行时 | [统一控制架构](docs/AGENT-CONTROL-ARCHITECTURE.md) · [会话 API](protocol/specs/agent-session.md) |
+| 会话测试与排障 | [API 37 测试计划](docs/AGENT-SESSION-TEST-PLAN.md) · [调用链与测试接缝](docs/SESSION-TESTABILITY.md) · [修复与验收报告](docs/AGENT-SESSION-VALIDATION.md) · [当前协议范围](docs/CURRENT-PROTOCOLS.md) |
 | 参与开发 | [贡献说明](CONTRIBUTING.md) · [组件规范](docs/COMPONENT-GUIDELINES.md) · [开发验证](docs/DEVELOPMENT.md) · [AGENTS.md](AGENTS.md) |
 | 检查发布 | [产物分发](docs/REGISTRY.md) · [更新记录](CHANGELOG.md) · [验收清单](TODO.md) |
 

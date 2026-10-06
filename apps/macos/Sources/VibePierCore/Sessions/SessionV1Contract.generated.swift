@@ -2,10 +2,10 @@
 import Foundation
 
 enum SessionV1Contract {
-    static let manifestSHA256 = "c1b8525fdd0182f564d141054a20d0a29ffe289751bd62048878146b22b30742"
+    static let manifestSHA256 = "d2bf4da49fde72731f73cbe740917b55b1eb5af1dce2cb59a062fde4060bef47"
     static let version = 1
     static let capabilityVersion = 1
-    static let providers = ["codex", "claude", "zcode"]
+    static let providers = ["codex", "claude"]
     static let capabilityKeys = [
         "approvals",
         "attachments",
@@ -54,18 +54,6 @@ enum SessionV1Contract {
         ),
         Operation(
             name: "apkBinary",
-            routeDomain: "gateway",
-            durableMutation: false,
-            uncertainOnTimeout: false,
-            providerPolicyExempt: true,
-            contentProviderScope: false,
-            laneCategory: "provider",
-            reconciliationKind: "",
-            capability: nil,
-            cacheableRead: false
-        ),
-        Operation(
-            name: "apkChunk",
             routeDomain: "gateway",
             durableMutation: false,
             uncertainOnTimeout: false,
@@ -218,18 +206,6 @@ enum SessionV1Contract {
             laneCategory: "provider",
             reconciliationKind: "",
             capability: nil,
-            cacheableRead: false
-        ),
-        Operation(
-            name: "attachmentChunk",
-            routeDomain: "session",
-            durableMutation: false,
-            uncertainOnTimeout: false,
-            providerPolicyExempt: false,
-            contentProviderScope: true,
-            laneCategory: "provider",
-            reconciliationKind: "",
-            capability: "attachments",
             cacheableRead: false
         ),
         Operation(
@@ -506,18 +482,6 @@ enum SessionV1Contract {
             laneCategory: "provider",
             reconciliationKind: "newReceiptCheck",
             capability: "new",
-            cacheableRead: false
-        ),
-        Operation(
-            name: "newAttachmentChunk",
-            routeDomain: "session",
-            durableMutation: false,
-            uncertainOnTimeout: false,
-            providerPolicyExempt: false,
-            contentProviderScope: true,
-            laneCategory: "provider",
-            reconciliationKind: "",
-            capability: "newAttachments",
             cacheableRead: false
         ),
         Operation(

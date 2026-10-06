@@ -12,7 +12,7 @@ The project combines a native Android companion, a macOS menu bar app, and an op
 
 Browse sessions by provider and project, read messages and tool activity, preserve a draft, and send a follow-up where the adapter supports it. Supported approval and question cards can be answered from the phone. Unsupported or ambiguous actions ask you to finish on the Mac.
 
-The provider boundaries are explicit. Codex uses the original desktop session and follow-up queue, with a strict desktop-build check. Claude Code distinguishes desktop and terminal ownership; it refuses to start a competing continuation beside an active terminal session. ZCode verifies the native desktop session before text replies and settings changes, and currently has no attachment, approval or queue support.
+The provider boundaries are explicit. Codex uses the original desktop session and follow-up queue, with a strict desktop-build check. Claude Code distinguishes desktop and terminal ownership; it refuses to start a competing continuation beside an active terminal session.
 
 The [compatibility table](../COMPATIBILITY.md) records these differences. A readable history does not imply that every desktop action is available remotely. A request whose outcome is uncertain also remains uncertain: the app keeps its identity and receipt instead of silently submitting a duplicate.
 

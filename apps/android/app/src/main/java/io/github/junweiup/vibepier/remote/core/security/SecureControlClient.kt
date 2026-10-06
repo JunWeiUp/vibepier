@@ -71,8 +71,8 @@ internal object ControlProtocol {
     const val VERSION = 1
     const val REQUIRED = 7
     const val PHONE_AUDIO = 8
-    const val BULK_AUTH = 16
-    const val ALL = REQUIRED or PHONE_AUDIO or BULK_AUTH
+    // Capability 0x10 is retired and must not be reused.
+    const val ALL = REQUIRED or PHONE_AUDIO
     fun versions(field: String): List<Int>? {
         val parts = field.split(',')
         if (parts.size !in 1..8) return null
@@ -112,7 +112,6 @@ internal class SecureControlClient(
     private var sent = 0L
     private var replay = ControlReplayWindow()
     private var capabilities = 0
-    private var bulkSigner: Mac? = null
     @Volatile var incompatible = false; private set
 
     init { require(validID(device)) }
@@ -127,7 +126,6 @@ internal class SecureControlClient(
         pendingHello?.takeIf { now - pendingAt in 0..9_999 }?.let { return it }
         session = null
         capabilities = 0
-        bulkSigner = null
         nonce = UUID.randomUUID().toString()
         val fields = listOf(HELLO, device, nonce!!, wallSeconds().toString(), ControlProtocol.VERSION.toString(), ControlProtocol.ALL.toString())
         pendingAt = now
@@ -153,11 +151,6 @@ internal class SecureControlClient(
                 selected and ControlProtocol.REQUIRED != ControlProtocol.REQUIRED) return rejectCompatibility()
             session = fields[3]
             capabilities = selected
-            bulkSigner = if (selected and ControlProtocol.BULK_AUTH != 0) {
-                val material = key.signature(listOf("vibepier-bulk-key-v1", "phone", device, fields[3]))
-                try { Mac.getInstance("HmacSHA256").apply { init(SecretKeySpec(material, "HmacSHA256")) } }
-                finally { material.fill(0) }
-            } else null
             incompatible = false
             pendingHello = null
             nonce = null
@@ -188,12 +181,6 @@ internal class SecureControlClient(
         val current = session ?: return null
         val key = keys() ?: return null
         val sequence = sent + 1
-        if (bulkSigner != null && isBulkUpload(plaintext, device)) {
-            val fields = listOf(BULK, device, current, sequence.toString(), Base64.getEncoder().encodeToString(plaintext))
-            val signature = bulkSigner!!.doFinal((listOf("vibepier-bulk-frame-v1", "phone") + fields).joinToString("|").toByteArray(UTF_8))
-            sent = sequence
-            return (fields + SecureControlKeys.hex(signature)).joinToString(" ")
-        }
         val box = try {
             Cipher.getInstance("AES/GCM/NoPadding").run {
                 init(Cipher.ENCRYPT_MODE, key.phone)
@@ -212,7 +199,6 @@ internal class SecureControlClient(
         sent = 0
         replay = ControlReplayWindow()
         capabilities = 0
-        bulkSigner = null
         incompatible = false
     }
 
@@ -220,7 +206,6 @@ internal class SecureControlClient(
         // Keep the pending nonce until its normal deadline: retrying a refusal must not churn server replay receipts.
         session = null
         capabilities = 0
-        bulkSigner = null
         sent = 0
         replay = ControlReplayWindow()
         incompatible = true
@@ -232,13 +217,6 @@ internal class SecureControlClient(
         const val READY = "vibepier-secure-ready2"
         const val INCOMPATIBLE = "vibepier-secure-incompatible2"
         const val FRAME = "vibepier-secure1"
-        const val BULK = "vibepier-bulk1"
-        internal fun isBulkUpload(payload: ByteArray, device: String): Boolean = try {
-            val frame = JSONObject(String(payload, UTF_8))
-            frame.keys().asSequence().toSet().let { it == setOf("type", "sender", "device", "packet", "part", "parts", "data", "upload") || it == setOf("type", "sender", "device", "packet", "part", "parts", "data", "upload", "fragmentChars") } &&
-                frame.optString("type") == "vibepier-session1" && frame.optString("sender") == device && frame.optString("device") == device &&
-                validID(frame.optString("upload")) && validID(frame.optString("packet")) && frame.optString("data").length in 1..7200
-        } catch (_: Exception) { false }
         const val MAX_PLAINTEXT = 8192
         const val MAX_FRAME = 16_384
         fun aad(direction: String, device: String, session: String, sequence: Long) =

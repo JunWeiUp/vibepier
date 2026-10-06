@@ -1,5 +1,9 @@
 # Compatibility and provider capabilities / 兼容性与会话能力
 
+Current providers are Codex and Claude Code. ZCode support has been removed; older release notes describe historical behavior only.
+
+当前支持 Codex 与 Claude Code。ZCode 适配已移除；旧版更新记录仅描述当时的行为。
+
 This describes the checked-in adapters, not a guarantee that every listed desktop version has passed every real-device workflow. Availability is checked again at runtime. The final release acceptance work remains in [TODO.md](../TODO.md).
 
 ## Platforms
@@ -15,20 +19,20 @@ This describes the checked-in adapters, not a guarantee that every listed deskto
 
 **Conditional** means the Mac verifies the interface, session identity and current state before performing the operation. It does not mean “always available.”
 
-| Capability | Codex sessions | Claude Code sessions | ZCode desktop |
-| --- | --- | --- | --- |
-| List projects/sessions | Yes, local index | Yes, local transcripts | Yes, read-only native storage |
-| Read conversation / history / images | Compatible desktop subscription or registered owned App Server thread | Local transcript plus desktop state where available | Native history; local images and session-owned artifact attachments |
-| Reply | Conditional, original desktop owner or connected owned App Server thread; background send requires idle | Conditional; desktop delivery, or CLI resume if no live owner/desktop is available | Conditional; text only, verified original session |
-| Start a session | Configured background App Server using the Mac's existing account and a verified project; no screen unlock or desktop takeover | Known project; first turn through installed `claude` CLI | Conditional native workspace flow; only the supported built-in provider configuration |
-| Attach files/images | Yes, within selected session and size limits | New-session images use vision blocks; other files and existing-session attachments use file references | No |
-| Approval / questions | Recognized native requests and supported asynchronous questions | Recognized desktop requests; ambiguous/multiple pending requests refused | No |
-| Queue / steer / delete queued message | Compatible desktop threads only; unavailable on owned background threads | No equivalent queue controls | No |
-| Model / effort / permission settings | Available choices from adapter | Desktop menus or subsequent phone-launched CLI requests | Verified native menus; supported choices only |
-| Phone Plan / Execute | Verified native collaboration catalog and mode evidence; runtime-verified desktop or owned App Server; independent permissions | Native plan permission mode; verified desktop settings and headless first-turn creation | Independent native plan checkbox and permission radio choices; permissions are preserved |
-| Interrupt | Exact active-turn identity | Owned CLI run or verified busy desktop session | Exact observed active turn |
-| Context usage | Only when the selected native backend supplies it | Accurate value only for a supported open desktop session | Unavailable |
-| Markdown / workspace browsing | Scoped to the open, trusted session | Scoped to the open, trusted session | Scoped to the open, trusted session |
+| Capability | Codex sessions | Claude Code sessions |
+| --- | --- | --- |
+| List projects/sessions | Yes, local index | Yes, local transcripts |
+| Read conversation / history / images | Compatible desktop subscription or registered owned App Server thread | Local transcript plus desktop state where available |
+| Reply | Conditional, original desktop owner or connected owned App Server thread; background send requires idle | Conditional; desktop delivery, or CLI resume if no live owner/desktop is available |
+| Start a session | Configured background App Server using the Mac's existing account and a verified project; no screen unlock or desktop takeover | Known project; first turn through installed `claude` CLI |
+| Attach files/images | Yes, within selected session and size limits | New-session images use vision blocks; other files and existing-session attachments use file references |
+| Approval / questions | Recognized native requests and supported asynchronous questions | Recognized desktop requests; ambiguous/multiple pending requests refused |
+| Queue / steer / delete queued message | Compatible desktop threads only; unavailable on owned background threads | No equivalent queue controls |
+| Model / effort / permission settings | Available choices from adapter | Desktop menus or subsequent phone-launched CLI requests |
+| Phone Plan / Execute | Verified native collaboration catalog and mode evidence; runtime-verified desktop or owned App Server; independent permissions | Native plan permission mode; verified desktop settings and headless first-turn creation |
+| Interrupt | Exact active-turn identity | Owned CLI run or verified busy desktop session |
+| Context usage | Only when the selected native backend supplies it | Accurate value only for a supported open desktop session |
+| Markdown / workspace browsing | Scoped to the open, trusted session | Scoped to the open, trusted session |
 
 Lock/unlock, phone-side selection of installed Mac app shortcuts and phone APK delivery are shared Mac features, not provider-specific capabilities.
 
@@ -36,9 +40,9 @@ Lock/unlock, phone-side selection of installed Mac app shortcuts and phone APK d
 
 The source adds **Task mode → Plan / Execute** beside the phone composer and in new-session options. An available `executionMode` capability and a complete native `executionModes` catalog are required. Changing an existing session requires a verified idle owner; an active turn is not switched mid-flight. These controls have English/Chinese emulator coverage with a synthetic encrypted Mac endpoint. Native desktop acceptance and production installation are still separate requirements.
 
-ZCode execution catalogs include the required nonempty `name` for every `id`; the phone rejects incomplete catalogs. New-session option reads retry transient native readiness failures at most twice within the same visible, authorized draft. After persistent failure, Start reloads options even with an empty message; no creation or send is retried automatically.
+Execution catalogs require a nonempty `name` for every `id`; incomplete catalogs are rejected. New-session option reads retry transient native readiness failures at most twice within the same visible, authorized draft. After persistent failure, Start reloads options even with an empty message; no creation or send is retried automatically.
 
-ZCode 执行目录的每个 `id` 都需提供非空 `name`，手机严格拒绝不完整目录。新会话选项遇到原生状态暂不可用时，在同一可见、已授权草稿范围内最多追加两次只读重试；持续失败可点「开始」重载，空消息也可重载。不会自动重复创建或发送。
+执行目录的每个 `id` 都需提供非空 `name`，手机拒绝不完整目录。新会话选项遇到原生状态暂不可用时，在同一可见、已授权草稿范围内最多追加两次只读重试；持续失败可点「开始」重载，空消息也可重载。不会自动重复创建或发送。
 
 Codex desktop sessions use the packaged native `collaborationMode/list` catalog and owner-bound thread settings. The default owned background App Server path uses its reviewed bundled **0.160.0** stable/experimental schemas and native collaboration choices. The setter acknowledgment is insufficient: settings require native readback, and creation requires the requested mode on the exact initial native turn; incomplete evidence remains unknown. Permissions remain independent. The separate optional managed App Server backend supports future-turn mode settings only on its reviewed **0.159.0** experimental contract, with matching `thread/settings/updated` evidence. Desktop build numbers do not gate these options; malformed or missing native choices remain unavailable.
 
@@ -84,53 +88,31 @@ Claude sending also requires a unique enabled text area and verified input focus
 
 Headless Claude output must provide one valid terminal result and reach EOF on both pipes. A line beyond 8 MiB, malformed or missing terminal output, or incomplete pipe shutdown is reported as unverified output rather than successful completion. This diagnostic does not retry the submitted prompt. The history and native session remain the authority for inspecting what ran.
 
-## ZCode
-
-History images support native `zcode-artifact://<session>/tool-result-<UUID>` attachment references. The Mac resolves one matching `.txt` artifact under the selected session's CLI artifact directory and decodes its persisted image data URL on the bounded image workers. Cross-session references, ambiguous matches, symlinks, missing artifacts and non-image bodies are refused. The directory scan is capped at 10,000 entries and input at 48 MiB. This supports existing attachment previews; phone attachment submission remains unavailable. Other artifact layouts and binary tool artifacts are not supported by this reader.
-
-历史图片支持 ZCode 的 `zcode-artifact:` 附件地址：Mac 仅在当前会话的 CLI 附件目录中寻找唯一匹配的 `.txt` 文件，由有界图片工作线程解码其中的图片 data URL。跨会话地址、重复匹配、符号链接、文件缺失及非图片内容均拒绝；目录扫描最多 10,000 项，输入最多 48 MiB。此功能用于历史图片预览，手机向 ZCode 发送附件仍不支持；其他存储布局及二进制工具产物暂不支持。
-
-Configured creation reads the native model, reasoning and permission choices for the current phone/project/draft. Before the first message, it revalidates menu identity and selection, requires explicit full-access confirmation, and refuses changed or ambiguous native controls. These checks have synthetic coverage; actual native creation acceptance remains pending. Creation attachments are unsupported.
-
-新建配置读取原生模型、推理和权限菜单，按手机、项目和草稿绑定；首条发送前重新核对菜单及选中项，完全访问须明确确认。选项变化或控件不确定时拒绝执行。已有隔离测试，真实原生新建仍待验收；新建附件暂不支持。
-
-The adapter reads native session storage without modifying it. Mutations use the running `dev.zcode.app` desktop, Accessibility, original session-ID verification and native menus. It will not overwrite an existing composer draft. Attachments, approvals, queues and context-capacity reporting are disabled. New-session support additionally requires the configured built-in agent-provider list to be exactly the supported native `glm` provider; mixed providers are refused.
-
-Phone control preparation can reveal the selected native ZCode session, verify its copied session ID and restore the previously active app. Passive history opening does not navigate the desktop. Plan / Execute uses the native plan checkbox independently from the file permission radio choices (`build`, `edit`, `yolo`). Both may be checked simultaneously; changing execution mode preserves the chosen permissions. New drafts default to a non-full-access permission choice. Full access still requires confirmation. Creation verifies the native menu selections across paste, rechecks the project and exact draft before a single Send, and binds the mode proof to the confirmed new session and first native human message. Current native human messages do not persist a mode field; late reconciliation requires the original operation's retained proof rather than inventing one.
-
-手机执行准备会定位所选 ZCode 原生会话、核对复制的会话 ID，并恢复此前的前台应用；普通历史浏览不切换桌面会话。计划／执行使用原生计划复选项，独立于文件操作权限的单选项（`build`、`edit`、`yolo`）。两者可以同时勾选；切换执行方式保持选定权限，新草稿默认选择非完全访问权限。完全访问仍须确认。新建在粘贴前后回读原生菜单，发送前重查目录和完整草稿，并将模式证据绑定到新会话及首条原生用户消息。当前原生用户消息不保存模式字段；迟到回执使用原操作保留的证据，不能虚构。
-
-ZCode's exact native default directory (`~/.zcode/workspace/default`) uses the unique “Work outside a project” menu entry when creating a task; it is not searchable as a regular project. The adapter verifies the resulting full directory before loading options or submitting. ZCode 原生默认目录使用唯一的“不在项目中工作”入口，普通目录仍按完整路径搜索；加载选项和发送前都核对最终目录，不能用任意名为 default 的目录代替。
-
-Permission changes require the recognized native labels `计划模式`, `变更前确认`, `自动编辑`, and `完全访问`. Unknown, duplicate or unsupported-language permission options are refused instead of receiving opaque IDs; full access always retains its explicit confirmation requirement. The VibePier interface language can still be English or Chinese. This restriction concerns the provider’s own permission menu and does not claim support for unverified translations.
-
-For ZCode creation, the existing-ID snapshot covers all projects and archived tasks; it refuses an incomplete or over-limit baseline instead of truncating it. Confirmation requires the requested directory and full first eligible human message. Existing-session sends use the first human message after the original anchor; a later same-text message cannot confirm the submission. Receipt text is limited to 120,000 UTF-8 bytes and 64 text parts. Raw JSON for those parts is capped at 2 MiB and decoded outside SQLite so older system SQLite versions cannot truncate embedded NUL characters. These are receipt-integrity limits, not an extension of the phone's existing 32 KB send limit.
-
 ## Uncertain and delayed results
 
 Provider mutation caches bind the trusted phone identity to the original operation and request fingerprint. They do not borrow a success from another phone, session, operation kind or approval. A repeated unknown request is never executed again. Completed response bodies may be retired under memory pressure, while operation markers remain; a retired result is unknown, not permission to resend.
 
-A creation timeout can be checked without another submission. Within the same Mac process, Codex/Claude retain bounded, read-only native observers after confirmed submission; ZCode retains its original submission proof. The returned new thread ID and directory survive the phone's receipt query. Missing/ambiguous native evidence stays unknown. Restart can discard provider-local evidence, but the durable journal still retains the unresolved operation and prevents automatic replay. Check the native app before deciding what to do next.
+A creation timeout can be checked without another submission. Within the same Mac process, Codex/Claude retain bounded, read-only native observers after confirmed submission. The returned new thread ID and directory survive the phone's receipt query. Missing/ambiguous native evidence stays unknown. Restart can discard provider-local evidence, but the durable journal still retains the unresolved operation and prevents automatic replay. Check the native app before deciding what to do next.
 
 ## When an adapter stops working
 
 Keep the provider build/version, VibePier version and a sanitized reproduction. Do not bypass compatibility checks, manually edit provider databases, or retry an uncertain send as a new message. Review the result on the Mac and report it using [CONTRIBUTING.md](../CONTRIBUTING.md).
 
-Source authorities: [CodexBridge](../apps/macos/Sources/VibePierCore/Providers/Codex/CodexBridge.swift), [ClaudeBridge](../apps/macos/Sources/VibePierCore/Providers/Claude/ClaudeBridge.swift), [ZCodeBridge](../apps/macos/Sources/VibePierCore/Providers/ZCode/ZCodeBridge.swift), [ZCodeDesktop](../apps/macos/Sources/VibePierCore/Providers/ZCode/ZCodeDesktop.swift).
+Source authorities: [CodexBridge](../apps/macos/Sources/VibePierCore/Providers/Codex/CodexBridge.swift), [ClaudeBridge](../apps/macos/Sources/VibePierCore/Providers/Claude/ClaudeBridge.swift).
 
 ## 中文能力表
 
-| 能力 | Codex | Claude Code | ZCode |
-| --- | --- | --- | --- |
-| 列表、历史、图片、Markdown | 兼容桌面订阅或已登记的自有 App Server 会话 | 已接入本地记录与适配的桌面状态 | 已接入原生记录及受限本地图片 |
-| 回复、新建、设置、停止 | 已有桌面核对实际接口与原 owner；默认新建走自有后台且无需解锁，后台发送须空闲 | 区分桌面、终端与本机 CLI；终端占用时不旁路续写 | 校验原生会话及菜单；新建仅支持指定原生 provider 配置 |
-| 手机计划/执行 | 运行时核验的桌面或自有 App Server 原生目录与模式证据，权限独立 | 原生计划权限模式；已有设置须桌面实读，新建核验首条权限 | 原生计划复选项独立于权限单选项；切换保持权限 |
-| 附件 | 支持 | 新会话图片作为视觉内容发送；其他文件与已有会话附件作为文件引用 | 不支持 |
-| 审批与问答 | 支持识别出的原生/异步请求 | 仅适配且无歧义的桌面请求 | 不支持 |
-| 队列及引导 | 仅兼容桌面会话；自有后台会话不支持队列、引导与队列删除 | 不支持对应队列功能 | 不支持 |
-| 上下文用量 | 所选原生后端提供时显示 | 需适配的已打开桌面会话 | 不支持 |
+| 能力 | Codex | Claude Code |
+| --- | --- | --- |
+| 列表、历史、图片、Markdown | 兼容桌面订阅或已登记的自有 App Server 会话 | 已接入本地记录与适配的桌面状态 |
+| 回复、新建、设置、停止 | 已有桌面核对实际接口与原 owner；默认新建走自有后台且无需解锁，后台发送须空闲 | 区分桌面、终端与本机 CLI；终端占用时不旁路续写 |
+| 手机计划/执行 | 运行时核验的桌面或自有 App Server 原生目录与模式证据，权限独立 | 原生计划权限模式；已有设置须桌面实读，新建核验首条权限 |
+| 附件 | 支持 | 新会话图片作为视觉内容发送；其他文件与已有会话附件作为文件引用 |
+| 审批与问答 | 支持识别出的原生/异步请求 | 仅适配且无歧义的桌面请求 |
+| 队列及引导 | 仅兼容桌面会话；自有后台会话不支持队列、引导与队列删除 | 不支持对应队列功能 |
+| 上下文用量 | 所选原生后端提供时显示 | 需适配的已打开桌面会话 |
 
-Codex 桌面打开、控制、新建与计划/执行选项不再按构建号白名单禁用；升级后接口仍兼容即可继续使用，实际接口或回执异常才报错，未知操作不自动重发。默认新建与自有会话续写使用单独核验的内置 App Server 契约，不代表所有场景已完成真机验收。Claude 不能对已有终端占用的会话另起进程续写；桌面发送以新增原生消息 ID 和完整正文确认，审批只提交一次并等待匹配的原生回答记录，未知结果不自动重发；ZCode 不直接修改数据库，也不覆盖已有草稿。ZCode 权限选项仅识别上述已适配的原生名称；未知、重复或未适配语言的权限模式拒绝在手机切换，完全访问保留明确确认。VibePier 自身仍支持中英文界面。平台最低版本声明、编译成功与实际设备验收必须分别记录。
+Codex 桌面打开、控制、新建与计划/执行选项不再按构建号白名单禁用；升级后接口仍兼容即可继续使用，实际接口或回执异常才报错，未知操作不自动重发。默认新建与自有会话续写使用单独核验的内置 App Server 契约，不代表所有场景已完成真机验收。Claude 不能对已有终端占用的会话另起进程续写；桌面发送以新增原生消息 ID 和完整正文确认，审批只提交一次并等待匹配的原生回答记录，未知结果不自动重发。VibePier 自身仍支持中英文界面。平台最低版本声明、编译成功与实际设备验收必须分别记录。
 
 Codex 操作开始写入桌面接口后，超时、断线、处理错误或无效回执均保留为“结果未知”，不再靠中英文错误文字推断。成功回复必须匹配请求方法及原桌面实例，并包含相应的原生消息、任务或操作确认；不会自动重发。所有服务商的回执还会统一校验会话身份、确认字段及传输大小，缺失或矛盾的回复不能把持久记录标成完成。锁屏/解锁需确认目标屏幕状态，查回执需匹配原会话，重启不清除未知操作。
 
@@ -139,8 +121,6 @@ Codex 旧深链/AX 新建采用单独的版本约束，目前按构建 12553 的
 Claude Code：会话无持有方时，由已安装的 Claude 桌面（必要时先解锁 Mac 并启动应用）导入并接收消息，因此在桌面实时显示；只有未安装 Claude 桌面时才用 `claude` CLI 无界面续写。新建仍需该 CLI 与已知项目：首轮无界面运行，结束后立即导入 Claude 桌面并切到前台，之后每轮都在桌面实时显示。CLI 未写入首条消息即退出视为确定失败；模式回读不一致仅作提醒。
 
 Claude 粘贴和提交前均核对原窗口、唯一可用文本区及实际焦点。原生点击先选定一种方式，辅助功能失败或回执延迟后不补发第二次点击；关闭菜单不再发送可能触发“停止”的 Escape。鼠标按下后即使失焦也会释放；用户中途新复制的剪贴板内容会保留。这些属于源码保护，实际原生界面仍须单独验收。
-
-ZCode 新建前记录所有项目及归档任务的 ID，确认时检查目标目录和完整首条有效用户消息；已有会话发送则检查原锚点后的第一条用户消息，不能用后续同文消息代替回执。原生回执缓存按服务端传入的已验证手机身份隔离，手机自报身份不能覆盖。
 
 服务商回执按可信手机身份、原操作 ID、请求指纹和会话保存，不能借用另一台手机或另一项审批的成功结果。未确认操作不因缓存满而淘汰；已完成正文退役也保留操作标记，不允许重执行。新建超时后可以只读查询原生首条消息，保留新会话 ID 和目录；进程重启后若缺失原生核验依据，仍保持未知，不能据此自动重发。
 
@@ -191,25 +171,23 @@ Codex list/activity discovery includes the `vibepier` originator used by configu
 
 ### Agent option catalogs / Agent 选项缓存
 
-Mac startup primes Codex’s local catalog, the currently visible Claude desktop model menu, and ZCode’s native option catalog once. Claude CLI creation and headless session settings discover full model IDs through the configured Anthropic-compatible `/v1/models` endpoint, with bounded pagination, a 60-second configuration-scoped memory cache, and explicit refresh. Choices and settings validation use the same directory; unavailable discovery reports an error instead of inventing alias choices. Credentials stay on the Mac; only user-level API settings, environment keys/tokens and the configured user API key helper are supported. OAuth-only discovery and project-level model/credential overrides are explicitly unsupported. Desktop-owned sessions continue to use their native menus. Model version and reasoning effort are separate choices. A desktop host first encountered later loads once for that host. ZCode persists only bounded presentation choices in a private file; drafts, native owner proof, permissions to mutate, device keys and receipts are not persisted with it. Explicit Refresh options rereads the source. Phone detail menus reuse the fetched catalog while overlaying the current session selection. Mutation preparation still renews target authorization, and native submission/settings must prove actual application. Cached menus never prove success.
+Mac startup primes Codex’s local catalog and the currently visible Claude desktop model menu once. Claude CLI creation and headless session settings discover full model IDs through the configured Anthropic-compatible `/v1/models` endpoint, with bounded pagination, a 60-second configuration-scoped memory cache, and explicit refresh. Choices and settings validation use the same directory; unavailable discovery reports an error instead of inventing alias choices. Credentials stay on the Mac; only user-level API settings, environment keys/tokens and the configured user API key helper are supported. OAuth-only discovery and project-level model/credential overrides are explicitly unsupported. Desktop-owned sessions continue to use their native menus. Model version and reasoning effort are separate choices. A desktop host first encountered later loads once for that host. Explicit Refresh options rereads the source. Phone detail menus reuse the fetched catalog while overlaying the current session selection. Mutation preparation still renews target authorization, and native submission/settings must prove actual application. Cached menus never prove success.
 
-Mac 启动时预读一次 Codex 本地目录、当前可见 Claude 桌面模型菜单和 ZCode 原生选项目录；Claude CLI 新建使用本地支持的模型别名。之后首次遇到的 Claude 桌面来源读一次。ZCode 在私有文件中仅保存有界的选项展示数据，不保存草稿、原生会话身份、写操作授权、设备密钥或回执。手机详情页复用取得的目录，并叠加当前会话选中项；点「刷新选项」重新读取。提交前仍更新目标授权，并核对实际提交/设置结果。
+Mac 启动时预读一次 Codex 本地目录和当前可见 Claude 桌面模型菜单；Claude CLI 新建使用本地支持的模型别名。之后首次遇到的 Claude 桌面来源读一次。手机详情页复用取得的目录，并叠加当前会话选中项；点「刷新选项」重新读取。提交前仍更新目标授权，并核对实际提交/设置结果。
 
 | Agent | New-session options | Speed |
 | --- | --- | --- |
 | Codex | Local visible models, reasoning levels, Plan/Execute, permission mode, attachments | Owned background and verified desktop sessions, when the selected model/runtime advertises priority |
 | Claude Code | Supported CLI aliases, reasoning levels, coupled Plan/Execute permissions, image attachments | Unavailable |
-| ZCode | Actual native account model choices, available reasoning level, independent Plan/Execute and permissions | Unavailable; new attachments unavailable |
 
 | Agent | 新会话可选项 | 加速 |
 | --- | --- | --- |
 | Codex | 本机可见模型、推理强度、计划/执行、权限、附件 | 自有后台及已核验桌面会话，且当前模型/运行时支持 priority |
 | Claude Code | 支持的 CLI 模型别名、推理强度、与权限关联的计划/执行、图片附件 | 暂不支持 |
-| ZCode | 原生账号实际模型、可用推理强度、独立的计划/执行及权限 | 暂不支持；新建附件暂不支持 |
 
-Profile 2 desktop mutations use the same preparation-aware waiting policy as native controls: creation waits up to 60 seconds, configuration and message submission 45 seconds, and other mutations at least 30 seconds. Reads retain their normal deadline. Timeout retains the original unknown receipt and never resubmits. A ZCode creation failure during control preparation, before the Send boundary, reports that the message was not submitted; settings operations themselves still retain uncertainty after a native control change.
+Profile 2 desktop mutations use the same preparation-aware waiting policy as native controls: creation waits up to 60 seconds, configuration and message submission 45 seconds, and other mutations at least 30 seconds. Reads retain their normal deadline. Timeout retains the original unknown receipt and never resubmits.
 
-Profile 2 的桌面操作按准备耗时等待：创建最多 60 秒，配置和消息提交 45 秒，其他变更至少 30 秒；读取沿用普通期限。超时保留原未知回执，不重发。ZCode 新建在 Send 之前的控件准备失败会明确返回消息未提交；独立设置操作在原生控件变更后的不确定结果仍保持待确认。
+Profile 2 的桌面操作按准备耗时等待：创建最多 60 秒，配置和消息提交 45 秒，其他变更至少 30 秒；读取沿用普通期限。超时保留原未知回执，不重发。
 
 Stopping a creation wait immediately restores a separate editable draft in the same dialog. It ends only the local wait and receipt query; the Mac may continue the original creation. The original unresolved draft/receipt remains available under Earlier creation receipts. Late replies cannot lock or replace the new draft. Matching first-message text or attachment IDs in the same project still require checking the old result before resubmitting; a different message uses a different draft and operation ID.
 
@@ -223,6 +201,6 @@ After restoring a project through an Agent tab or reconnect, a missing workspace
 
 切换 Agent tab 或重连后恢复项目时，如果协议项目引用缺失，会先通过有界的只读项目查询恢复，再加载会话或新建选项。完整目录必须在同一适配器和授权／视图范围内唯一匹配；切 tab／Mac 后到达的旧回包会被丢弃。刷新选项会替换失效的模型、权限和推理值，同时保留首条文字，完全访问仍需明确确认。
 
-Desktop menu startup warming never attempts a screen unlock. While locked, ZCode keeps its last private catalogue and Claude skips native menu warming. An explicit authorized desktop action may still use the configured unlock workflow. A failed unlock is not silently reset or repeatedly retried.
+Desktop menu startup warming never attempts a screen unlock. While locked, Claude skips native menu warming. An explicit authorized desktop action may still use the configured unlock workflow. A failed unlock is not silently reset or repeatedly retried.
 
-桌面菜单的启动预读不尝试解锁屏幕。锁屏时 ZCode 保留私有目录缓存，Claude 跳过原生菜单预读；明确的已授权桌面操作仍可使用已配置的自动解锁。失败标记不被静默重置，不会反复尝试密码。
+桌面菜单的启动预读不尝试解锁屏幕。锁屏时 Claude 跳过原生菜单预读；明确的已授权桌面操作仍可使用已配置的自动解锁。失败标记不被静默重置，不会反复尝试密码。

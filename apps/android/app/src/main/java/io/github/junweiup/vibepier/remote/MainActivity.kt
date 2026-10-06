@@ -360,7 +360,7 @@ class MainActivity : Activity() {
             if (!isDestroyed) { shortcutsSyncing = entries.isEmpty(); appShortcuts = entries; refreshApplicationDock() }
         } }
         sender.onConnectionChanged = { handler.post { if (!isDestroyed) showTarget() } }
-        sender.relaySettings = try { relayStore.migrate(prefs) } catch (_: Exception) { null }
+        sender.relaySettings = try { relayStore.read() } catch (_: Exception) { null }
         val firstConnection = backgroundConnection && !prefs.contains("transport") && codexFixture.isBlank()
         val savedMode = prefs.getString("transport", if (firstConnection) "bluetooth" else "wifi")?.takeIf { it == "bluetooth" || it == "relay" } ?: "wifi"
         sender.changeMode(savedMode)

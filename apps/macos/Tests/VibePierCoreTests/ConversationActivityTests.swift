@@ -73,7 +73,7 @@ final class ConversationActivityTests: XCTestCase {
         }
         ledger.observe(observation("late", unread: true), baseline: true)
         ledger.observe(observation("busy", phase: .running, completion: nil), baseline: false)
-        XCTAssertEqual(ledger.markAllViewed(keys: ["codex:a", "claude:a", "codex:busy", "zcode:missing"]), 2)
+        XCTAssertEqual(ledger.markAllViewed(keys: ["codex:a", "claude:a", "codex:busy", "codex:missing"]), 2)
         XCTAssertEqual(ledger.snapshot["unreadCount"] as? Int, 1, "a dot finished after the panel rendered is kept")
         XCTAssertEqual(ledger.entries["codex:late"]?.unread, "done-a")
         XCTAssertEqual(ledger.snapshot["runningCount"] as? Int, 1)
@@ -87,15 +87,31 @@ final class ConversationActivityTests: XCTestCase {
 
     func testSameIDAcrossProvidersAndFailureAreIndependent() {
         var ledger = ConversationActivityLedger()
-        for provider in ["codex", "claude", "zcode"] {
+        for provider in ["codex", "claude"] {
             ledger.observe(observation(provider: provider, unread: true), baseline: true)
         }
         ledger.markViewed(provider: "claude", id: "a", completion: "done-a")
-        XCTAssertEqual(ledger.snapshot["unreadCount"] as? Int, 2)
+        XCTAssertEqual(ledger.snapshot["unreadCount"] as? Int, 1)
         ledger.observe(observation("abort", phase: .running, completion: nil), baseline: false)
         ledger.observe(observation("abort", phase: .failed, completion: nil), baseline: false)
         XCTAssertNil(ledger.entries["codex:abort"]?.unread)
         XCTAssertEqual(ledger.snapshot["runningCount"] as? Int, 0)
+    }
+
+    func testPersistedUnsupportedProviderActivityIsFilteredBeforeFirstSnapshot() throws {
+        let file = temporary().appendingPathComponent("ledger.json")
+        var ledger = ConversationActivityLedger()
+        ledger.observe(
+            observation("retired-running", provider: "retired-provider", phase: .running, completion: nil),
+            baseline: true)
+        ledger.observe(observation("retired-unread", provider: "retired-provider", unread: true), baseline: true)
+        ledger.observe(observation("supported", provider: "codex", unread: true), baseline: true)
+        try JSONEncoder().encode(ledger).write(to: file)
+        let activity = ConversationActivity(file: file, source: FixtureSource(observation("supported", unread: true)))
+        XCTAssertEqual(activity.snapshot["runningCount"] as? Int, 0)
+        XCTAssertEqual(activity.snapshot["unreadCount"] as? Int, 1)
+        let sessions = try XCTUnwrap(activity.snapshot["sessions"] as? [[String: Any]])
+        XCTAssertEqual(sessions.compactMap { $0["provider"] as? String }, ["codex"])
     }
 
     func testRestartPreservesUnreadViewedAndObservedRunningTurn() throws {
@@ -263,45 +279,6 @@ final class ConversationActivityTests: XCTestCase {
             context.identity, NativeConversationActivitySource.digest(["chatgpt", "account", "different-subject"]))
     }
 
-    func testZCodeRunningNeedsActivityFromTheCurrentNativeHost() {
-        let launch = Date(timeIntervalSince1970: 100)
-        XCTAssertFalse(
-            NativeConversationActivitySource.zcodeRunning(
-                status: "running", launch: launch,
-                activity: [90_000, 95_000, 99_999], terminal: .idle))
-        XCTAssertFalse(
-            NativeConversationActivitySource.zcodeRunning(
-                status: "running", launch: nil,
-                activity: [110_000], terminal: .idle))
-        XCTAssertFalse(
-            NativeConversationActivitySource.zcodeRunning(
-                status: "running", launch: launch,
-                activity: [110_000], terminal: .completed))
-        var ledger = ConversationActivityLedger()
-        ledger.observe(observation(provider: "zcode", phase: .running, completion: nil), baseline: true)
-        ledger.observe(observation(provider: "zcode", phase: .idle, completion: nil), baseline: false)
-        XCTAssertEqual(ledger.snapshot["runningCount"] as? Int, 0)
-        XCTAssertEqual(
-            ledger.snapshot["unreadCount"] as? Int, 0, "unknown host restart gaps are never successful completions")
-    }
-
-    func testZCodeResumedOrQuietLongTurnKeepsItsPostLaunchEvidence() {
-        let launch = Date(timeIntervalSince1970: 100)
-        // A new part proves this host resumed a session with old user/assistant
-        // rows. The predicate intentionally has no 'now' or timeout parameter.
-        let evidence: [Int64] = [90_000, 95_000, 100_100]
-        XCTAssertTrue(
-            NativeConversationActivitySource.zcodeRunning(
-                status: "running", launch: launch, activity: evidence, terminal: .idle))
-        XCTAssertFalse(
-            NativeConversationActivitySource.zcodeRunning(
-                status: "running", launch: Date(timeIntervalSince1970: 200), activity: evidence, terminal: .idle),
-            "a later native host cannot reuse the previous host's activity evidence")
-        XCTAssertFalse(
-            NativeConversationActivitySource.zcodeRunning(
-                status: "completed", launch: launch, activity: evidence, terminal: .idle))
-    }
-
     private func temporary() -> URL {
         let root = FileManager.default.temporaryDirectory.appendingPathComponent(
             "activity-fixture-" + UUID().uuidString)
@@ -336,7 +313,7 @@ final class ConversationActivityTests: XCTestCase {
         }
     }
 
-    func testNativeMetadataJoinFiltersSubagentsAndReadsIndexOnlyChanges() throws {
+    func testNativeCodexMetadataFiltersSubagents() throws {
         let home = temporary()
         let path = home.appendingPathComponent("rollout.jsonl")
         let id = UUID().uuidString
@@ -347,8 +324,6 @@ final class ConversationActivityTests: XCTestCase {
         try line.write(to: path)
         let quote: (String) -> String = { "'" + $0.replacingOccurrences(of: "'", with: "''") + "'" }
         let codex = home.appendingPathComponent(".codex/state_5.sqlite")
-        let cli = home.appendingPathComponent(".zcode/cli/db/db.sqlite")
-        let index = home.appendingPathComponent(".zcode/v2/tasks-index.sqlite")
         try database(
             codex,
             """
@@ -356,45 +331,11 @@ final class ConversationActivityTests: XCTestCase {
             INSERT INTO threads VALUES(\(quote(id)),NULL,'Original Codex',\(quote(path.path)),\(Int64(Date().timeIntervalSince1970 * 1000)),0,NULL,'vscode','vibepier');
             INSERT INTO threads VALUES('child',NULL,'Subagent',\(quote(path.path)),0,0,'child','vscode','Codex Desktop');
             """)
-        try database(
-            cli,
-            """
-            CREATE TABLE session(id TEXT,title TEXT,time_updated INTEGER,time_archived INTEGER,task_type TEXT);
-            CREATE TABLE message(id TEXT,session_id TEXT,sequence INTEGER,data TEXT);
-            INSERT INTO session VALUES('sess_ok','Original ZCode',1,NULL,NULL),('sess_failed','Failed',1,NULL,NULL),('sess_interrupted','Interrupted',1,NULL,NULL),('sess_child','Child',1,NULL,'subagent_child'),('sess_other','Other provider',1,NULL,NULL);
-            INSERT INTO message VALUES('user-ok','sess_ok',1,'{"role":"user","semantics":{"kind":"user_prompt"}}'),('answer-ok','sess_ok',2,'{"role":"assistant","parentID":"user-ok","finish":"stop","time":{"completed":10},"semantics":{"kind":"assistant_response"}}');
-            INSERT INTO message VALUES('user-interrupted','sess_interrupted',1,'{"role":"user","semantics":{"kind":"user_prompt"}}'),('answer-interrupted','sess_interrupted',2,'{"role":"assistant","parentID":"user-interrupted","error":{"name":"AiSdkModelAdapterError"},"time":{"completed":10},"semantics":{"kind":"assistant_response"}}');
-            """)
-        try database(
-            index,
-            """
-            CREATE TABLE tasks(task_id TEXT,title TEXT,task_status TEXT,unread_at INTEGER,last_unread_at INTEGER,deleted INTEGER,archived INTEGER,provider TEXT);
-            INSERT INTO tasks VALUES('sess_ok','Native title','completed',10,10,0,0,'glm'),('sess_failed','Failed','error',11,11,0,0,'glm'),('sess_interrupted','Interrupted','completed',11,11,0,0,'glm'),('sess_child','Child','completed',12,12,0,0,'glm'),('sess_other','Other provider','completed',13,13,0,0,'claude');
-            """)
         let source = NativeConversationActivitySource(home: home)
         let first = source.scan(tracked: [:])
         var ledger = ConversationActivityLedger()
         for observation in first.observations { ledger.observe(observation, baseline: true) }
         XCTAssertEqual(first.visibleIDs["codex"], [id])
-        XCTAssertEqual(first.visibleIDs["zcode"], ["sess_ok", "sess_failed", "sess_interrupted"])
-        XCTAssertEqual(ledger.snapshot["unreadCount"] as? Int, 1)
-        XCTAssertNil(
-            ledger.entries["zcode:sess_interrupted"]?.unread,
-            "native index completedInterrupted is not a successful completion")
-        XCTAssertTrue(source.contains(provider: "zcode", id: "sess_ok"))
-        XCTAssertFalse(source.contains(provider: "zcode", id: "sess_other"))
-        // The attached CLI database remains untouched. A tasks-index revision
-        // alone must refresh the native read watermark rather than cached rows.
-        try database(index, "UPDATE tasks SET unread_at=NULL WHERE task_id='sess_ok';")
-        for observation in source.scan(tracked: ledger.entries).observations {
-            ledger.observe(observation, baseline: false)
-        }
-        XCTAssertNil(ledger.entries["zcode:sess_ok"]?.unread)
-        try database(index, "UPDATE tasks SET unread_at=20,last_unread_at=20 WHERE task_id='sess_ok';")
-        for observation in source.scan(tracked: ledger.entries).observations {
-            ledger.observe(observation, baseline: false)
-        }
-        XCTAssertEqual(ledger.entries["zcode:sess_ok"]?.unread, "native:20")
     }
 
     func testClaudeNativeRouteUsesExactHostAndArchivesRemoveTrackedActivity() throws {

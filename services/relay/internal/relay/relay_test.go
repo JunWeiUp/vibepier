@@ -12,6 +12,8 @@ import (
 	"fmt"
 	"io"
 	"net"
+	"net/http"
+	"net/http/httptest"
 	"os"
 	"strconv"
 	"strings"
@@ -115,7 +117,11 @@ func (c *client) noMessage(t *testing.T) {
 }
 
 func hello(role, room, secret string, ts int64) string {
-	return helloVersion("vibepier-relay1", role, room, secret, ts)
+	protocol := "vibepier-relay1"
+	if role == "host" {
+		protocol = "vibepier-relay2"
+	}
+	return helloVersion(protocol, role, room, secret, ts)
 }
 
 func helloVersion(protocol, role, room, secret string, ts int64) string {
@@ -127,7 +133,8 @@ func helloVersion(protocol, role, room, secret string, ts int64) string {
 	return fmt.Sprintf("%s hello %s %s %d %s %s", protocol, role, room, ts, nonce, hex.EncodeToString(mac.Sum(nil)))
 }
 
-// Read the same vectors as Swift and JVM tests, including the routed host protocol.
+// Read shared HMAC vectors; the retired host1 vector is cryptographic history,
+// not an admission contract. TestProtocolBoundAuthentication covers its rejection.
 func TestHelloVector(t *testing.T) {
 	data, err := os.ReadFile("../../../../protocol/fixtures/relay-hello.json")
 	if err != nil {
@@ -158,33 +165,19 @@ func server() *relay {
 
 func TestForwardBothWays(t *testing.T) {
 	s := server()
-	host := dial(t, s)
-	host.send(hello("host", "home", testSecret, time.Now().Unix()))
-	if got := host.read(t); got != "vibepier-relay1 ok" {
-		t.Fatal(got)
-	}
-	phone := dial(t, s)
-	phone.send(hello("client", "home", testSecret, time.Now().Unix()))
-	if got := phone.read(t); got != "vibepier-relay1 ok" {
-		t.Fatal(got)
-	}
-	if got := phone.read(t); got != "vibepier-relay1 peer up" {
-		t.Fatal(got)
-	}
-	if got := host.read(t); got != "vibepier-relay1 peer up" {
-		t.Fatal(got)
-	}
+	host := host2(t, s, "home")
+	phone, peer := phone1(t, s, host, "home")
 	phone.send("vibepier1 abc 1 talk down rcmd")
-	if got := host.read(t); got != "vibepier1 abc 1 talk down rcmd" {
-		t.Fatal(got)
+	if id, body := from(t, host); id != peer || body != "vibepier1 abc 1 talk down rcmd" {
+		t.Fatal(id, body)
 	}
 	big := strings.Repeat("x", 200000)
-	host.send(big)
+	host.send(directed(peer, big))
 	if got := phone.read(t); got != big {
 		t.Fatal("big frame mismatch", len(got))
 	}
 	phone.raw.Close()
-	if got := host.read(t); got != "vibepier-relay1 peer down" {
+	if got := host.read(t); got != "vibepier-relay2 peer down "+peer {
 		t.Fatal(got)
 	}
 }
@@ -193,12 +186,12 @@ func TestRejectsBadAuthAndReplay(t *testing.T) {
 	s := server()
 	bad := dial(t, s)
 	bad.send(hello("host", "home", "wrong-secret-wrong-secret-wrong!!", time.Now().Unix()))
-	if got := bad.read(t); got != "vibepier-relay1 error auth" {
+	if got := bad.read(t); got != "vibepier-relay2 error auth" {
 		t.Fatal(got)
 	}
 	old := dial(t, s)
 	old.send(hello("host", "home", testSecret, time.Now().Unix()-600))
-	if got := old.read(t); got != "vibepier-relay1 error clock" {
+	if got := old.read(t); got != "vibepier-relay2 error clock" {
 		t.Fatal(got)
 	}
 	line := hello("client", "home", testSecret, time.Now().Unix())
@@ -214,25 +207,17 @@ func TestRejectsBadAuthAndReplay(t *testing.T) {
 	}
 }
 
-func TestNewConnectionReplacesSameRole(t *testing.T) {
+func TestNewHostReplacesOnlyHost(t *testing.T) {
 	s := server()
-	first := dial(t, s)
-	first.send(hello("host", "r", testSecret, time.Now().Unix()))
-	first.read(t)
-	second := dial(t, s)
-	second.send(hello("host", "r", testSecret, time.Now().Unix()))
+	first := host2(t, s, "r")
+	second := host2(t, s, "r")
 	if got := first.read(t); got != "<close>" {
 		t.Fatal(got)
 	}
-	second.read(t)
-	phone := dial(t, s)
-	phone.send(hello("client", "r", testSecret, time.Now().Unix()))
-	phone.read(t)
-	phone.read(t) // peer up
-	second.read(t)
+	phone, peer := phone1(t, s, second, "r")
 	phone.send("ping-through")
-	if got := second.read(t); got != "ping-through" {
-		t.Fatal(got)
+	if id, body := from(t, second); id != peer || body != "ping-through" {
+		t.Fatal(id, body)
 	}
 }
 
@@ -423,55 +408,137 @@ func TestPhonesCanJoinBeforeHostAndReconnectIndependently(t *testing.T) {
 	}
 }
 
-func TestLegacyHostStillKeepsOnePhone(t *testing.T) {
+func TestLegacyHostRejectedWithoutReplacingCurrentHostOrPhones(t *testing.T) {
 	s := server()
-	host := dial(t, s)
-	host.send(hello("host", "legacy", testSecret, time.Now().Unix()))
-	host.read(t)
-	first := dial(t, s)
-	first.send(hello("client", "legacy", testSecret, time.Now().Unix()))
-	first.read(t)
-	first.read(t)
-	host.read(t)
-	second := dial(t, s)
-	second.send(hello("client", "legacy", testSecret, time.Now().Unix()))
-	second.read(t)
-	second.read(t)
-	host.read(t)
-	if got := first.read(t); got != "<close>" {
+	host := host2(t, s, "migration")
+	first, firstID := phone1(t, s, host, "migration")
+	second, secondID := phone1(t, s, host, "migration")
+	old := dial(t, s)
+	old.send(helloVersion("vibepier-relay1", "host", "migration", testSecret, time.Now().Unix()))
+	if got := old.read(t); got != "vibepier-relay1 error bad-role" {
 		t.Fatal(got)
 	}
-	host.send("legacy reply")
-	if got := second.read(t); got != "legacy reply" {
+	if got := old.read(t); got != "<close>" {
 		t.Fatal(got)
 	}
 	host.noMessage(t)
+	first.noMessage(t)
+	second.noMessage(t)
+	first.send("first retained")
+	if id, body := from(t, host); id != firstID || body != "first retained" {
+		t.Fatal(id, body)
+	}
+	host.send(directed(secondID, "second retained"))
+	if got := second.read(t); got != "second retained" {
+		t.Fatal(got)
+	}
 }
 
-func TestLegacyHostJoiningOfflineRoomKeepsNewestPhone(t *testing.T) {
+func TestLegacyHostRejectedWithoutDroppingOfflinePhones(t *testing.T) {
 	s := server()
-	first := dial(t, s)
-	first.send(hello("client", "old", testSecret, time.Now().Unix()))
-	first.read(t)
-	second := dial(t, s)
-	second.send(hello("client", "old", testSecret, time.Now().Unix()))
-	second.read(t)
-	host := dial(t, s)
-	host.send(hello("host", "old", testSecret, time.Now().Unix()))
-	host.read(t)
-	if got := first.read(t); got != "<close>" {
+	phones := []*client{dial(t, s), dial(t, s)}
+	for _, phone := range phones {
+		phone.send(hello("client", "offline-old", testSecret, time.Now().Unix()))
+		if got := phone.read(t); got != "vibepier-relay1 ok" {
+			t.Fatal(got)
+		}
+	}
+	old := dial(t, s)
+	old.send(helloVersion("vibepier-relay1", "host", "offline-old", testSecret, time.Now().Unix()))
+	if got := old.read(t); got != "vibepier-relay1 error bad-role" {
 		t.Fatal(got)
 	}
-	if got := second.read(t); got != "vibepier-relay1 peer up" {
+	if got := old.read(t); got != "<close>" {
 		t.Fatal(got)
 	}
-	if got := host.read(t); got != "vibepier-relay1 peer up" {
+	for _, phone := range phones {
+		phone.noMessage(t)
+	}
+	host := host2(t, s, "offline-old")
+	peers := map[string]bool{}
+	for _, phone := range phones {
+		if got := phone.read(t); got != "vibepier-relay1 peer up" {
+			t.Fatal(got)
+		}
+		peers[strings.TrimPrefix(host.read(t), "vibepier-relay2 peer up ")] = true
+	}
+	for i, phone := range phones {
+		body := fmt.Sprintf("retained-%d", i)
+		phone.send(body)
+		id, got := from(t, host)
+		if !peers[id] || got != body {
+			t.Fatal(id, got)
+		}
+		delete(peers, id)
+	}
+	if len(peers) != 0 {
+		t.Fatal("phone routing identity was lost")
+	}
+}
+
+func TestFileRegistrationRequiresCurrentHostContract(t *testing.T) {
+	for _, tc := range []struct {
+		protocol, role string
+		status         int
+	}{
+		{"vibepier-relay1", "host", http.StatusForbidden},
+		{"vibepier-relay2", "client", http.StatusForbidden},
+		{"vibepier-relay1", "client", http.StatusForbidden},
+		{"vibepier-relay2", "host", http.StatusCreated},
+	} {
+		t.Run(tc.protocol+"/"+tc.role, func(t *testing.T) {
+			s := server()
+			id, read, write := strings.Repeat("a", 64), strings.Repeat("b", 64), strings.Repeat("c", 64)
+			body := fmt.Sprintf(`{"id":%q,"read":%q,"write":%q,"room":"files","size":4}`, id, read, write)
+			hello := helloVersion(tc.protocol, tc.role, "files", testSecret, time.Now().Unix())
+			register := func() int {
+				req := httptest.NewRequest(http.MethodPost, "/files/register", strings.NewReader(body))
+				req.Header.Set("X-VibePier-Authorization", hello)
+				response := httptest.NewRecorder()
+				s.ServeHTTP(response, req)
+				return response.Code
+			}
+			if got := register(); got != tc.status {
+				t.Fatal(got)
+			}
+			if tc.status == http.StatusCreated {
+				if got := register(); got != http.StatusForbidden {
+					t.Fatal("file registration replay accepted", got)
+				}
+				for _, token := range []string{strings.Repeat("d", 64), read} {
+					req := httptest.NewRequest(http.MethodDelete, "/files/"+id, nil)
+					req.Header.Set("Authorization", "Bearer "+token)
+					response := httptest.NewRecorder()
+					s.ServeHTTP(response, req)
+					expected := http.StatusForbidden
+					if token == read {
+						expected = http.StatusNoContent
+					}
+					if response.Code != expected {
+						t.Fatal(response.Code)
+					}
+				}
+			}
+		})
+	}
+}
+
+func TestHostCannotRouteToAnotherRoom(t *testing.T) {
+	s := server()
+	firstHost := host2(t, s, "room-a")
+	firstPhone, firstID := phone1(t, s, firstHost, "room-a")
+	secondHost := host2(t, s, "room-b")
+	secondPhone, secondID := phone1(t, s, secondHost, "room-b")
+	firstHost.send(directed(secondID, "foreign room"))
+	firstPhone.noMessage(t)
+	secondPhone.noMessage(t)
+	firstHost.send("unwrapped reply")
+	firstPhone.noMessage(t)
+	firstHost.send(directed(firstID, "own phone"))
+	if got := firstPhone.read(t); got != "own phone" {
 		t.Fatal(got)
 	}
-	second.send("newest retained")
-	if got := host.read(t); got != "newest retained" {
-		t.Fatal(got)
-	}
+	secondPhone.noMessage(t)
 }
 
 func TestLargeDirectedPayloadAndMalformedEnvelope(t *testing.T) {
@@ -526,10 +593,26 @@ func TestConnectionLimitAndStaleLeave(t *testing.T) {
 
 func TestProtocolBoundAuthentication(t *testing.T) {
 	s := server()
-	line := hello("host", "bound", testSecret, time.Now().Unix())
+	for _, contract := range []struct {
+		version int
+		role    string
+	}{{1, "host"}, {2, "client"}, {0, "host"}} {
+		if _, _, err := s.join(&conn{protocol: contract.version, role: contract.role, room: "rejected"}); err == nil {
+			t.Fatal("unsupported contract entered room")
+		}
+	}
+	if len(s.rooms) != 0 {
+		t.Fatal("rejected contracts changed room state")
+	}
+	retired := helloVersion("vibepier-relay1", "host", "bound", testSecret, time.Now().Unix())
+	if _, _, _, err := s.verify(retired); err == nil || err.Error() != "bad-role" {
+		t.Fatal("retired host admitted", err)
+	}
+
+	line := helloVersion("vibepier-relay1", "host", "bound", testSecret, time.Now().Unix())
 	_, _, _, err := s.verify(strings.Replace(line, "vibepier-relay1 hello", "vibepier-relay2 hello", 1))
 	if err == nil || err.Error() != "auth" {
-		t.Fatal("protocol downgrade not bound", err)
+		t.Fatal("protocol change not bound", err)
 	}
 	line = helloVersion("vibepier-relay2", "host", "bound", testSecret, time.Now().Unix())
 	if version, role, _, err := s.verify(line); err != nil || version != 2 || role != "host" {

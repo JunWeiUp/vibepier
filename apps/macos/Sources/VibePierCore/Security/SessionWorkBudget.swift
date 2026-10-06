@@ -97,11 +97,11 @@ final class SessionWorkBudget: @unchecked Sendable {
     }
 }
 
-/// Fixed server-side partitions sum to the existing 16 requests / 2 MiB per phone
+/// Fixed server-side partitions stay within 16 requests / 2 MiB per phone
 /// and 64 requests / 8 MiB globally. A stuck provider cannot borrow another lane's capacity.
 enum SessionRequestLane: String, CaseIterable {
-    case codex, claude, zcode, account, controls
-    case codexReceipt, claudeReceipt, zcodeReceipt, accountReceipt
+    case codex, claude, account, controls
+    case codexReceipt, claudeReceipt, accountReceipt
 
     static var limits: [String: SessionWorkBudget.Limits] {
         Dictionary(
@@ -109,7 +109,7 @@ enum SessionRequestLane: String, CaseIterable {
                 let count: Int
                 let bytes: Int
                 switch lane {
-                case .codex, .claude, .zcode: (count, bytes) = (3, 384 * 1024)
+                case .codex, .claude: (count, bytes) = (3, 384 * 1024)
                 case .account: (count, bytes) = (2, 256 * 1024)
                 default: (count, bytes) = (1, 128 * 1024)
                 }
@@ -131,7 +131,6 @@ enum SessionRequestLane: String, CaseIterable {
         }
         switch request["provider"] as? String ?? "codex" {
         case "claude": return (receipt ? Self.claudeReceipt : .claude).rawValue
-        case "zcode": return (receipt ? Self.zcodeReceipt : .zcode).rawValue
         case "", "codex": return (receipt ? Self.codexReceipt : .codex).rawValue
         default: return Self.controls.rawValue
         }

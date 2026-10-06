@@ -12,7 +12,6 @@
     <string name="client_pairing_invalid">无法读取安全配对信息，请更新 Mac 版 VibePier 后重试</string>
     <string name="client_connect_first">请先连接 Mac</string>
     <string name="client_authorize_first">请先在 Mac 授权</string>
-    <string name="client_state_save_failed">无法保存会话状态，本次未发送</string>
     <string name="client_receipt_save_failed">无法保存发送回执，本次未发送</string>
     <string name="client_unknown_result">尚未收到确认，请先核对发送结果</string>
     <string name="client_mac_unresponsive">Mac 暂未响应，请检查桌面授权或重试</string>
@@ -68,9 +67,7 @@
     <string name="connection_notification_body">切到后台后继续联网，点此返回应用</string>
     <string name="connection_disconnect">断开连接</string>
     <string name="relay_store_save_failed">无法保存中继配置</string>
-    <string name="relay_store_cleanup_failed">无法清理旧中继配置</string>
     <string name="apk_preparing">\n正在准备…</string>
-    <string name="apk_ble_hint">\n蓝牙传输较慢，可保持此页或切换 Wi-Fi 后继续。</string>
     <string name="apk_verifying">%1$s\n正在校验 APK…</string>
     <string name="apk_install_message">%1$s\n应用：%2$s\n文件校验通过。系统将再次确认安装；更新现有应用需使用相同签名。</string>
     <string name="apk_install_failed">APK 安装失败：%1$s</string>
@@ -79,8 +76,6 @@
     <string name="apk_cancel_receive">取消接收</string>
     <string name="apk_receive_cancelled">用户取消接收</string>
     <string name="apk_invalid_length">本地文件长度无效</string>
-    <string name="apk_mac_cancelled">Mac 已取消下发</string>
-    <string name="apk_interrupted">接收中断，重连后继续</string>
     <string name="apk_write_failed">APK 写入失败</string>
     <string name="apk_digest_failed">APK 校验失败，请重新下发</string>
     <string name="apk_invalid_file">无效 APK 或分包，请选择完整的单 APK</string>

@@ -80,7 +80,7 @@ class SessionCreationWaitStateTest {
         val legacyRead = JSONObject().put("op", "receipt").put("operation", operation)
         fun agent(method: String, id: String) = JSONObject().put("op", "agentRequest")
             .put("body", JSONObject().put("method", method).put("params", JSONObject().put("operationId", id)))
-        assertTrue(SessionCreationWaitState.isReceiptRead(legacyRead, operation))
+        assertFalse(SessionCreationWaitState.isReceiptRead(legacyRead, operation))
         assertTrue(SessionCreationWaitState.isReceiptRead(agent("operation.get", operation), operation))
         assertFalse(SessionCreationWaitState.isReceiptRead(original(), operation))
         assertFalse(SessionCreationWaitState.isReceiptRead(agent("session.create", operation), operation))

@@ -17,7 +17,6 @@ enum ConversationTaskOpener {
                     switch provider {
                     case "codex": try showCodex(id)
                     case "claude": try ClaudeDesktop.show(session: id)
-                    case "zcode": try ZCodeDesktop.show(session: id)
                     default: throw CLIError(L10n.text("session.unsupported_task_provider"))
                     }
                     continuation.resume()

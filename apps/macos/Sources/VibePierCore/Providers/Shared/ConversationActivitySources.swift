@@ -39,20 +39,13 @@ final class NativeConversationActivitySource: ConversationActivitySource, @unche
         let failed: Bool
     }
     private let home: URL
-    private let codex: ZCodeSQLiteReader
-    private let zcode: ZCodeSQLiteReader
-    private let zcodeIndex: ZCodeSQLiteReader
+    private let codex: ReadOnlySQLiteReader
     private var context: ReadContext?
     private var authVersion: FileVersion?
     private var readOverrides: [String: Bool] = [:]
     private var readCompletions: [String: String] = [:]
     private var codexRows: [String: [String: Any]] = [:]
     private var codexVersion = ""
-    private var zcodeRows: [[String: Any]] = []
-    private var zcodeVersion = ""
-    private var zcodeTerminalVersion = ""
-    private var zcodeTerminals: [String: ConversationActivityObservation.Phase] = [:]
-    private var zcodeActivity: [String: [Int64]] = [:]
     private var cursors: [String: Cursor] = [:]
     private var claudeFiles: [String: String] = [:]
     private var claudeCache: [String: (FileVersion, ConversationActivityTail.State)] = [:]
@@ -67,11 +60,7 @@ final class NativeConversationActivitySource: ConversationActivitySource, @unche
     ) {
         self.home = home
         self.visibleClaudeHost = visibleClaudeHost
-        codex = ZCodeSQLiteReader(path: home.appendingPathComponent(".codex/state_5.sqlite").path)
-        zcode = ZCodeSQLiteReader(
-            path: home.appendingPathComponent(".zcode/cli/db/db.sqlite").path,
-            attachmentPath: home.appendingPathComponent(".zcode/v2/tasks-index.sqlite").path)
-        zcodeIndex = ZCodeSQLiteReader(path: home.appendingPathComponent(".zcode/v2/tasks-index.sqlite").path)
+        codex = ReadOnlySQLiteReader(path: home.appendingPathComponent(".codex/state_5.sqlite").path)
         let authPath = home.appendingPathComponent(".codex/auth.json")
         authVersion = FileVersion(authPath.path)
         context = (try? Data(contentsOf: authPath)).flatMap(Self.bootstrapContext)
@@ -171,7 +160,7 @@ final class NativeConversationActivitySource: ConversationActivitySource, @unche
 
     func scan(tracked: [String: ConversationActivityLedger.Entry]) -> ConversationActivityScan {
         var result = ConversationActivityScan()
-        for path in [codex.path, zcode.path, zcodeIndex.path] {
+        for path in [codex.path] {
             result.paths.formUnion([path, path + "-wal", URL(fileURLWithPath: path).deletingLastPathComponent().path])
         }
         result.paths.formUnion([
@@ -181,7 +170,6 @@ final class NativeConversationActivitySource: ConversationActivitySource, @unche
             home.appendingPathComponent(".claude/sessions").path,
         ])
         scanCodex(tracked: tracked, into: &result)
-        scanZCode(tracked: tracked, into: &result)
         scanClaude(tracked: tracked, into: &result)
         ids.merge(result.visibleIDs) { _, new in new }
         return result
@@ -295,114 +283,6 @@ final class NativeConversationActivitySource: ConversationActivitySource, @unche
         }
         cursors[path] = Cursor(version: version, offset: consumed, state: state)
         return state
-    }
-
-    private func scanZCode(
-        tracked: [String: ConversationActivityLedger.Entry], into result: inout ConversationActivityScan
-    ) {
-        let sql = """
-            SELECT s.id,coalesce(nullif(t.title,''),s.title) AS title,t.task_status,t.unread_at,t.last_unread_at,s.time_updated
-            FROM session s JOIN desktop_tasks.tasks t ON t.task_id=s.id
-            WHERE s.time_archived IS NULL AND coalesce(s.task_type,'')!='subagent_child'
-              AND coalesce(t.deleted,0)=0 AND coalesce(t.archived,0)=0 AND t.provider='glm'
-            """
-        guard let mainVersion = try? zcode.version(), let indexVersion = try? zcodeIndex.version() else { return }
-        let version = mainVersion + ":" + indexVersion
-        if version != zcodeVersion {
-            guard let rows = try? zcode.rows(sql) else { return }
-            zcodeRows = rows
-            zcodeVersion = version
-        }
-        if mainVersion != zcodeTerminalVersion {
-            zcodeTerminals.removeAll()
-            zcodeActivity.removeAll()
-            zcodeTerminalVersion = mainVersion
-        }
-        let rows = zcodeRows
-        result.visibleIDs["zcode"] = Set(rows.compactMap { $0["id"] as? String })
-        let application = NSRunningApplication.runningApplications(withBundleIdentifier: ZCodeDesktop.bundleID).first
-        for row in rows {
-            guard let id = row["id"] as? String else { continue }
-            let status = row["task_status"] as? String ?? ""
-            let stamp = row["last_unread_at"] as? Int64
-            let unread = (row["unread_at"] as? Int64 ?? 0) > 0
-            let old = tracked["zcode:" + id]
-            let needsTerminal =
-                unread || old?.unread != nil || old?.running == true || (status == "running" && application != nil)
-            let terminal = needsTerminal ? zcodeTerminal(id) : .idle
-            // The desktop maps interrupted and successful turns to the same
-            // index status. Require the original latest user/assistant pair's
-            // explicit successful terminal scalar before creating a green dot.
-            let activity =
-                status == "running" && application != nil
-                ? [(row["time_updated"] as? Int64 ?? 0)] + zcodeActivityTimes(id) : []
-            let active = Self.zcodeRunning(
-                status: status, launch: application?.launchDate, activity: activity, terminal: terminal)
-            let phase: ConversationActivityObservation.Phase =
-                active ? .running : status == "completed" ? terminal : status == "error" ? .failed : .idle
-            let revision = stamp.map { "native:\($0)" }
-            result.observations.append(
-                .init(
-                    provider: "zcode", id: id, title: row["title"] as? String ?? "ZCode", phase: phase,
-                    completion: revision, nativeUnread: unread, nativeRevision: revision,
-                    nativeViewedCompletion: !unread && phase == .completed ? revision : nil))
-        }
-    }
-
-    /// A previous host's unfinished index record is unknown, not a completion.
-    /// Once this host has started/resumed the session, an arbitrarily long quiet
-    /// turn retains its running ring; there is no elapsed-time expiry.
-    static func zcodeRunning(
-        status: String, launch: Date?, activity: [Int64], terminal: ConversationActivityObservation.Phase
-    ) -> Bool {
-        guard status == "running", terminal != .completed, let launch else { return false }
-        let boundary = Int64(ceil(launch.timeIntervalSince1970 * 1000))
-        return (activity.max() ?? 0) >= boundary
-    }
-
-    private func zcodeActivityTimes(_ id: String) -> [Int64] {
-        if let activity = zcodeActivity[id] { return activity }
-        let sql = """
-            SELECT
-              (SELECT time_updated FROM message WHERE session_id=? AND json_extract(data,'$.role')='user'
-                 AND coalesce(json_extract(data,'$.semantics.kind'),'user_prompt')='user_prompt'
-                 ORDER BY sequence DESC,id DESC LIMIT 1) AS user_updated,
-              (SELECT time_updated FROM message WHERE session_id=? AND json_extract(data,'$.role')='assistant'
-                 AND coalesce(json_extract(data,'$.semantics.kind'),'assistant_response')='assistant_response'
-                 ORDER BY sequence DESC,id DESC LIMIT 1) AS assistant_updated,
-              (SELECT max(time_updated) FROM part WHERE session_id=?) AS part_updated
-            """
-        let row = try? zcode.rows(sql, bind: [id, id, id]).first
-        let activity = ["user_updated", "assistant_updated", "part_updated"].compactMap { row?[$0] as? Int64 }
-        zcodeActivity[id] = activity
-        return activity
-    }
-
-    private func zcodeTerminal(_ id: String) -> ConversationActivityObservation.Phase {
-        if let phase = zcodeTerminals[id] { return phase }
-        let user = try? zcode.rows(
-            "SELECT id FROM message WHERE session_id=? AND json_extract(data,'$.role')='user' AND coalesce(json_extract(data,'$.semantics.kind'),'user_prompt')='user_prompt' AND coalesce(json_extract(data,'$.semantics.uiVisibility'),'visible')!='hidden' ORDER BY sequence DESC,id DESC LIMIT 1",
-            bind: [id]
-        ).first
-        let assistant = try? zcode.rows(
-            "SELECT json_extract(data,'$.parentID') AS parentID,json_extract(data,'$.finish') AS finish,json_extract(data,'$.time.completed') AS completed,json_type(data,'$.error') AS errorType FROM message WHERE session_id=? AND json_extract(data,'$.role')='assistant' AND coalesce(json_extract(data,'$.semantics.kind'),'assistant_response')='assistant_response' AND coalesce(json_extract(data,'$.semantics.uiVisibility'),'visible')!='hidden' ORDER BY sequence DESC,id DESC LIMIT 1",
-            bind: [id]
-        ).first
-        let phase: ConversationActivityObservation.Phase
-        if let userID = user?["id"] as? String, assistant?["parentID"] as? String == userID {
-            let error = assistant?["errorType"] as? String
-            if error != nil && error != "null" {
-                phase = .failed
-            } else if assistant?["finish"] as? String == "stop", (assistant?["completed"] as? Int64 ?? 0) > 0 {
-                phase = .completed
-            } else {
-                phase = .idle
-            }
-        } else {
-            phase = .idle
-        }
-        zcodeTerminals[id] = phase
-        return phase
     }
 
     private func codexApplication() -> NSRunningApplication? {
@@ -548,19 +428,14 @@ final class NativeConversationActivitySource: ConversationActivitySource, @unche
     }
 
     func contains(provider: String, id: String) -> Bool {
-        guard ["codex", "claude", "zcode"].contains(provider), !id.isEmpty, id.utf8.count < 200 else { return false }
+        guard ["codex", "claude"].contains(provider), !id.isEmpty, id.utf8.count < 200 else { return false }
         switch provider {
         case "codex":
             return UUID(uuidString: id) != nil
                 && ((try? codex.rows("SELECT id FROM threads WHERE \(Self.codexVisible) AND id=?", bind: [id]).isEmpty)
                     == false)
         case "claude": return UUID(uuidString: id) != nil && claudeFile(id) != nil
-        default:
-            return
-                ((try? zcode.rows(
-                    "SELECT s.id FROM session s JOIN desktop_tasks.tasks t ON t.task_id=s.id WHERE s.id=? AND s.time_archived IS NULL AND coalesce(s.task_type,'')!='subagent_child' AND coalesce(t.deleted,0)=0 AND coalesce(t.archived,0)=0 AND t.provider='glm'",
-                    bind: [id]
-                ).isEmpty) == false)
+        default: return false
         }
     }
 }

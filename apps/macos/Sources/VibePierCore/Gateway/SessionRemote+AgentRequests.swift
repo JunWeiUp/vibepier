@@ -5,18 +5,42 @@ import Security
 
 /// Unified agent-session requests: the profile-2 service, its durable journal binding and pre-dispatch rejection.
 extension SessionRemote {
-    func extendedCapabilities(_ value: [String: Any]) -> [String: Any] {
+    /// Current phone bootstrap. Capability version 1 describes native adapters; session wire remains profile 2.
+    static func providerDiscoveryResponse(
+        id: String, client: String, policy: SessionProviderPolicy, coordinator: AgentSessionCoordinator,
+        runtimeAdapters: [[String: Any]], serviceAvailable: Bool
+    ) -> [String: Any] {
+        var response: [String: Any] = ["id": id, "ok": true, "providerAccess": policy.object]
+        guard let capabilities = coordinator.describe(client: client, requestedVersion: 1, policy: policy) else {
+            return ["id": id, "ok": false, "code": "capacity_exceeded", "providerAccess": policy.object]
+        }
+        response["agentCapabilities"] = extendedCapabilities(capabilities, runtimeAdapters: runtimeAdapters)
+        if serviceAvailable {
+            response["agentProfiles"] = [
+                "versions": [2], "minimumClientVersion": 2, "methods": AgentSessionProfile.methods,
+            ]
+        }
+        return response
+    }
+
+    static func extendedCapabilities(_ value: [String: Any], runtimeAdapters: [[String: Any]]) -> [String: Any] {
         var result = value
         result["adapters"] =
             (value["adapters"] as? [[String: Any]] ?? []).map { $0.merging(["default": true]) { $1 } }
-            + runtimeHost.descriptors().map { $0.merging(["default": false]) { $1 } }
+            + runtimeAdapters.map { $0.merging(["default": false]) { $1 } }
         return result
+    }
+    func extendedCapabilities(_ value: [String: Any]) -> [String: Any] {
+        Self.extendedCapabilities(value, runtimeAdapters: runtimeHost.descriptors())
     }
     func makeAgentService() -> AgentSessionService? {
         guard
             let directory = try? AgentSessionDirectory(
                 file: Paths.supportDirectory.appendingPathComponent("agent-sessions.json"))
-        else { return nil }
+        else {
+            NSLog("VibePier session service: index unavailable")
+            return nil
+        }
         let binding = AgentSessionService.Journal(
             read: { [weak self] key, done in
                 self?.withAgentJournal(key: key, completion: done) { journal, actual in
@@ -109,6 +133,7 @@ extension SessionRemote {
                 }
             }, additionalAdapters: { [weak self] in self?.runtimeHost.adapterProviders() ?? [:] })
         service.configurePolicy(providerPolicy)
+        NSLog("VibePier session service: ready")
         return service
     }
     private func withAgentJournal<T: Sendable>(

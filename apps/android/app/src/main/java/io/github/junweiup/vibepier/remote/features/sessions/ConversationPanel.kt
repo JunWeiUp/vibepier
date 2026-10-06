@@ -89,16 +89,21 @@ class ConversationPanel(private val activity: Activity, private val client: Sess
         page.remove("revision") // A resumed desktop subscription may restart its revision counter.
         status.text = if (page.has("messages")) context.getString(R.string.session_saved_content_syncing_the_latest_state) else context.getString(R.string.session_loading_session)
         val token = generation
+        var recoveryReads = 0
         openRecovery = Runnable {
-            if (drawer || token != generation || !opening) return@Runnable
+            if (drawer || token != generation || !opening || recoveryReads >= 4) return@Runnable
             // A large Bluetooth page is already arriving; requesting it again would double the queue.
             if (!reviews && client.receivingContent) {
                 status.text = context.getString(R.string.session_receiving_the_latest_content)
                 openRecovery?.let { ui.postDelayed(it, 3_000) }
                 return@Runnable
             }
-            call("sync", JSONObject().put("threadId", thread).put("knownVersion", page.optString("cacheVersion"))) { result ->
-                if (!drawer && token == generation && opening && result.optBoolean("ok") && (result.has("messages") || result.optBoolean("unchanged"))) applyPage(result)
+            recoveryReads++
+            // Read-only recovery stays within this opening's original deadline; partial replies never restart it.
+            call("sync", JSONObject().put("threadId", thread)) { result ->
+                if (drawer || token != generation || !opening) return@call
+                if (result.optBoolean("ok")) applyPage(result)
+                if (opening && recoveryReads < 4) openRecovery?.let { ui.postDelayed(it, 3_000) }
             }
         }.also { ui.postDelayed(it, 8_000) }
         openDeadline = Runnable {
@@ -107,10 +112,11 @@ class ConversationPanel(private val activity: Activity, private val client: Sess
                 openingFailed(context.getString(R.string.session_no_session_content_received_refresh_to_retry_or_choose_another_s))
             }
         }.also { ui.postDelayed(it, if (client.bluetooth) 60_000 else 25_000) }
+        refreshApprovalActions?.invoke()
         call("open", JSONObject().put("threadId", thread).put("knownVersion", page.optString("cacheVersion")).put("updatesIntervalMs", if (client.bluetooth) 750 else 250)) { result ->
             if (drawer || token != generation || !opening) return@call
             if (!result.optBoolean("ok")) openingFailed(result.optString("error", context.getString(R.string.session_could_not_open_session)))
-            else if (result.has("messages") || result.optBoolean("unchanged")) applyPage(result)
+            else applyPage(result)
         }
     }
 
@@ -157,6 +163,7 @@ class ConversationPanel(private val activity: Activity, private val client: Sess
     private var creationProgress: (JSONObject) -> Unit = {}
     /** The open new-session dialog; it survives backgrounding so a pending creation can finish or be checked. */
     private var creationDialog: AlertDialog? = null
+    private var recoverCreationOptions: (() -> Unit)? = null
     private val autoChecks = listOf(3_000L, 8_000L, 20_000L, 45_000L, 90_000L)
     private var creationAttachmentIsCurrent: () -> Boolean = { false }
     private var uploading = false
@@ -213,13 +220,14 @@ class ConversationPanel(private val activity: Activity, private val client: Sess
     private fun pauseProcessReads() { media.cancelReads(); processStates.values.forEach { it.pause(); it.changed() } }
     private val media by lazy { ConversationMedia(context,
         scope = { ConversationMedia.Scope(client.provider, thread, generation, authorizationSource()) },
-        active = { foreground && !drawer }, version = ::imageVersion, request = ::call, imageViewer = ::imageViewer, binaryHost = { client.binaryHost }, allowLegacyImages = reviews) }
+        active = { foreground && !drawer }, version = ::imageVersion, request = ::call, imageViewer = ::imageViewer, binaryHost = { client.binaryHost }) }
     private fun imageViewer(title: String) = FullscreenImageDialog(context, title).also { viewer ->
         auxiliaryDialogs.add(viewer.dialog)
         viewer.dialog.setOnDismissListener { auxiliaryDialogs.remove(viewer.dialog) }
     }
     private var prependAnchor: Pair<Int, Int>? = null
     private var approvalDialog: AlertDialog? = null
+    private var refreshApprovalActions: (() -> Unit)? = null
     private var openApproval = ""
     private var openApprovalId = ""
     private var loadingApproval = false
@@ -244,7 +252,7 @@ class ConversationPanel(private val activity: Activity, private val client: Sess
         client.onEvent = { value ->
             if (value.optString("event") == "creationProgress") creationProgress(value)
             else if (value.optString("event") == "providersChanged") {
-                val first = client.enabledProviders.firstOrNull()
+                val first = SessionProvider.selection(client.provider, client.enabledProviders)
                 savedDrawer = emptyList(); drawerLoaded = false
                 if (!client.providerEnabled(client.provider) && first != null) switchProvider(first)
                 else if (!client.providerEnabled(client.provider)) {
@@ -256,6 +264,7 @@ class ConversationPanel(private val activity: Activity, private val client: Sess
             }
             else if (value.optString("event") == "agentCapabilitiesChanged") {
                 if (drawer) showDrawer() else { updateComposer(); if (foreground) requestOpen() }
+                if (foreground) recoverCreationOptions?.invoke()
             }
             else if (value.optString("event") == "agentOperationUpdated") {
                 if (!drawer) updateComposer()
@@ -273,11 +282,13 @@ class ConversationPanel(private val activity: Activity, private val client: Sess
                     val original = value.optJSONObject("operation") ?: JSONObject()
                     if (original.optString("op") == "send" && value.optBoolean("accepted") && editor.text.toString().trim() == original.optString("text")) editor.setText("")
                     notice.text = if (value.optBoolean("ok")) context.getString(R.string.session_operation_confirmed, operationName(original.optString("op"))) else value.optString("error", context.getString(R.string.session_operation_incomplete_draft_retained))
-                    if (value.optBoolean("submitted")) {
+                    if (original.optString("op") == "approve" && value.opt("ok") == true && value.opt("submitted") == true && value.opt("unknown") != true) {
                         val fingerprint = original.optString("fingerprint")
                         approvedHere.add(fingerprint)
-                        if (openApproval == fingerprint) { approvalDialog?.dismiss(); submittingApproval = "" }
-                        questionDrafts.remove(fingerprint)
+                        val activeSubmission = openApproval == fingerprint && submittingApproval == fingerprint
+                        if (activeSubmission) { approvalDialog?.dismiss(); submittingApproval = "" }
+                        // A late receipt from an earlier attempt must not close or erase the current local form.
+                        if (activeSubmission || openApproval != fingerprint) questionDrafts.remove(fingerprint)
                         notice.text = if (original.has("answers")) context.getString(R.string.session_answer_submitted) else context.getString(R.string.session_decision_submitted_waiting_for_desktop_confirmation)
                     }
                     if (original.optString("op").startsWith("queue")) resync()
@@ -292,7 +303,7 @@ class ConversationPanel(private val activity: Activity, private val client: Sess
             }
         }
         client.onState = { text -> if (drawer && ::info.isInitialized) info.text = text else if (::notice.isInitialized) notice.text = text }
-        if (!reviews && !client.providerEnabled(client.provider)) client.enabledProviders.firstOrNull()?.let { client.provider = it }
+        if (!reviews) SessionProvider.selection(client.provider, client.enabledProviders)?.let { client.provider = it }
         showDrawer()
         if (!reviews) client.refreshProviderAccess()
     }
@@ -436,8 +447,9 @@ class ConversationPanel(private val activity: Activity, private val client: Sess
         if (!reviews) client.flushContentCache()
         ready = false; stopSync(); loadingHistory = false
         // A creation in flight keeps its dialog: locking the phone must not hide the result or strand its wait.
-        auxiliaryDialogs.toList().filter { it !== creationDialog }.forEach { it.dismiss() }; auxiliaryDialogs.retainAll { it === creationDialog }
-        approvalDialog?.dismiss(); openApproval = ""; loadingApproval = false
+        auxiliaryDialogs.toList().filter { it !== creationDialog && it !== approvalDialog }.forEach { it.dismiss() }
+        auxiliaryDialogs.retainAll { it === creationDialog || it === approvalDialog }
+        loadingApproval = false
         updateComposer()
     }
     fun resume() {
@@ -446,6 +458,7 @@ class ConversationPanel(private val activity: Activity, private val client: Sess
         approvalCheck?.let(ui::removeCallbacks); approvalCheck = null
         if (!reviews && thread.isNotEmpty()) approvalNotifications.withdraw(client.provider, thread)
         if (!reviews) client.refreshProviderAccess()
+        else recoverCreationOptions?.invoke()
         ui.removeCallbacks(waitCheck); if (!drawer) ui.postDelayed(waitCheck, 5_000)
         if (drawer) {
             if (authorized) loadList(false)
@@ -458,7 +471,8 @@ class ConversationPanel(private val activity: Activity, private val client: Sess
     fun connectionChanged() {
         val restored = connected && !connectionAvailable
         connectionAvailable = connected
-        if (!connected) { stopSync(); pauseProcessReads(); approvalDialog?.dismiss(); openApproval = "" }
+        if (!connected) { stopSync(); pauseProcessReads() }
+        if (!connected) recoverCreationOptions?.invoke()
         if (!drawer) { if (!connected) ready = false; updateComposer(); if (!connected) notice.text = context.getString(R.string.session_disconnected_draft_retained_reconnecting_when_available) }
         else if (::info.isInitialized && !connected) info.text = if (!authorized && client.canRequestAuthorization) client.authorizationMessage else context.getString(R.string.session_mac_disconnected_connect_to_view_sessions)
         if (foreground && restored && drawer && authorized) loadList(false)
@@ -468,15 +482,14 @@ class ConversationPanel(private val activity: Activity, private val client: Sess
         }
     }
     private val claude get() = client.provider == "claude"
-    private val zcode get() = client.provider == "zcode"
     private val agent get() = SessionProvider.name(client.provider)
     // A new action can restore its own control state. Cached availability is not an admission gate.
     private val mutableReady get() = foreground && !drawer && thread.isNotBlank() && connected && authorized &&
         (reviews || client.agentCapabilitiesKnown && client.sessionControlKnown(thread))
     private val queueSubmission get() = supports("queue") && (page.optString("status") == "active" || (page.optJSONArray("queuedMessages")?.length() ?: 0) > 0)
     private val canSend get() = mutableReady && supports("send")
-    private fun supports(key: String, legacyDefault: Boolean = true): Boolean {
-        if (reviews) return (page.optJSONObject("capabilities")?.opt(key) as? Boolean) ?: legacyDefault
+    private fun supports(key: String, fixtureDefault: Boolean = true): Boolean {
+        if (reviews) return (page.optJSONObject("capabilities")?.opt(key) as? Boolean) ?: fixtureDefault
         return client.agentActionSupported(key)
     }
     private fun threadKey(id: String = thread) = client.sessionScope(id)
@@ -750,7 +763,7 @@ class ConversationPanel(private val activity: Activity, private val client: Sess
             setPadding(dp(12), dp(12), dp(12), dp(12))
         }
         field.setText(creation.text)
-        val hintText = when { claude -> context.getString(R.string.session_claude_new_explanation) + "\n" + context.getString(R.string.creation_claude_images); zcode -> context.getString(R.string.session_create_a_session_in_zcode_on_the_mac_and_send_the_first_message); else -> context.getString(R.string.session_codex_new_background_explanation) }
+        val hintText = when { claude -> context.getString(R.string.session_claude_new_explanation) + "\n" + context.getString(R.string.creation_claude_images); else -> context.getString(R.string.session_codex_new_background_explanation) }
         val state = label(hintText, Ui.CAPTION, Palette.faint)
         val attachmentList = column()
         fun draftFields() = JSONObject().put("cwd", cwd).put("provider", provider).put("draftId", creation.id)
@@ -868,6 +881,12 @@ class ConversationPanel(private val activity: Activity, private val client: Sess
             }
         }
         refreshCreationOptions = { loadCreationOptions(refresh = true) }
+        recoverCreationOptions = {
+            if (dialog.isShowing && sameCreationScope() && original == null && !busy) {
+                if (!connected || !authorized) state.text = context.getString(R.string.creation_options_unavailable)
+                else if (foreground) loadCreationOptions()
+            }
+        }
         creationProgress = { notice ->
             val stage = when (notice.optString("stage")) {
                 "unlocking" -> R.string.creation_stage_unlocking
@@ -914,7 +933,7 @@ class ConversationPanel(private val activity: Activity, private val client: Sess
             if ((result.optJSONArray("warnings")?.length() ?: 0) > 0) {
                 android.widget.Toast.makeText(context, context.getString(R.string.session_created_with_unverified_options), android.widget.Toast.LENGTH_LONG).show()
             }
-            dialog.setOnDismissListener { client.cancelCreationOptions(optionsRequest); ui.removeCallbacks(persistDraft); ui.removeCallbacks(autoCheck); if (creationDialog === dialog) creationDialog = null; options.closeMenus(); clearCreationAttachment(pickerToken); auxiliaryDialogs.remove(dialog) }
+            dialog.setOnDismissListener { client.cancelCreationOptions(optionsRequest); ui.removeCallbacks(persistDraft); ui.removeCallbacks(autoCheck); if (creationDialog === dialog) { creationDialog = null; recoverCreationOptions = null }; options.closeMenus(); clearCreationAttachment(pickerToken); auxiliaryDialogs.remove(dialog) }
             dialog.dismiss()
             if (drawer && client.provider == provider) open(result.optString("threadId"), result.optString("title").ifBlank { field.text.toString().take(40) })
         }
@@ -1030,7 +1049,7 @@ class ConversationPanel(private val activity: Activity, private val client: Sess
         }
         dialog.setOnDismissListener {
             client.cancelCreationOptions(optionsRequest); ui.removeCallbacks(persistDraft); ui.removeCallbacks(autoCheck)
-            if (creationDialog === dialog) { creationDialog = null; creationProgress = {} }
+            if (creationDialog === dialog) { creationDialog = null; recoverCreationOptions = null; creationProgress = {} }
             if (original == null) saveCreation()
             options.closeMenus(); clearCreationAttachment(pickerToken); auxiliaryDialogs.remove(dialog)
         }
@@ -1342,9 +1361,14 @@ class ConversationPanel(private val activity: Activity, private val client: Sess
             if (value.optString("cacheVersion") != page.optString("cacheVersion") || !page.has("messages")) { resync(withCache = false); return }
             value.put("messages", page.getJSONArray("messages")); value.remove("unchanged")
         }
+        val contentReady = (reviews || value.opt("contentState") == "complete") &&
+            value.opt("opening") != true && value.optJSONArray("messages") != null
+        if (!contentReady && (value.optJSONArray("messages")?.length() ?: 0) == 0) {
+            page.optJSONArray("messages")?.let { value.put("messages", JSONArray(it.toString())) }
+        }
         if (historyComplete) value.put("hasOlder", false)
         retainScrolledOut(page.optJSONArray("messages"), value.optJSONArray("messages"))
-        if (!renderingCache) {
+        if (!renderingCache && contentReady) {
             stopOpening()
             if (!reviews) client.rememberPage(thread, value)
         }
@@ -1353,10 +1377,12 @@ class ConversationPanel(private val activity: Activity, private val client: Sess
             val progress = listOf(value.optString("activeTurnId"), value.optString("status"), value.optJSONArray("messages"), value.optJSONArray("approvals"), value.optJSONObject("blocker")).joinToString("\u0000")
             if (progress != progressSignature) { progressSignature = progress; lastProgressAt = android.os.SystemClock.elapsedRealtime() }
         }
-        val previousHint = hint(); val wasReady = ready; page = value; ready = !renderingCache && connected
+        val previousHint = hint(); val wasReady = ready; page = value; ready = !renderingCache && connected && contentReady
         if (::notice.isInitialized && notice.text.toString() == previousHint) notice.text = hint()
         status.text = when {
             !connected -> context.getString(R.string.session_mac_disconnected_2)
+            !contentReady -> context.getString(if ((value.optJSONArray("messages")?.length() ?: 0) > 0)
+                R.string.session_saved_content_syncing_the_latest_state else R.string.session_loading_session)
             (value.optJSONArray("approvals")?.length() ?: 0) > 0 -> context.getString(R.string.session_waiting_for_you_answer_or_review_on_the_phone)
             value.optString("status") == "active" -> if (supports("queue")) context.getString(R.string.session_provider_working_queue, agent) else context.getString(R.string.session_provider_working, agent)
             value.optString("status") == "idle" -> if (canSend) context.getString(R.string.session_connected_ready_to_reply) else context.getString(R.string.session_connected_viewing_session)
@@ -1369,12 +1395,15 @@ class ConversationPanel(private val activity: Activity, private val client: Sess
             else -> Palette.accent
         }, 3)
         val approvals = value.optJSONArray("approvals") ?: JSONArray()
-        // A disappearing approval is not proof that our earlier decision was submitted.
-        if (openApproval.isNotEmpty() && (0 until approvals.length()).none { approvals.getJSONObject(it).optString("fingerprint") == openApproval }) {
-            val revised = (0 until approvals.length()).any { approvals.getJSONObject(it).optString("id") == openApprovalId }
-            approvalDialog?.dismiss(); openApproval = ""; notice.text = if (revised) context.getString(R.string.session_the_request_changed_review_it_again) else context.getString(R.string.session_the_request_was_handled_or_is_no_longer_valid); submittingApproval = ""
-        }
+        // Snapshot changes never dismiss an unsubmitted form. Its action refresh validates the latest
+        // approval identity and control state, preserving local answers while refusing stale decisions.
         val recent = value.optJSONArray("messages") ?: JSONArray()
+        if (!contentReady && recent.length() == 0 && olderMessages.isEmpty() && approvals.length() == 0 && outbox[threadKey()].isNullOrEmpty()) {
+            // Do not render "No messages" until a complete snapshot actually confirms an empty history.
+            timelineRows.reconcile(emptyList()); lastMessages = ""
+            updateComposer()
+            return
+        }
         val combined = LinkedHashMap(olderMessages)
         for (i in 0 until recent.length()) { val item = recent.getJSONObject(i); combined[item.optString("id")] = item }
         val messages = JSONArray(combined.values.toList())
@@ -1553,6 +1582,7 @@ class ConversationPanel(private val activity: Activity, private val client: Sess
         openApproval = fingerprint; openApprovalId = approval.optString("id")
         val isQuestion = approval.optString("kind") == "questions" && approval.optBoolean("canDecide") &&
             (approval.optJSONArray("questions")?.length() ?: 0) > 0
+        val requiresScrollReview = client.provider != "codex" && !isQuestion
         val questions = approval.optJSONArray("questions") ?: JSONArray()
         if (isQuestion && fingerprint !in questionDrafts && questionDrafts.size >= 32) questionDrafts.remove(questionDrafts.keys.first())
         val answers = if (isQuestion) questionDrafts.getOrPut(fingerprint) { mutableMapOf() } else mutableMapOf()
@@ -1611,7 +1641,12 @@ class ConversationPanel(private val activity: Activity, private val client: Sess
         })
         val content = ScrollView(context).apply { addView(form) }
         val heading = context.getString(R.string.session_title_heading, title)
-        val message = label(heading + if (isQuestion) context.getString(R.string.session_choose_or_enter_an_answer_then_submit_selecting_an_option_does_n) else context.getString(R.string.session_scroll_to_the_bottom_and_review_the_full_request_before_deciding), 13f, Palette.muted)
+        val instruction = when {
+            isQuestion -> R.string.session_choose_or_enter_an_answer_then_submit_selecting_an_option_does_n
+            requiresScrollReview -> R.string.session_scroll_to_the_bottom_and_review_the_full_request_before_deciding
+            else -> R.string.session_review_request_before_deciding
+        }
+        val message = label(heading + context.getString(instruction), 13f, Palette.muted)
         // Why the choices are disabled, so a tap never silently does nothing.
         val reason = label("", 13f, Palette.amber).apply { visibility = GONE }
         val body = column().apply {
@@ -1621,9 +1656,16 @@ class ConversationPanel(private val activity: Activity, private val client: Sess
         }
         val actions = column()
         val dialog = canvasDialog(approval.optString("title"), body, actions); approvalDialog = dialog
+        dialog.setCanceledOnTouchOutside(false)
         val allowLabel = if (isQuestion) context.getString(R.string.session_submit_answer) else approval.optString("allowLabel", context.getString(R.string.session_allow_once)); val denyLabel = approval.optString("denyLabel", context.getString(R.string.session_deny))
+        val allowedDecisions = approval.optJSONArray("allowedDecisions")
+        val offersAllowSimilar = client.provider == "codex" && !isQuestion &&
+            (0 until (allowedDecisions?.length() ?: 0)).any { allowedDecisions?.opt(it) == "allowSimilar" }
+        val allowSimilarLabel = context.getString(R.string.session_allow_similar)
+        val allowSimilar = if (offersAllowSimilar) button(allowSimilarLabel) {} else null
         val optionsArray = approval.optJSONArray("options")
         val optionLabels = (0 until (optionsArray?.length() ?: 0)).map { optionsArray!!.getString(it) }
+            .filterNot { client.provider == "codex" && !isQuestion && it == "allowSimilar" }
         val allow = button(allowLabel, true) {}; val deny = button(denyLabel) {}
         val check = button(context.getString(R.string.session_check_result)) {}
         val optionButtons = optionLabels.map { label -> label to button(label) {} }
@@ -1637,48 +1679,77 @@ class ConversationPanel(private val activity: Activity, private val client: Sess
             addView(deny, LinearLayout.LayoutParams(0, -2, 1f))
             addView(allow, LinearLayout.LayoutParams(0, -2, 1f).apply { marginStart = dp(8) })
         })
+        allowSimilar?.let { similar ->
+            actions.addView(similar, LinearLayout.LayoutParams(-1, -2).apply { topMargin = dp(8) })
+            approval.optString("allowSimilarDescription").takeIf { it.isNotBlank() }?.let { description ->
+                actions.addView(label(description, 13f, Palette.muted), LinearLayout.LayoutParams(-1, -2).apply { topMargin = dp(4) })
+            }
+        }
         actions.addView(button(context.getString(R.string.close)) { dialog.dismiss() }, LinearLayout.LayoutParams(-1, -2).apply { topMargin = dp(8) })
         var retryOriginal = false
         fun uncertain() = if (reviews) null else client.uncertain(target).firstOrNull { it.optString("op") == "approve" && it.optString("fingerprint") == fingerprint }
         fun current() = actionScope == renderingScope() && foreground && !drawer && token == generation &&
             target == thread && approvalDialog === dialog && dialog.isShowing
+        fun latestApproval(): JSONObject? {
+            if (!ready || renderingCache || !reviews && (page.opt("contentState") != "complete" || page.opt("opening") == true)) return null
+            val latest = if (reviews) page else client.agent.snapshot(client.provider, target) ?: return null
+            if (!reviews && (latest.opt("contentState") != "complete" || latest.opt("opening") == true)) return null
+            val entries = latest.optJSONArray("approvals") ?: return null
+            return (0 until entries.length()).mapNotNull { entries.optJSONObject(it) }.singleOrNull {
+                fingerprint.isNotBlank() && it.opt("fingerprint") == fingerprint && it.opt("id") == approval.opt("id") &&
+                    it.opt("revision") == approval.opt("revision") && it.opt("kind") == approval.opt("kind")
+            }
+        }
+        fun decisionReady() = current() && mutableReady && supports("approvals") && latestApproval()?.opt("canDecide") == true &&
+            (reviews || client.agent.controlReady(client.provider, target) && client.agentCapability("approvals", target))
+        fun similarAllowed(): Boolean {
+            val decisions = latestApproval()?.optJSONArray("allowedDecisions") ?: return false
+            return client.provider == "codex" && (0 until decisions.length()).any { decisions.opt(it) == "allowSimilar" }
+        }
         var refreshedForControl = false
         fun update() {
+            if (!current()) return
             val unknown = uncertain() != null
-            val canPick = actionScope == renderingScope() && foreground && !drawer && mutableReady && supports("approvals") &&
-                (isQuestion || !content.canScrollVertically(1)) && submittingApproval.isEmpty() && fingerprint !in approvedHere && !unknown
+            // Reading an existing outcome must not require a still-pending native approval or a write lease.
+            val canCheck = ConversationActions.approvalReceiptEnabled(connected, authorized,
+                submittingApproval.isNotEmpty(), retryOriginal, decisionReady()) && fingerprint !in approvedHere
+            val canPick = decisionReady() &&
+                (!requiresScrollReview || !content.canScrollVertically(1)) && submittingApproval.isEmpty() && fingerprint !in approvedHere && !unknown
+            allowSimilar?.let { it.isEnabled = canPick && similarAllowed(); it.alpha = if (it.isEnabled) 1f else .4f }
             val blocked = when {
-                canPick || submittingApproval.isNotEmpty() || unknown -> null
+                canPick || submittingApproval.isNotEmpty() -> null
                 fingerprint in approvedHere -> R.string.session_approval_blocked_submitted
                 !connected -> R.string.session_mac_disconnected_showing_saved_list
-                !mutableReady -> R.string.session_approval_blocked_control
-                !supports("approvals") -> R.string.session_approval_blocked_unsupported
-                !isQuestion && content.canScrollVertically(1) -> R.string.session_scroll_to_the_bottom_and_review_the_full_request_before_deciding
+                !ready || !mutableReady -> R.string.session_approval_blocked_control
+                latestApproval() == null -> R.string.session_the_request_changed_review_it_again
+                !supports("approvals") || latestApproval()?.opt("canDecide") != true -> R.string.session_approval_blocked_unsupported
+                !decisionReady() -> R.string.session_approval_blocked_control
+                requiresScrollReview && content.canScrollVertically(1) -> R.string.session_scroll_to_the_bottom_and_review_the_full_request_before_deciding
                 else -> null
             }
             reason.text = blocked?.let(context::getString).orEmpty(); reason.visibility = if (blocked == null) GONE else VISIBLE
             // Session control can be lost on reconnect; refresh it once instead of leaving the choices dead.
-            if (blocked == R.string.session_approval_blocked_control && !refreshedForControl && connected && !reviews) {
+            if (blocked == R.string.session_approval_blocked_control && !refreshedForControl && connected && !reviews && !opening) {
                 refreshedForControl = true; if (client.sessionControlKnown(thread)) resync(false) else requestOpen()
             }
             if (isQuestion) {
                 val filled = (0 until questions.length()).count { answers[questions.getJSONObject(it).getString("id")]?.isNotBlank() == true }
                 val complete = if (approval.optString("method") == "item/tool/requestUserInput") filled == questions.length() else filled > 0
                 allow.isEnabled = canPick && complete; allow.alpha = if (allow.isEnabled) 1f else .4f
-                inputs.forEach { it.isEnabled = mutableReady && !unknown && submittingApproval.isEmpty() }
+                inputs.forEach { it.isEnabled = current() && !unknown && submittingApproval.isEmpty() }
                 check.visibility = if (unknown) VISIBLE else GONE
-                check.isEnabled = mutableReady && submittingApproval.isEmpty()
+                check.isEnabled = canCheck
                 check.text = if (retryOriginal) context.getString(R.string.session_retry_original_answer) else context.getString(R.string.session_check_result)
             } else if (optionLabels.isNotEmpty()) {
                 optionButtons.forEach { (_, button) -> button.isEnabled = canPick; button.alpha = if (canPick) 1f else .4f }
                 check.visibility = if (unknown) VISIBLE else GONE
-                check.isEnabled = mutableReady && supports("approvals") && submittingApproval.isEmpty() && fingerprint !in approvedHere
+                check.isEnabled = canCheck
                 check.text = if (retryOriginal) context.getString(R.string.session_retry_original_choice) else context.getString(R.string.session_check_result)
                 check.alpha = if (check.isEnabled) 1f else .4f
             } else {
                 allow.isEnabled = canPick
                 deny.text = if (unknown) (if (retryOriginal) context.getString(R.string.session_retry_original_choice) else context.getString(R.string.session_check_result)) else denyLabel
-                deny.isEnabled = mutableReady && supports("approvals") && submittingApproval.isEmpty() && fingerprint !in approvedHere
+                deny.isEnabled = if (unknown) canCheck else decisionReady() && submittingApproval.isEmpty() && fingerprint !in approvedHere
                 allow.alpha = if (allow.isEnabled) 1f else .4f
                 deny.alpha = if (deny.isEnabled) 1f else .4f
             }
@@ -1686,7 +1757,7 @@ class ConversationPanel(private val activity: Activity, private val client: Sess
         fun accepted(result: JSONObject) {
             if (actionScope != renderingScope() || token != generation || target != thread) return
             if (submittingApproval == fingerprint) submittingApproval = ""
-            if (result.optBoolean("ok") && result.optBoolean("submitted")) {
+            if (result.opt("ok") == true && result.opt("submitted") == true && result.opt("unknown") != true) {
                 approvedHere.add(fingerprint); questionDrafts.remove(fingerprint)
                 notice.text = if (isQuestion) context.getString(R.string.session_answer_submitted) else context.getString(R.string.session_decision_submitted_waiting_for_desktop_confirmation)
                 if (current()) dialog.dismiss()
@@ -1698,7 +1769,8 @@ class ConversationPanel(private val activity: Activity, private val client: Sess
             updateComposer()
         }
         fun checkOrRetry(describe: (JSONObject) -> String) {
-            if (!current()) return
+            if (!current() || !ConversationActions.approvalReceiptEnabled(connected, authorized,
+                    submittingApproval.isNotEmpty(), retryOriginal, decisionReady())) return
             val original = uncertain() ?: return
             if (retryOriginal) {
                 submittingApproval = fingerprint; update(); message.text = heading + context.getString(R.string.session_retrying_the_original_choice) + describe(original)
@@ -1718,7 +1790,7 @@ class ConversationPanel(private val activity: Activity, private val client: Sess
         }
         if (isQuestion) {
             allow.setOnClickListener {
-                if (!current() || !allow.isEnabled || submittingApproval.isNotEmpty() || uncertain() != null) return@setOnClickListener
+                if (!decisionReady() || !allow.isEnabled || submittingApproval.isNotEmpty() || uncertain() != null) return@setOnClickListener
                 val payload = JSONObject()
                 answers.filterValues { it.isNotBlank() }.forEach { (id, answer) -> payload.put(id, answer.trim()) }
                 submittingApproval = fingerprint; message.text = heading + context.getString(R.string.session_submitting_answer); hideKeyboard(); update()
@@ -1728,7 +1800,7 @@ class ConversationPanel(private val activity: Activity, private val client: Sess
         } else if (optionLabels.isNotEmpty()) {
             optionButtons.forEach { (label, button) ->
                 button.setOnClickListener {
-                    if (!current() || submittingApproval.isNotEmpty() || !mutableReady || !supports("approvals") || fingerprint in approvedHere || uncertain() != null) return@setOnClickListener
+                    if (!decisionReady() || !button.isEnabled || submittingApproval.isNotEmpty() || fingerprint in approvedHere || uncertain() != null) return@setOnClickListener
                     submittingApproval = fingerprint; message.text = heading + context.getString(R.string.session_submitting_choice, label); update()
                     call("approve", JSONObject().put("threadId", target).put("fingerprint", fingerprint).put("expectedApprovalRevision", approval.opt("revision")).put("option", label), ::accepted)
                 }
@@ -1736,29 +1808,42 @@ class ConversationPanel(private val activity: Activity, private val client: Sess
             check.setOnClickListener { checkOrRetry { it.optString("option") } }
         } else {
             fun submit(accepted: Boolean) {
-                if (!current() || submittingApproval.isNotEmpty() || !mutableReady || !supports("approvals") || fingerprint in approvedHere || uncertain() != null) return
+                if (!decisionReady() || submittingApproval.isNotEmpty() || fingerprint in approvedHere || uncertain() != null) return
                 submittingApproval = fingerprint; message.text = heading + context.getString(R.string.session_submitting_decision); update()
                 call("approve", JSONObject().put("threadId", target).put("fingerprint", fingerprint).put("expectedApprovalRevision", approval.opt("revision")).put("allow", accepted), ::accepted)
             }
             allow.setOnClickListener { submit(true) }
             deny.setOnClickListener {
-                if (uncertain() == null) submit(false) else checkOrRetry { if (it.optBoolean("allow")) allowLabel else denyLabel }
+                if (uncertain() == null) submit(false) else checkOrRetry {
+                    if (it.optString("option") == "allowSimilar") allowSimilarLabel else if (it.optBoolean("allow")) allowLabel else denyLabel
+                }
+            }
+        }
+        allowSimilar?.let { similar ->
+            similar.setOnClickListener {
+                if (!decisionReady() || !similarAllowed() || !similar.isEnabled || submittingApproval.isNotEmpty() ||
+                    fingerprint in approvedHere || uncertain() != null) return@setOnClickListener
+                submittingApproval = fingerprint
+                message.text = heading + context.getString(R.string.session_submitting_choice, allowSimilarLabel)
+                update()
+                call("approve", JSONObject().put("threadId", target).put("fingerprint", fingerprint)
+                    .put("expectedApprovalRevision", approval.opt("revision")).put("option", "allowSimilar").put("allow", true), ::accepted)
             }
         }
         onAnswersChanged = { update() }
+        // The dialog outlives snapshots and control recovery. Keep its actions in sync
+        // even when the user does not scroll or edit an answer after opening it.
+        refreshApprovalActions = { update() }
         content.setOnScrollChangeListener { _, _, _, _, _ -> update() }; content.post { update() }
-        dialog.setOnDismissListener { auxiliaryDialogs.remove(dialog); if (approvalDialog === dialog) { approvalDialog = null; openApproval = ""; openApprovalId = "" } }
+        dialog.setOnDismissListener { auxiliaryDialogs.remove(dialog); if (approvalDialog === dialog) { approvalDialog = null; refreshApprovalActions = null; openApproval = ""; openApprovalId = "" } }
     }
     private fun selection() = page.optJSONObject("composer") ?: JSONObject()
-    private fun hint() = if (zcode) {
-        if (page.optBoolean("canSend") && supports("send")) context.getString(R.string.session_replies_go_to_this_zcode_session)
-        else page.optString("sendDisabledReason").ifBlank { page.optString("readOnlyReason").ifBlank { context.getString(R.string.session_viewing_zcode_session_phone_replies_are_currently_unavailable) } }
-    } else if (!claude) context.getString(R.string.session_replies_go_only_to_this_session_permission_requests_need_separat) else when (page.optString("owner")) {
+    private fun hint() = if (!claude) context.getString(R.string.session_replies_go_only_to_this_session_permission_requests_need_separat) else when (page.optString("owner")) {
         "desktop" -> context.getString(R.string.session_replies_go_to_this_session_in_the_claude_desktop_app)
         "terminal" -> context.getString(R.string.session_this_session_is_running_in_a_mac_terminal_continue_on_the_mac)
         else -> context.getString(R.string.session_replies_continue_this_session_in_the_background_on_the_mac)
     }
-    private fun modeName(mode: String) = if (zcode) selection().optString("modeLabel").ifBlank { when (mode) { "plan" -> context.getString(R.string.session_plan); "build" -> context.getString(R.string.session_ask_before_changes); "edit" -> context.getString(R.string.session_accept_edits); "yolo" -> context.getString(R.string.session_full_access); else -> mode.ifBlank { context.getString(R.string.session_permission_mode) } } } else if (claude) when (mode) { "default" -> context.getString(R.string.session_ask_before_changes); "acceptEdits" -> context.getString(R.string.session_accept_edits); "auto" -> context.getString(R.string.session_auto); "plan" -> context.getString(R.string.session_plan); "bypassPermissions" -> context.getString(R.string.session_skip_approvals); else -> context.getString(R.string.session_default_permissions) } else when (mode) { "auto" -> context.getString(R.string.session_ask_to_approve); "guardian-approvals" -> context.getString(R.string.session_approve_for_me); "full-access" -> context.getString(R.string.session_full_access); else -> context.getString(R.string.session_desktop_custom_settings) }
+    private fun modeName(mode: String) = if (claude) when (mode) { "default" -> context.getString(R.string.session_ask_before_changes); "acceptEdits" -> context.getString(R.string.session_accept_edits); "auto" -> context.getString(R.string.session_auto); "plan" -> context.getString(R.string.session_plan); "bypassPermissions" -> context.getString(R.string.session_skip_approvals); else -> context.getString(R.string.session_default_permissions) } else when (mode) { "auto" -> context.getString(R.string.session_ask_to_approve); "guardian-approvals" -> context.getString(R.string.session_approve_for_me); "full-access" -> context.getString(R.string.session_full_access); else -> context.getString(R.string.session_desktop_custom_settings) }
     private fun effortName(value: String) = when (value) { "default" -> context.getString(R.string.session_default); "low" -> context.getString(R.string.session_low); "medium" -> context.getString(R.string.session_medium); "high" -> context.getString(R.string.session_high); "xhigh" -> context.getString(R.string.session_extra_high); "max" -> context.getString(R.string.session_maximum); "ultra" -> context.getString(R.string.session_ultra); else -> value }
     private fun entries() = if (reviews) reviewAttachments else client.attachments(thread)
     private fun addAttachment(item: JSONObject) { if (entries().length() >= 6) { notice.text = context.getString(R.string.session_add_up_to_6_attachments); return }; val items = entries(); items.put(item); if (reviews) reviewAttachments = items else if (!client.saveAttachments(thread, items)) notice.text = context.getString(R.string.session_could_not_save_attachments_check_phone_storage_and_retry) }
@@ -1831,7 +1916,7 @@ class ConversationPanel(private val activity: Activity, private val client: Sess
         return ProjectFileHost(context, target, client.provider, { op, fields, done -> call(op, fields, done) },
             isCurrent = { token == generation && target == thread && !drawer && foreground },
             canQuote = { editor.isEnabled }, quote = ::quoteFile,
-            canAttach = { mutableReady && supports("attachments") && !uploading && !sending && entries().length() < 6 }, attach = { path -> closeFileViews(); addMacFile(path) }, binaryHost = { client.binaryHost }, allowLegacyMedia = reviews)
+            canAttach = { mutableReady && supports("attachments") && !uploading && !sending && entries().length() < 6 }, attach = { path -> closeFileViews(); addMacFile(path) }, binaryHost = { client.binaryHost })
     }
 
     private fun showProjectFiles(mode: String = "all") {
@@ -2091,23 +2176,6 @@ class ConversationPanel(private val activity: Activity, private val client: Sess
     }
     private fun showPermissionChoices(result: JSONObject) {
         val current = selection().optString("mode")
-        if (zcode) {
-                val modes = result.optJSONArray("permissionModes") ?: result.optJSONArray("modes") ?: JSONArray()
-                val options = (0 until modes.length()).map { index ->
-                    val value = modes.optJSONObject(index)
-                    val id = value?.optString("id") ?: modes.optString(index)
-                    val name = value?.let { option -> option.optString("name").ifBlank { option.optString("label").ifBlank { option.optString("title").ifBlank { id } } } } ?: id
-                    (if (current == id) "✓ " else "") + name to {
-                        if (value?.optBoolean("requiresConfirmation") == true) {
-                            menu(context.getString(R.string.session_change_permission_mode), value.optString("confirmationText").ifBlank { context.getString(R.string.session_confirm_mode_change, title, name) }, listOf(
-                                context.getString(R.string.session_confirm_change) to { applySettings(JSONObject().put("mode", id).put("confirmFullAccess", true)) }
-                            ))
-                        } else applySettings(JSONObject().put("mode", id))
-                    }
-                }
-                menu(context.getString(R.string.session_permission_mode), result.optString("description", context.getString(R.string.session_use_the_permission_modes_available_for_this_zcode_session)), options + (context.getString(R.string.creation_refresh_options) to { refreshComposerOptions() }))
-            return
-        }
         if (claude) {
             fun option(mode: String, text: String) = (if (current == mode) "✓ " else "") + text to { applySettings(JSONObject().put("mode", mode)) }
             menu(context.getString(R.string.session_permission_mode), if (page.optString("owner") == "desktop") context.getString(R.string.session_sync_the_permission_mode_for_this_claude_desktop_session) else context.getString(R.string.session_used_for_subsequent_requests_from_the_phone_in_this_claude_code_), listOf(
@@ -2173,7 +2241,7 @@ class ConversationPanel(private val activity: Activity, private val client: Sess
                     val efforts = model.optJSONArray("efforts") ?: JSONArray()
                     if (efforts.length() == 0) {
                         chooseSpeed(model, JSONObject().put("model", model.optString("id")))
-                    } else if ((claude || zcode) && efforts.length() == 1) {
+                    } else if (claude && efforts.length() == 1) {
                         chooseSpeed(model, JSONObject().put("model", model.optString("id")).put("effort", efforts.getString(0)))
                     } else menu(context.getString(R.string.session_effort_for_model, model.optString("name")), if (claude && page.optString("owner") == "desktop") context.getString(R.string.session_sync_the_desktop_reasoning_effort_for_subsequent_requests_in_thi) else context.getString(R.string.session_choose_reasoning_effort_the_current_task_keeps_running_new_setti), (0 until efforts.length()).map { i ->
                         val effort = efforts.getString(i); (if (effort == selection().optString("effort")) "✓ " else "") + effortLabel(effort) to { chooseSpeed(model, JSONObject().put("model", model.optString("id")).put("effort", effort)) }
@@ -2186,7 +2254,7 @@ class ConversationPanel(private val activity: Activity, private val client: Sess
                     context.getString(R.string.session_speed) + " · " + context.getString(if (selection().optString("serviceTier") == "priority") R.string.session_speed_fast else R.string.session_speed_standard) to { chooseSpeed(currentModel, JSONObject()) }
                 )
             } else emptyList()
-            menu(context.getString(R.string.choose_model), if (claude || zcode) result.optString("description", context.getString(R.string.session_provider_models, agent)) else context.getString(R.string.session_use_the_models_currently_available_in_codex_on_the_mac), speedActions + actions + (context.getString(R.string.creation_refresh_options) to { refreshComposerOptions() }))
+            menu(context.getString(R.string.choose_model), if (claude) result.optString("description", context.getString(R.string.session_provider_models, agent)) else context.getString(R.string.session_use_the_models_currently_available_in_codex_on_the_mac), speedActions + actions + (context.getString(R.string.creation_refresh_options) to { refreshComposerOptions() }))
         }
     }
     private fun applySettings(fields: JSONObject) {
@@ -2253,22 +2321,23 @@ class ConversationPanel(private val activity: Activity, private val client: Sess
     }
     private fun updateComposer() {
         if (drawer || !::sendButton.isInitialized) return
+        refreshApprovalActions?.invoke()
         val pendingOperations = if (reviews) emptyList() else client.uncertain(thread).filter { it.optString("op") in listOf("send", "interrupt", "settings", "queueSteer", "queueDelete") }
         val unresolved = pendingOperations.any { it.optString("op") != "send" || !client.waitingStopped(thread, it) } ||
             (!reviews && client.duplicateUnconfirmedSend(thread, editor.text.toString().trim(), attachmentIDs()))
         val selection = selection()
-        composerControls.contextUsage.visibility = if (!zcode || selection.optString("contextUsage").isNotBlank()) VISIBLE else GONE
+        composerControls.contextUsage.visibility = VISIBLE
         composerControls.contextUsage.contentDescription = context.getString(R.string.context_usage_description) + selection.optString("contextUsage").let { if (it.isBlank()) "" else "：$it" }
         composerControls.contextUsage.isEnabled = ready && connected
         composerControls.mode.text = modeName(selection.optString("mode")) + " ▾"
-        composerControls.mode.contentDescription = (if (claude || zcode) context.getString(R.string.session_permission_mode_2) else context.getString(R.string.session_approval_mode)) + "${modeName(selection.optString("mode"))}"
+        composerControls.mode.contentDescription = (if (claude) context.getString(R.string.session_permission_mode_2) else context.getString(R.string.session_approval_mode)) + "${modeName(selection.optString("mode"))}"
         val coupledPlan = SessionExecutionModes.coupled(page) && selection.optString("executionMode") == "plan"
         composerControls.mode.visibility = if (!coupledPlan && (supports("permissionMode") || selection.optString("mode").isNotBlank())) VISIBLE else GONE
         composerControls.execution.text = executionName(selection.optString("executionMode")) + " ▾"
         composerControls.execution.contentDescription = context.getString(R.string.session_execution_selection, executionName(selection.optString("executionMode")))
         composerControls.execution.visibility = if (supports("executionMode") || selection.optString("executionMode").isNotBlank()) VISIBLE else GONE
         val effort = selection.optString("effortLabel").ifBlank { effortName(selection.optString("effort")) }
-        composerControls.model.text = selection.optString("modelLabel").ifBlank { selection.optString("model", context.getString(R.string.choose_model)).let { if (zcode && it.contains("/")) it.substringAfter("/").ifBlank { context.getString(R.string.choose_model) } else it } }.let { if (it == "default") context.getString(R.string.session_default_model) else it.replaceFirstChar { c -> c.uppercase() } }.replace("Gpt-", "GPT-").replace("gpt-", "GPT-") + (if (selection.optBoolean("locked") || effort.isBlank()) "" else " · " + effort) + (if (selection.optString("serviceTier") == "priority") " · " + context.getString(R.string.session_speed_fast) else "") + " ▾"
+        composerControls.model.text = selection.optString("modelLabel").ifBlank { selection.optString("model", context.getString(R.string.choose_model)) }.let { if (it == "default") context.getString(R.string.session_default_model) else it.replaceFirstChar { c -> c.uppercase() } }.replace("Gpt-", "GPT-").replace("gpt-", "GPT-") + (if (selection.optBoolean("locked") || effort.isBlank()) "" else " · " + effort) + (if (selection.optString("serviceTier") == "priority") " · " + context.getString(R.string.session_speed_fast) else "") + " ▾"
         composerControls.model.contentDescription = context.getString(R.string.session_model_description, selection.optString("model"), effortName(selection.optString("effort")))
         composerControls.model.visibility = if (supports("modelSelection") || selection.optString("model").isNotBlank()) VISIBLE else GONE
         val settingsUnknown = !reviews && client.uncertain(thread).any { it.optString("op") == "settings" }
@@ -2367,7 +2436,7 @@ class ConversationPanel(private val activity: Activity, private val client: Sess
         if (!::queuedBox.isInitialized) return
         val entries = if (supports("queue")) page.optJSONArray("queuedMessages") ?: JSONArray() else JSONArray()
         val uncertain = if (reviews) emptyList() else client.uncertain(thread).filter { it.optString("op").startsWith("queue") }
-        val key = entries.toString() + ready + connected + sending + uncertain.toString()
+        val key = entries.toString() + mutableReady + supports("queueSteer") + supports("queueDelete") + sending + uncertain.toString()
         if (queueRendering == key) return
         queueRendering = key; queuedBox.removeAllViews()
         if (entries.length() == 0) return
@@ -2383,8 +2452,8 @@ class ConversationPanel(private val activity: Activity, private val client: Sess
                 addView(row().apply {
                     gravity = Gravity.CENTER_VERTICAL
                     addView(label(item.optString("pausedReason").ifBlank { status }, Ui.CAPTION, Palette.faint).apply { maxLines = 2 }, LinearLayout.LayoutParams(0, -2, 1f))
-                    addView(button(context.getString(R.string.session_steer)) { queueAction("queueSteer", id) }.apply { isEnabled = !blocked && supports("queueSteer"); alpha = if (isEnabled) 1f else .4f }, LinearLayout.LayoutParams(-2, dp(48)))
-                    addView(button(context.getString(R.string.delete)) { queueAction("queueDelete", id) }.apply { isEnabled = !blocked && supports("queueDelete"); alpha = if (isEnabled) 1f else .4f }, LinearLayout.LayoutParams(-2, dp(48)).apply { marginStart = dp(4) })
+                    addView(button(context.getString(R.string.session_steer)) { queueAction("queueSteer", id) }.apply { isEnabled = !blocked && supports("queueSteer") && item.opt("canSteer") == true; alpha = if (isEnabled) 1f else .4f }, LinearLayout.LayoutParams(-2, dp(48)))
+                    addView(button(context.getString(R.string.delete)) { queueAction("queueDelete", id) }.apply { isEnabled = !blocked && supports("queueDelete") && item.opt("canDelete") == true; alpha = if (isEnabled) 1f else .4f }, LinearLayout.LayoutParams(-2, dp(48)).apply { marginStart = dp(4) })
                 })
             }, LinearLayout.LayoutParams(-1, -2).apply { topMargin = dp(6); bottomMargin = dp(4) })
         }

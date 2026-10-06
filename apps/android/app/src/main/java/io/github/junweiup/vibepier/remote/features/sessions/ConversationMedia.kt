@@ -26,7 +26,6 @@ internal class ConversationMedia(
     private val imageViewer: (String) -> FullscreenImageDialog = { FullscreenImageDialog(context, it) },
     private val readTimeoutMs: Long = 30_000L,
     private val binaryHost: () -> String? = { null },
-    private val allowLegacyImages: Boolean = false,
 ) {
     data class Scope(val provider: String, val thread: String, val generation: Int, val authorization: String = "")
     private val ui = Handler(Looper.getMainLooper())
@@ -123,12 +122,7 @@ internal class ConversationMedia(
             read.transfer = transfer
             imageDecoder.execute {
                 val bitmap = runCatching {
-                    if (result.has("binary")) BinaryMediaClient.image(result, host, transfer, ::progress)
-                    else {
-                        check(allowLegacyImages)
-                        val bytes = android.util.Base64.decode(result.optString("image"), android.util.Base64.DEFAULT)
-                        android.graphics.BitmapFactory.decodeByteArray(bytes, 0, bytes.size)
-                    }
+                    BinaryMediaClient.image(result, host, transfer, ::progress)
                 }.getOrNull()
                 ui.post {
                     if (token.authorization == scope().authorization) result.optJSONObject("binary")?.optString("id")?.takeIf { it.isNotEmpty() }?.let { request("fileCancel", JSONObject().put("ticket", it)) {} }

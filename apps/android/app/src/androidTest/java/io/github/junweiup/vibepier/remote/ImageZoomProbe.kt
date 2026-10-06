@@ -7,7 +7,6 @@ import android.graphics.Bitmap
 import android.graphics.Canvas
 import android.graphics.Paint
 import android.os.SystemClock
-import android.util.Base64
 import android.view.MotionEvent
 import android.view.View
 import android.view.ViewGroup
@@ -39,7 +38,7 @@ internal object ImageZoomProbe {
             }
             error("Image zoom did not settle: $description")
         }
-        fun picture(width: Int): JSONObject {
+        fun picture(width: Int): ByteArray {
             val image = Bitmap.createBitmap(width, width * 2, Bitmap.Config.ARGB_8888)
             val canvas = Canvas(image); val paint = Paint()
             val tile = width / 8f
@@ -48,10 +47,11 @@ internal object ImageZoomProbe {
                 canvas.drawRect(column * tile, row * tile, (column + 1) * tile, (row + 1) * tile, paint)
             }
             paint.color = 0xFFFFC857.toInt(); canvas.drawCircle(width * .7f, width * 1.4f, tile, paint)
-            val bytes = ByteArrayOutputStream().also { image.compress(Bitmap.CompressFormat.PNG, 100, it) }.toByteArray(); image.recycle()
-            return JSONObject().put("ok", true).put("image", Base64.encodeToString(bytes, Base64.NO_WRAP))
+            val bytes = ByteArrayOutputStream().also { image.compress(Bitmap.CompressFormat.JPEG, 90, it) }.toByteArray(); image.recycle()
+            return bytes
         }
-        val thumb = picture(160); val large = picture(640)
+        val thumbFixture = BinaryLoopbackFixture(picture(160)); val largeFixture = BinaryLoopbackFixture(picture(640))
+        val thumb = thumbFixture.response(); val large = largeFixture.response()
         val activity = test.startActivitySync(Intent(test.targetContext, MainActivity::class.java)
             .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK).putExtra("codexFixture", "approval")) as MainActivity
         var media: ConversationMedia? = null; var popup: AlertDialog? = null
@@ -84,9 +84,12 @@ internal object ImageZoomProbe {
                 activity.sessionNavigation.close()
                 media = ConversationMedia(activity, { ConversationMedia.Scope("codex", "synthetic", 1) }, { true }, { "synthetic-image" },
                     request = { operation, params, done ->
-                        check(operation == "image")
-                        if (params.opt("size") == "thumb") done(thumb) else largeReads.add(done)
-                    }, allowLegacyImages = true)
+                        if (operation == "fileCancel") done(JSONObject().put("ok", true))
+                        else {
+                            check(operation == "image" && params.optInt("binaryVersion") == 1)
+                            if (params.opt("size") == "thumb") done(thumb) else largeReads.add(done)
+                        }
+                    }, binaryHost = { thumbFixture.host })
                 val strip = media!!.strip(JSONArray().put(JSONObject().put("id", "synthetic-image#0")))
                 tile = views(strip).filterIsInstance<ConversationImage>().single(); activity.setContentView(strip)
             }
@@ -132,7 +135,7 @@ internal object ImageZoomProbe {
             main { check(preview() !== current && preview().viewport.zoom == 1f && preview().viewport.offsetX == 0f && preview().viewport.offsetY == 0f) }
             SystemClock.sleep(350); test.waitForIdleSync()
             test.uiAutomation.takeScreenshot()?.let { image ->
-                try { java.io.File(activity.externalCacheDir, "image-zoom-reset.png").outputStream().use { image.compress(Bitmap.CompressFormat.PNG, 100, it) } }
+                try { java.io.File(activity.externalCacheDir, "image-zoom-reset.png").outputStream().use { image.compress(Bitmap.CompressFormat.JPEG, 90, it) } }
                 finally { image.recycle() }
             }
             test.sendKeyDownUpSync(android.view.KeyEvent.KEYCODE_BACK)
@@ -140,6 +143,7 @@ internal object ImageZoomProbe {
             return "PASS: image-zoom synthetic production fullscreen conversation host (>75% viewport); actual two-finger zoom, enlarged drag, double-tap reset/enlarge, bounded zoom, high-resolution replacement preserves inspection position, Close and system Back stay usable; reopen resets. $gestureEvidence. No pairing, host or session message."
         } finally {
             main { popup?.dismiss(); media?.clear(); activity.finish() }
+            thumbFixture.close(); largeFixture.close()
         }
     }
 }

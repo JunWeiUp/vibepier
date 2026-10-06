@@ -303,7 +303,7 @@ enum CodexConversation {
                 : method == "item/fileChange/requestApproval"
                     ? completeChanges
                     : params["permissions"] is [String: Any]
-            return [
+            var row: [String: Any] = [
                 "id": id, "fingerprint": fingerprint(["request": request, "details": details]), "title": title,
                 "method": method,
                 "details": tooLarge
@@ -311,6 +311,12 @@ enum CodexConversation {
                     : String(decoding: data, as: UTF8.self),
                 "canDecide": supported && hasDetails && !tooLarge,
             ]
+            if supported && hasDetails && !tooLarge, let rule = CodexApprovalDecision.similarRule(request) {
+                row["allowedDecisions"] = ["allow", "deny", "allowSimilar"]
+                row["allowSimilarDescription"] = CodexApprovalDecision.description(rule)
+                row["decisionScopes"] = ["allow": "once", "deny": "once", "allowSimilar": "commandRule"]
+            }
+            return row
         } + CodexQuestions.asynchronous(state)
     }
     /// Match the desktop calculation: latest request total, capped at the reported model window.
@@ -347,6 +353,14 @@ enum CodexConversation {
         let count = ConversationReply.recentTurns
         // Only the newest turns; the phone asks for earlier ones as the user scrolls up.
         let rows = ConversationReply.preview(all.suffix(count).flatMap(messages))
+        var status = (state["threadRuntimeStatus"] as? [String: Any])?["type"] as? String ?? "idle"
+        // A provider error terminates the turn, not the desktop session. Only a verified failed
+        // latest turn with no running turn can restore idle controls; unknown states stay closed.
+        if status == "systemError", all.last?["status"] as? String == "failed",
+            !all.contains(where: { $0["status"] as? String == "inProgress" })
+        {
+            status = "idle"
+        }
         return [
             "threadId": state["id"] as? String ?? "", "title": state["title"] as? String ?? "Codex",
             "messages": rows,
@@ -357,7 +371,7 @@ enum CodexConversation {
                 summary["detailsOnDemand"] = true
                 return summary
             },
-            "status": (state["threadRuntimeStatus"] as? [String: Any])?["type"] as? String ?? "idle",
+            "status": status,
             "hasOlder": all.count > count || !CodexHistoryReadback.complete(state),
             "loadedTurns": count,
             "activeTurnId": turns(state).last(where: { $0["status"] as? String == "inProgress" })?["turnId"] as? String

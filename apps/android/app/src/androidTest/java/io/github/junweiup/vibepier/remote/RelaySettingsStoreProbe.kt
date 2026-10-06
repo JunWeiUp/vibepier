@@ -15,7 +15,6 @@ object RelaySettingsStoreProbe {
             override fun getSharedPreferences(name: String?, mode: Int) = base.getSharedPreferences("$namespace-$name", mode)
         }
         val prefs = context.getSharedPreferences("relay-settings", Context.MODE_PRIVATE)
-        val legacy = context.getSharedPreferences("legacy", Context.MODE_PRIVATE)
         try {
             val settings = RelayLink.Settings("wss://relay.example.com/vibepier/relay", "test-room", "s".repeat(64), dnsRecovery = true)
             val store = RelaySettingsStore(context)
@@ -24,16 +23,18 @@ object RelaySettingsStoreProbe {
             check(RelaySettingsStore(context).read() == settings)
             check(prefs.all.values.none { it.toString().contains(settings.secret) || it.toString().contains(settings.url) })
             val sealed = prefs.getString("sealed", "")!!
-            check(prefs.edit().putString("sealed", "!!!!").commit())
-            check(store.read() == null) // Corrupt storage fails closed.
-            check(legacy.edit().putString("relayPairing", settings.pairingCode).commit())
-            check(store.migrate(legacy) == settings && !legacy.contains("relayPairing"))
+            store.save(settings)
             check(prefs.getString("sealed", "") != sealed) // Fresh random IV on every write.
-            return "PASS: relay settings use real Android Keystore, preserve explicit DNS recovery across reload/migration, never store plaintext, reject corrupt ciphertext and use fresh IVs\n"
+            check(prefs.edit().putString("sealed", "!!!!").commit())
+            val corrupt = prefs.all.toMap()
+            check(runCatching { store.read() }.isFailure)
+            check(runCatching { store.save(settings) }.isFailure)
+            check(prefs.all == corrupt)
+            return "PASS: current relay settings use Android Keystore, preserve explicit DNS recovery, reject corrupt ciphertext without overwriting, and use fresh IVs\n"
+
         } finally {
             KeyStore.getInstance("AndroidKeyStore").apply { load(null); deleteEntry("${context.packageName}.relay-settings.v1") }
             base.deleteSharedPreferences("$namespace-relay-settings")
-            base.deleteSharedPreferences("$namespace-legacy")
         }
     }
 }

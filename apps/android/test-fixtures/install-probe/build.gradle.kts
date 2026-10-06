@@ -13,8 +13,8 @@ abstract class GenerateProbePayload : DefaultTask() {
     @get:OutputDirectory abstract val outputDirectory: DirectoryProperty
     @TaskAction fun generate() {
         val directory = outputDirectory.get().asFile.apply { mkdirs() }
-        // Incompressible synthetic bytes ensure the resume probe spans multiple 128 KiB chunks.
-        val bytes = ByteArray(512 * 1024)
+        // Incompressible synthetic bytes ensure the resume probe spans multiple 1 MiB binary durable writes.
+        val bytes = ByteArray(3 * 1024 * 1024)
         Random(fixtureSeed.get()).nextBytes(bytes)
         directory.resolve("synthetic-payload.bin").writeBytes(bytes)
     }

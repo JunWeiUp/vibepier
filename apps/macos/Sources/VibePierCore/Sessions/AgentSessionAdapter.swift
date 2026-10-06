@@ -57,7 +57,6 @@ final class CurrentV1AgentAdapter: AgentSessionAdapter, @unchecked Sendable {
     static func production() -> [any AgentSessionAdapter] {
         let codex = CodexBridge()
         let claude = ClaudeBridge()
-        let zcode = ZCodeBridge(desktop: ZCodeDesktop.access)
         let adapters = [
             CurrentV1AgentAdapter(
                 provider: "codex", backendKinds: ["desktopAttached", "managedRuntime"],
@@ -68,14 +67,9 @@ final class CurrentV1AgentAdapter: AgentSessionAdapter, @unchecked Sendable {
                 execute: { claude.perform($0, client: $1, completion: $2) },
                 stop: { claude.stop($0) }, stopAll: { claude.stopAll() },
                 creationAvailable: { ClaudeBridge.executable() != nil }, warmOptions: { claude.warmOptions() }),
-            CurrentV1AgentAdapter(
-                provider: "zcode", backendKinds: ["desktopAttached"],
-                execute: { zcode.perform($0, client: $1, completion: $2) },
-                stop: { zcode.stop($0) }, stopAll: { zcode.stopAll() }, warmOptions: { ZCodeDesktop.warmOptions() }),
         ]
         codex.event = { [weak adapter = adapters[0]] client, data in adapter?.emit(client: client, data: data) }
         claude.event = { [weak adapter = adapters[1]] client, data in adapter?.emit(client: client, data: data) }
-        zcode.event = { [weak adapter = adapters[2]] client, data in adapter?.emit(client: client, data: data) }
         return adapters
     }
 }
@@ -94,6 +88,7 @@ struct AgentAdapterRegistry: Sendable {
     }
     var all: [any AgentSessionAdapter] { SessionV1Contract.providers.compactMap { adapters[$0] } }
     func adapter(provider: String?) -> (any AgentSessionAdapter)? {
-        adapters[provider == nil || provider == "" ? "codex" : provider!]
+        guard let provider, !provider.isEmpty else { return nil }
+        return adapters[provider]
     }
 }

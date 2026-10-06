@@ -10,12 +10,7 @@ final class UnlockPreferencesTests: XCTestCase {
     }
 
     private func store(_ file: URL, account: String = "synthetic-user") -> UnlockPreferences {
-        UnlockPreferences(
-            file: file, account: account,
-            legacyRead: {
-                XCTFail("Existing preferences must not read Keychain")
-                return nil
-            }, legacyRemove: {})
+        UnlockPreferences(file: file, account: account)
     }
 
     func testNewAppInstanceRetainsPasswordWithoutKeychainAccess() throws {
@@ -29,25 +24,10 @@ final class UnlockPreferencesTests: XCTestCase {
         }
     }
 
-    func testLegacyMigrationCommitsBeforeRemovingAndOnlyRunsOnce() throws {
+    func testMissingStoreDoesNotWriteOnRead() throws {
         try withFile { file in
-            var reads = 0
-            var removals = 0
-            let value = UnlockPreferences(
-                file: file, account: "synthetic-user",
-                legacyRead: {
-                    reads += 1
-                    return "legacy-synthetic"
-                },
-                legacyRemove: {
-                    removals += 1
-                    XCTAssertTrue(FileManager.default.fileExists(atPath: file.path))
-                })
-            XCTAssertEqual(try value.read(), "legacy-synthetic")
-            XCTAssertEqual(try value.read(), "legacy-synthetic")
-            XCTAssertEqual(try store(file).read(), "legacy-synthetic")
-            XCTAssertEqual(reads, 1)
-            XCTAssertEqual(removals, 1)
+            XCTAssertNil(try store(file).read())
+            XCTAssertFalse(FileManager.default.fileExists(atPath: file.path))
         }
     }
 
@@ -59,29 +39,21 @@ final class UnlockPreferencesTests: XCTestCase {
         }
     }
 
-    func testMigrationFailureDoesNotRemoveLegacyPassword() throws {
-        try withFile { file in
-            let parent = file.deletingLastPathComponent()
-            try FileManager.default.createDirectory(
-                at: parent.deletingLastPathComponent(), withIntermediateDirectories: true)
-            try Data("blocked".utf8).write(to: parent)
-            let value = UnlockPreferences(
-                file: file, account: "synthetic-user", legacyRead: { "legacy-synthetic" },
-                legacyRemove: { XCTFail("Failed migration must preserve Keychain") })
-            XCTAssertThrowsError(try value.read())
-        }
-    }
-
-    func testUnavailableLegacyReaderDoesNotWriteEmptyPreferences() throws {
-        try withFile { file in
-            let value = UnlockPreferences(
-                file: file, account: "synthetic-user", legacyRead: { throw CLIError("synthetic denied") },
-                legacyRemove: { XCTFail("No migration occurred") })
-            XCTAssertThrowsError(try value.read())
-            XCTAssertFalse(FileManager.default.fileExists(atPath: file.path))
-            // Explicit configuration can recover without reading the inaccessible legacy item.
-            try store(file).save("new-synthetic")
-            XCTAssertEqual(try store(file).read(), "new-synthetic")
+    func testInvalidDataCannotBeOverwrittenOrCleared() throws {
+        for text in [
+            "malformed", #"{"version":0,"account":"synthetic-user"}"#,
+            #"{"account":"synthetic-user"}"#, #"{"version":1,"account":"other-user"}"#,
+        ] {
+            try withFile { file in
+                try FileManager.default.createDirectory(
+                    at: file.deletingLastPathComponent(), withIntermediateDirectories: true)
+                let original = Data(text.utf8)
+                try original.write(to: file)
+                XCTAssertThrowsError(try store(file).read())
+                XCTAssertThrowsError(try store(file).save(nil))
+                XCTAssertThrowsError(try store(file).save("replacement"))
+                XCTAssertEqual(try Data(contentsOf: file), original)
+            }
         }
     }
 
@@ -104,11 +76,4 @@ final class UnlockPreferencesTests: XCTestCase {
         }
     }
 
-    func testEmptyFirstMigrationPersistsNoPassword() throws {
-        try withFile { file in
-            let value = UnlockPreferences(file: file, account: "synthetic-user", legacyRead: { nil }, legacyRemove: {})
-            XCTAssertNil(try value.read())
-            XCTAssertNil(try store(file).read())
-        }
-    }
 }

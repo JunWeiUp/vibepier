@@ -154,7 +154,7 @@ public final class PhoneBindings: @unchecked Sendable {
         let modifiers = existing.filter { (0xE0...0xE7).contains($0) || $0 == 2 }
         return try normalize((modifiers + selected).compactMap(Hotkey.name(forHIDCode:)).joined(separator: "+"))
     }
-    /// nil expectedVersion is a local edit. Empty means first migration; tombstones still win.
+    /// nil expectedVersion is a local edit. Empty means first publication; tombstones still win.
     @discardableResult public func set(
         key: String, value: String?, name: String = "", label: String? = nil, expectedVersion: String? = nil,
         operation: String = UUID().uuidString

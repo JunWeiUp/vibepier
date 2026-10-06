@@ -2,17 +2,14 @@ import AppKit
 import Foundation
 import IOKit.pwr_mgt
 import OpenDirectory
-import Security
 
 /// Phone actions that drive a desktop app (pasting into Claude, pressing Return in Codex) would type into the
 /// loginwindow while the screen is locked. With a password the phone configured, the Mac unlocks itself first —
 /// the password is checked against this account before it is saved, so a wrong one is never typed — and locks
 /// again once the last such action is done. Without one, those actions fail with a clear error instead.
 public enum ScreenLock {
-    private static let service = "io.github.junweiup.vibepier.unlock.v1"
     private static let preferences = UnlockPreferences(
-        file: Paths.supportDirectory.appendingPathComponent("preferences/unlock.json"), account: NSUserName(),
-        legacyRead: { try legacyPassword() }, legacyRemove: { _ = SecItemDelete(query() as CFDictionary) })
+        file: Paths.supportDirectory.appendingPathComponent("preferences/unlock.json"), account: NSUserName())
     private static let controller = ScreenLockController(
         isLocked: { locked() }, unlock: { try unlockScreen() },
         lock: {
@@ -133,25 +130,6 @@ public enum ScreenLock {
         Thread.sleep(forTimeInterval: 0.8)
     }
 
-    private static func query() -> [String: Any] {
-        [
-            kSecClass as String: kSecClassGenericPassword, kSecAttrService as String: service,
-            kSecAttrAccount as String: NSUserName(),
-        ]
-    }
-    private static func legacyPassword() throws -> String? {
-        var item: CFTypeRef?
-        var search = query()
-        search[kSecReturnData as String] = true
-        search[kSecMatchLimit as String] = kSecMatchLimitOne
-        search[kSecUseAuthenticationUI as String] = kSecUseAuthenticationUIFail
-        let status = SecItemCopyMatching(search as CFDictionary, &item)
-        if status == errSecItemNotFound { return nil }
-        guard status == errSecSuccess, let data = item as? Data, let value = String(data: data, encoding: .utf8) else {
-            throw CLIError(L10n.text("core.unlock_preferences_migration_failed_0", status))
-        }
-        return value
-    }
     private static func verify(_ value: String) -> Bool {
         guard let node = try? ODNode(session: ODSession.default(), type: ODNodeType(kODNodeTypeAuthentication)),
             let record = try? node.record(withRecordType: kODRecordTypeUsers, name: NSUserName(), attributes: nil)

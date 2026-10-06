@@ -529,7 +529,7 @@ final class CodexBridgeTests: XCTestCase {
         XCTAssertThrowsError(
             try SessionEnvelope.open(tampered, key: key, device: "phone-a", packet: "packet-a", direction: "phone"))
     }
-    func testChunkFramesFitLegacyTransportAndReassemble() throws {
+    func testCurrentEnvelopeFramesStayBoundedAndReassemble() throws {
         let source = Data(repeating: 255, count: 28_000)
         let frames = SessionEnvelope.frames(source, device: "phone", packet: "packet", sender: "sender")
         let objects = try frames.map { try JSONSerialization.jsonObject(with: $0) as! [String: Any] }

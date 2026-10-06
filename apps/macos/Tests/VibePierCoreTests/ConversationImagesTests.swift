@@ -17,6 +17,28 @@ final class ConversationImagesTests: XCTestCase {
         XCTAssertTrue(CGImageDestinationFinalize(destination))
         return out as Data
     }
+    func testProjectImageReturnsOnlyScopedBinaryProfile() throws {
+        let root = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+        try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: root) }
+        try png().write(to: root.appendingPathComponent("image.png"))
+        let result = try SessionProjectFiles.reply(
+            "readImageFile", ["path": "image.png", "size": "large", "binaryVersion": 1],
+            cwd: root.path, rows: { [] }, reader: SessionMarkdownFiles(), device: "image-phone", thread: "thread",
+            mediaOffer: { snapshot, device, thread, mime in
+                defer { snapshot.discard() }
+                XCTAssertEqual(device, "image-phone")
+                XCTAssertEqual(thread, "thread")
+                XCTAssertEqual(mime, "image/jpeg")
+                let bytes = try Data(contentsOf: snapshot.file)
+                XCTAssertEqual(Array(bytes.prefix(2)), [0xff, 0xd8])
+                return ["id": "synthetic-ticket", "size": bytes.count, "sha256": snapshot.digest, "mime": mime]
+            })
+        XCTAssertNil(result["image"])
+        XCTAssertEqual((result["binary"] as? [String: Any])?["id"] as? String, "synthetic-ticket")
+        XCTAssertEqual(result["path"] as? String, "image.png")
+    }
+
     func testMarkdownImageLinksStayDistinctFromCodeAndRemoteLinks() {
         let text = #"""
             ![A](/project/one.png) ![B](<docs/second image.PNG>)
@@ -138,7 +160,18 @@ final class ConversationImagesTests: XCTestCase {
             }
             try bytes.write(to: sessions.appendingPathComponent(thread + ".jsonl"))
         }
-        let bridge = ClaudeBridge(root: root.appendingPathComponent("sessions"))
+        let loader = ConversationImageLoader(offer: { snapshot, device, thread, mime in
+            defer { snapshot.discard() }
+            XCTAssertEqual(device, "image-phone")
+            XCTAssertEqual(thread, first)
+            XCTAssertEqual(mime, "image/jpeg")
+            let jpeg = try Data(contentsOf: snapshot.file)
+            XCTAssertEqual(Array(jpeg.prefix(2)), [0xff, 0xd8])
+            return ["id": UUID().uuidString, "size": jpeg.count, "sha256": snapshot.digest, "mime": mime]
+        })
+        let bridge = ClaudeBridge(
+            root: root.appendingPathComponent("sessions"), settingsFile: root.appendingPathComponent("settings.json"),
+            imageLoader: loader, attachmentRoot: root.appendingPathComponent("attachments"))
         defer { bridge.stopAll() }
         final class Reply: @unchecked Sendable {
             let lock = NSLock()
@@ -156,13 +189,18 @@ final class ConversationImagesTests: XCTestCase {
                 JSONSerialization.jsonObject(with: reply.lock.withLock { reply.data }) as? [String: Any])
         }
         let imageRequest: [String: Any] = [
-            "op": "image", "threadId": first, "viewVersion": 1, "imageId": "a-0#0", "path": "/ignored.png", "cwd": "/",
+            "op": "image", "binaryVersion": 1, "threadId": first, "viewVersion": 1, "imageId": "a-0#0",
+            "path": "/ignored.png", "cwd": "/",
         ]
         XCTAssertEqual(try request(imageRequest)["ok"] as? Bool, false)
         _ = try request(["op": "open", "threadId": first, "viewVersion": 1])
         let result = try request(imageRequest)
-        let jpeg = try XCTUnwrap(Data(base64Encoded: try XCTUnwrap(result["image"] as? String)))
-        XCTAssertEqual(Array(jpeg.prefix(2)), [0xff, 0xd8])
+        XCTAssertEqual(result["ok"] as? Bool, true)
+        XCTAssertNil(result["image"])
+        XCTAssertNotNil(result["binary"] as? [String: Any])
+        var oldClient = imageRequest
+        oldClient.removeValue(forKey: "binaryVersion")
+        XCTAssertEqual(try request(oldClient)["ok"] as? Bool, false)
         var invalid = imageRequest
         invalid["imageId"] = external.path
         XCTAssertEqual(try request(invalid)["ok"] as? Bool, false, "a caller path cannot replace an image ID")

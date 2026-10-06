@@ -82,8 +82,7 @@ final class ClaudeBridgeTests: XCTestCase {
 
     func testMissingToolNamesDoNotTurnTranslatedLabelsIntoGroupIdentifiers() {
         let claude = ClaudeTranscript.toolPart(["id": "missing-tool", "input": [:]], cwd: nil)
-        let zcode = ZCodeConversation.part(["id": "missing-tool", "type": "tool", "state": [:]])
-        for part in [claude, zcode] {
+        for part in [claude] {
             XCTAssertEqual(part.title, L10n.text("session.tool"))
             XCTAssertNil(part.extra["toolName"])
             XCTAssertNil(part.extra["groupType"])
@@ -411,11 +410,16 @@ final class ClaudeBridgeTests: XCTestCase {
         let approvals = ClaudePermissions.approvals(
             entries("rm -rf build"), requests: requests, host: "local_a", cwd: "/repo")
         XCTAssertEqual(
-            approvals.compactMap { $0["requestId"] as? String }, ["r1", "r2"],
-            "no tool call, no card; other sessions excluded")
+            approvals.compactMap { $0["requestId"] as? String }, ["r1", "r2", "r3"],
+            "unmatched requests stay visible but read-only; other sessions excluded")
         XCTAssertEqual(approvals[0]["toolUseId"] as? String, "t2")
         XCTAssertEqual(approvals[0]["canDecide"] as? Bool, true)
         XCTAssertEqual(approvals[1]["canDecide"] as? Bool, false)
+        XCTAssertEqual(approvals[2]["canDecide"] as? Bool, false)
+        XCTAssertNil(approvals[2]["toolUseId"])
+        XCTAssertEqual(
+            approvals[2]["details"] as? String,
+            L10n.text("provider.this_request_must_be_handled_on_the_mac"))
         let details = try XCTUnwrap(approvals[0]["details"] as? String)
         XCTAssertTrue(details.contains("rm -rf build") && details.contains("/repo") && details.contains("清理"))
         let other = ClaudePermissions.approvals(

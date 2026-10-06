@@ -2,10 +2,10 @@
 package io.github.junweiup.vibepier.remote.core.session
 
 internal object SessionV1Contract {
-    const val manifestSHA256 = "c1b8525fdd0182f564d141054a20d0a29ffe289751bd62048878146b22b30742"
+    const val manifestSHA256 = "d2bf4da49fde72731f73cbe740917b55b1eb5af1dce2cb59a062fde4060bef47"
     const val version = 1
     const val capabilityVersion = 1
-    val providers = listOf("codex", "claude", "zcode")
+    val providers = listOf("codex", "claude")
     val capabilityKeys = listOf("approvals", "attachments", "contextUsage", "effortSelection", "executionMode", "interrupt", "markdownFiles", "modelSelection", "new", "newAttachments", "permissionMode", "projectFiles", "questions", "queue", "queueDelete", "queueSteer", "send", "settings", "videoFiles")
     data class Operation(
         val name: String, val routeDomain: String, val durableMutation: Boolean,
@@ -15,7 +15,6 @@ internal object SessionV1Contract {
     val operations: List<Operation> = listOf(
         Operation("androidUpdateStage", "gateway", false, true, true, false, "controls", "", null, false),
         Operation("apkBinary", "gateway", false, false, true, false, "provider", "", null, false),
-        Operation("apkChunk", "gateway", false, false, true, false, "provider", "", null, false),
         Operation("apkOffer", "gateway", false, false, true, false, "provider", "", null, false),
         Operation("apkProgress", "gateway", false, false, true, false, "provider", "", null, false),
         Operation("apkStatus", "gateway", false, false, true, false, "provider", "", null, false),
@@ -28,7 +27,6 @@ internal object SessionV1Contract {
         Operation("approve", "session", true, true, false, true, "provider", "receiptCheck", "approvals", false),
         Operation("appshot", "session", false, false, false, true, "provider", "", null, false),
         Operation("appshotApps", "session", false, false, false, true, "provider", "", null, false),
-        Operation("attachmentChunk", "session", false, false, false, true, "provider", "", "attachments", false),
         Operation("attachmentComplete", "session", false, false, false, true, "provider", "", "attachments", false),
         Operation("attachmentPreview", "session", false, false, false, true, "provider", "", "attachments", false),
         Operation("attachmentReference", "session", false, false, false, true, "provider", "", "attachments", false),
@@ -52,7 +50,6 @@ internal object SessionV1Contract {
         Operation("lockScreen", "control", true, true, true, false, "controls", "", null, false),
         Operation("message", "session", false, false, false, true, "provider", "", null, true),
         Operation("new", "session", true, true, false, true, "provider", "newReceiptCheck", "new", false),
-        Operation("newAttachmentChunk", "session", false, false, false, true, "provider", "", "newAttachments", false),
         Operation("newAttachmentComplete", "session", false, false, false, true, "provider", "", "newAttachments", false),
         Operation("newAttachmentRemove", "session", false, false, false, true, "provider", "", "newAttachments", false),
         Operation("newAttachmentStart", "session", false, false, false, true, "provider", "", "newAttachments", false),

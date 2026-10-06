@@ -11,6 +11,7 @@ import org.json.JSONObject
 /** Runs against Android SharedPreferences/JSON; uses only an isolated test preference file. */
 class BindingSyncInstrumentation : Instrumentation() {
     private var probeName = "binding-sync"
+    private var nativeAuthorized = false
     private var uploadPort = 0
     private var responseOnly = false
     private var privateStorageOnly = false
@@ -37,6 +38,7 @@ class BindingSyncInstrumentation : Instrumentation() {
     override fun onCreate(arguments: Bundle?) {
         super.onCreate(arguments)
         probeName = arguments?.getString("test") ?: "binding-sync"
+        nativeAuthorized = arguments?.getString("nativeAuthorization") == "1"
         uploadPort = arguments?.getString("port")?.toIntOrNull() ?: 0
         responseOnly = arguments?.getString("test") == "session-response"
         privateStorageOnly = arguments?.getString("test") == "private-storage"
@@ -69,11 +71,14 @@ class BindingSyncInstrumentation : Instrumentation() {
         try {
             check(probeName in setOf("binding-sync", "session-response", "private-storage", "controls-localization",
                 "screen-controls", "new-session-receipts", "new-session-composer", "relay-store", "enrollment", "background-connection",
-                "protocol-negotiation", "relay-framing", "apk", "composer", "microphone", "controls", "dock",
-                "codex", "codex-panel", "providers", "provider-access", "tool-groups", "markdown", "app-usage", "conversation-images", "codex-usage", "application-picker", "brand-icons", "codec-compatibility", "readme-previews", "session-blocker", "voice-layout", "conversation-scroll", "binary-files", "binary-media", "attachment-upload", "attachment-network-upload", "task-notifications", "app-versions", "html-preview", "video-preview", "audit-runtime", "audit-conversation", "plan-mode", "zcode-creation", "agent-open", "image-zoom")) {
+                "session-cancellation", "native-phone-gateway", "background-soak", "protocol-negotiation", "relay-framing", "apk", "composer", "microphone", "controls", "dock",
+                "approval-actions", "codex", "codex-panel", "providers", "provider-access", "tool-groups", "markdown", "app-usage", "conversation-images", "codex-usage", "application-picker", "brand-icons", "codec-compatibility", "readme-previews", "session-blocker", "voice-layout", "conversation-scroll", "binary-files", "binary-media", "attachment-upload", "attachment-network-upload", "task-notifications", "app-versions", "html-preview", "video-preview", "audit-runtime", "audit-conversation", "plan-mode", "agent-open", "image-zoom")) {
                 "Unknown instrumentation probe"
             }
-            if (probeName == "zcode-creation") { result.putString("stream", ZCodeCreationProbe.run(this)); finish(Activity.RESULT_OK, result); return }
+            if (probeName == "session-cancellation") { result.putString("stream", SessionCancellationProbe.run(this)); finish(Activity.RESULT_OK, result); return }
+            if (probeName == "native-phone-gateway") { result.putString("stream", NativePhoneGatewayProbe.run(this, nativeAuthorized)); finish(Activity.RESULT_OK, result); return }
+            if (probeName == "background-soak") { result.putString("stream", BackgroundConnectionProbe.run(this, soak = true)); finish(Activity.RESULT_OK, result); return }
+            if (probeName == "approval-actions") { result.putString("stream", ApprovalActionsProbe.run(this)); finish(Activity.RESULT_OK, result); return }
             if (probeName == "plan-mode") { result.putString("stream", PlanModeProbe.run(this)); finish(Activity.RESULT_OK, result); return }
             if (probeName == "agent-open") { result.putString("stream", AgentOpenProbe.run(this)); finish(Activity.RESULT_OK, result); return }
             if (probeName == "image-zoom") { result.putString("stream", ImageZoomProbe.run(this)); finish(Activity.RESULT_OK, result); return }
@@ -131,8 +136,9 @@ class BindingSyncInstrumentation : Instrumentation() {
                 .put("server", "mac").put("key", op.getString("key")).put("operation", op.getString("operation"))
                 .put("accepted", accepted).put("entry", entry)
             clear()
-            prefs.edit().putString("keys.talk", "fn").putString("app.org.editor.keys.confirm", "cmd+return").commit()
             var s = sync()
+            s.edit("keys.talk", "fn", "")
+            s.edit("app.org.editor.keys.confirm", "cmd+return", "Editor")
             s.snapshot(snapshot())
             check(sent.last().getString("version") == "")
             check(prefs.getString("keys.talk", null) == "fn")
@@ -172,7 +178,7 @@ class BindingSyncInstrumentation : Instrumentation() {
             check(!prefs.contains("keys.talk"))
             check(JSONObject(prefs.getString("bindingSync.pending", "{}") ?: "{}").length() == 0)
             clear()
-            result.putString("stream", "PASS: migration, offline persistence, conflict, reordered snapshot/ack, rapid edits, reset (6 scenarios)\n")
+            result.putString("stream", "PASS: explicit edits, offline persistence, conflict, reordered snapshot/ack, rapid edits, reset (6 scenarios)\n")
             finish(Activity.RESULT_OK, result)
         } catch (error: Throwable) {
             result.putString("stream", "FAIL: " + error.stackTraceToString())

@@ -11,7 +11,7 @@ struct AgentActionCapability: Equatable, Sendable {
 /// A capability is advisory until this layer and the Bridge both validate the original action.
 final class AgentSessionCoordinator: @unchecked Sendable {
     func warmOptions(policy: SessionProviderPolicy) {
-        for provider in ["codex", "claude", "zcode"] {
+        for provider in SessionV1Contract.providers {
             guard policy.isEnabled(provider) else { continue }
             (registry.adapter(provider: provider) as? CurrentV1AgentAdapter)?.warmOptions()
         }
@@ -272,16 +272,11 @@ final class AgentSessionCoordinator: @unchecked Sendable {
                         "markdownFiles", "projectFiles", "videoFiles",
                     ].contains(action)
                 default:
-                    contract =
-                        SessionProviderReply.boolean(flags[action]) == true
-                        || (provider == "zcode"
-                            && [
-                                "send", "new", "settings", "interrupt", "modelSelection", "permissionMode",
-                                "effortSelection", "executionMode", "markdownFiles", "projectFiles",
-                            ].contains(action))
+                    contract = false
                 }
                 var available = usable && SessionProviderReply.boolean(flags[action]) == true
-                // Missing flags remain false unless this exact legacy native contract supplies its proof.
+                // Current desktop Bridges expose state proofs instead of flags for these actions.
+                // This internal translation is also required by profile 2; it is not phone-version fallback.
                 if provider == "codex" || provider == "claude" {
                     switch action {
                     case "send":
@@ -316,18 +311,6 @@ final class AgentSessionCoordinator: @unchecked Sendable {
                     default: break
                     }
                 }
-                if provider == "zcode" {
-                    switch action {
-                    case "send": available = available && ready && idle
-                    case "interrupt": available = available && active
-                    case "approvals": available = available && hasApproval
-                    case "new":
-                        available =
-                            creation && usable && SessionProviderReply.boolean(flags["new"]) == true
-                            && !(page["draftId"] as? String ?? "").isEmpty
-                    default: break
-                    }
-                }
                 if action == "executionMode" {
                     let catalog = page["executionModes"] as? [[String: Any]] ?? []
                     available =
@@ -335,7 +318,7 @@ final class AgentSessionCoordinator: @unchecked Sendable {
                         && catalog.contains(where: { $0["id"] as? String == "plan" })
                         && (creation || (ready && idle && hasComposer && !externalTerminal))
                 }
-                // Background-owned threads have their own native contract. The legacy desktop
+                // Background-owned threads have their own native contract. The desktop
                 // defaults cannot grant an action that the App Server view did not explicitly prove.
                 if appServerCodex {
                     available = available && SessionProviderReply.boolean(flags[action]) == true

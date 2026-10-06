@@ -12,7 +12,7 @@ final class SessionProviderPolicyTests: XCTestCase {
     }
 
     func testDisabledProviderRejectsDiscoveryAndMutationsButKeepsReceiptsAndControls() {
-        let policy = SessionProviderPolicy(enabled: ["codex": false, "claude": true, "zcode": false])
+        let policy = SessionProviderPolicy(enabled: ["codex": false, "claude": true])
         for op in [
             "list", "projects", "open", "sync", "history", "readImageFile", "new", "send", "approve", "settings",
             "interrupt",
@@ -26,7 +26,7 @@ final class SessionProviderPolicyTests: XCTestCase {
         XCTAssertTrue(policy.permits(["provider": "codex", "op": "send"], recordedMutation: true))
         XCTAssertFalse(policy.permits(["provider": "claude", "op": "codexUsage"]))
         XCTAssertEqual(SessionProviderPolicy.contentProvider(["provider": "claude", "op": "list"]), "claude")
-        XCTAssertNil(SessionProviderPolicy.contentProvider(["provider": "codex", "op": "apkChunk"]))
+        XCTAssertNil(SessionProviderPolicy.contentProvider(["provider": "codex", "op": "apkBinary"]))
         XCTAssertNil(SessionProviderPolicy.contentProvider(["provider": "codex", "op": "receipt"]))
     }
 
@@ -44,7 +44,7 @@ final class SessionProviderPolicyTests: XCTestCase {
         try config.save(file)
         let restored = try Config.load(file)
         XCTAssertEqual(restored, config)
-        XCTAssertEqual(restored.sessionProviderRevision, 3)
+        XCTAssertEqual(restored.sessionProviderRevision, Int64(SessionProviderPolicy.ids.count))
         XCTAssertTrue(SessionProviderPolicy.ids.allSatisfy { !SessionProviderPolicy(restored).isEnabled($0) })
         XCTAssertEqual(try restored.settingSessionProvider("codex", enabled: false), restored)
         let enabled = try restored.settingSessionProvider("claude", enabled: true, minimumRevision: 10)
@@ -64,7 +64,7 @@ final class SessionProviderPolicyTests: XCTestCase {
     }
 
     func testActualPasswordAndStatusWireNamesRemainIndependentOfProviders() {
-        let policy = SessionProviderPolicy(enabled: ["codex": false, "claude": false, "zcode": false])
+        let policy = SessionProviderPolicy(enabled: ["codex": false, "claude": false])
         for op in ["unlockStatus", "unlockPassword"] {
             XCTAssertTrue(policy.permits(["provider": "codex", "op": op]), op)
             XCTAssertNil(SessionProviderPolicy.contentProvider(["provider": "codex", "op": op]), op)

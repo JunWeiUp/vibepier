@@ -12,5 +12,5 @@
     <string name="agent_backend_extension">桌面扩展</string>
     <string name="agent_backend_explanation">选择 Mac 上用于浏览和新操作的连接方式，已有请求保留原连接和回执。</string>
     <string name="agent_state_changed">原任务、审批或选项已不存在；草稿已保留。</string>
-    <string name="agent_state_not_ready">暂未能连接到桌面助手，本次未提交，草稿已保留。</string>
+    <string name="agent_state_not_ready">会话服务尚未就绪，本次未提交，草稿已保留。请刷新后重试。</string>
 </resources>

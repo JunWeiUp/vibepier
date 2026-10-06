@@ -424,7 +424,7 @@ class RemoteSender(context: Context, private val simulateLaunchLoss: Boolean = f
     override fun sendBinding(message: JSONObject) {
         val copy = JSONObject(message.toString()).put("sender", sender)
         val path = direct
-        if (mode == "relay" && path != null && (copy.optString("type") == "vibepier-mic1" || directSecurity.ready && copy.optString("type") == "vibepier-session1" && (!copy.has("upload") || copy.optInt("fragmentChars", 7200) == 512)))
+        if (mode == "relay" && path != null && (copy.optString("type") == "vibepier-mic1" || directSecurity.ready && copy.optString("type") == "vibepier-session1"))
             queueDatagram(copy.toString().toByteArray(), path, directSecurity, "relay", copy.optString("action") == "end")
         else if (mode == "relay") relay.send(copy.toString())
         else if (mode == "bluetooth" && copy.optString("type") == "vibepier-session1") bluetooth.sendChat(copy.toString())
@@ -617,8 +617,7 @@ class RemoteSender(context: Context, private val simulateLaunchLoss: Boolean = f
         val frame = sealed.toByteArray(Charsets.UTF_8)
         // Seal now: a final release must still leave during the short shutdown drain.
         // Repeats use the identical authenticated packet, so only one may execute.
-        val delays = if (sealed.startsWith("vibepier-bulk1 ")) longArrayOf(0) else REPEAT_DELAYS_MS
-        for (delay in delays) executor.schedule({
+        for (delay in REPEAT_DELAYS_MS) executor.schedule({
             if (!release && (!watching || mode != selectedMode)) return@schedule
             try { socket.send(DatagramPacket(frame, frame.size, destination)) }
             catch (_: Exception) { if (!socket.isClosed) TransportLog.warning(TransportLog.Event.UDP_CONTROL) }

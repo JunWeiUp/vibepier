@@ -33,7 +33,6 @@ type conn struct {
 	room     string
 	protocol int
 	peerID   string
-	order    uint64
 	ready    bool // protected by relay.mu
 	budget   *bufferBudget
 	reason   atomic.Uint32
@@ -226,7 +225,7 @@ func (c *conn) next() (string, error) {
 		limit := uint64(maxFrame)
 		if c.role == "" {
 			limit = maxHello
-		} else if c.protocol == 2 && c.role == "host" {
+		} else if c.role == "host" {
 			limit = maxHostFrame
 		}
 		if length > limit || (opcode < 8 && uint64(len(message))+length > limit) {

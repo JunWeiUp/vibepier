@@ -6,7 +6,7 @@ Drafts for manual publication after the public beta is ready. No posts have been
 
 **VibePier：用 Android 手机继续 Mac 上的 AI 编程会话。**
 
-离开键盘时，可以查看进度、补充消息、处理已适配的审批，也能使用应用快捷键和锁屏/解锁。支持范围覆盖适配版本的 Codex、Claude Code、ZCode，各来源的能力和限制有明确说明。
+离开键盘时，可以查看进度、补充消息、处理已适配的审批，也能使用应用快捷键和锁屏/解锁。支持范围覆盖适配版本的 Codex、Claude Code，各来源的能力和限制有明确说明。
 
 首次蓝牙连接自动请求 Mac 确认，之后可用蓝牙、本地 Wi-Fi 或自建 WSS 中继。README 附完整中继部署命令。手机遥控不需要 AU05，项目采用 MIT 许可。
 
@@ -18,7 +18,7 @@ Drafts for manual publication after the public beta is ready. No posts have been
 
 **VibePier brings supported Mac AI coding sessions to an Android phone.**
 
-Read progress, send a follow-up, handle supported approvals, use application shortcuts, and lock or unlock your Mac. Adapters cover supported Codex, Claude Code and ZCode workflows, with an explicit capability table.
+Read progress, send a follow-up, handle supported approvals, use application shortcuts, and lock or unlock your Mac. Adapters cover supported Codex and Claude Code workflows, with an explicit capability table.
 
 Approve each phone over Bluetooth, then use Bluetooth, local Wi-Fi or your own WSS relay. The README includes complete relay deployment commands. MIT-licensed; no AU05 hardware required for the phone remote.
 

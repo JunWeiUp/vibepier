@@ -47,6 +47,6 @@ An observed file-permission denial opens repair guidance once in the running ins
 
 ## Unlock preferences / 解锁偏好
 
-The optional unlock password is stored in the current Mac user's `Library/Application Support/vibepier/preferences/unlock.json`, in plain text with `0600` file and `0700` directory permissions. It is outside the app bundle and Android data, so signed app replacement and APK updates preserve it. It is excluded from portable settings, diagnostics and receipts. First access migrates the old Keychain item only after the local preferences commit succeeds. An explicit clear saves an empty record, preventing legacy restoration.
+The optional unlock password is stored in the current Mac user's `Library/Application Support/vibepier/preferences/unlock.json`, in plain text with `0600` file and `0700` directory permissions. It is outside the app bundle and Android data, so signed app replacement and APK updates preserve it. It is excluded from portable settings, diagnostics and receipts. Only the current version-1 preferences format is accepted. A missing file means no password is configured; reads do not initialize it. Invalid records are rejected and preserved, including on save or clear. The app neither reads nor removes old unlock Keychain items.
 
-可选解锁密码按用户选择明文存于 Mac 本地偏好，覆盖安装 Mac 应用或 APK 均保留；手机不保存密码，设置导出、诊断与回执不包含密码。旧钥匙串密码在偏好写入成功后迁移删除，清除操作保留空记录，避免恢复旧密码。手动解锁被确认后清除旧失败状态；锁屏时失败仍暂停，避免反复尝试。
+可选解锁密码按用户选择明文存于 Mac 本地偏好，覆盖安装 Mac 应用或 APK 均保留；手机不保存密码，设置导出、诊断与回执不包含密码。仅接受当前 version-1 偏好格式；文件不存在表示未配置密码，读取不自动建文件。损坏或旧格式记录拒绝加载、覆盖及清空，并保留原数据；不再读取或删除旧解锁 Keychain 项目。手动解锁被确认后清除旧失败状态；锁屏时失败仍暂停，避免反复尝试。

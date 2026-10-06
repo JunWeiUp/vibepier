@@ -17,7 +17,7 @@ final class AgentSessionProfileTests: XCTestCase {
             var params: [String: Any] = ["refreshOptions": true]
             if method == "session.items" { params["kind"] = "composerOptions" }
             var body: [String: Any] = [
-                "agentProtocol": 2, "requestId": id, "method": method, "target": ["adapterId": "zcode.currentV1"],
+                "agentProtocol": 2, "requestId": id, "method": method, "target": ["adapterId": "claude.currentV1"],
                 "params": params,
             ]
             XCTAssertEqual(

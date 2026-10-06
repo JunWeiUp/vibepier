@@ -48,6 +48,8 @@ internal object ConversationReviewFixtures {
         .put(step("p-text-2", "text", "", "", "```swift\nlet packetMilliseconds = 60\nlet samples = rate * packetMilliseconds / 1000\n```\n\n验证完成后，这里会同步显示结果。"))
     val newRequests = mutableListOf<String>()
     val newRequestBodies = mutableListOf<JSONObject>()
+    val approvalRequestBodies = mutableListOf<JSONObject>()
+    var creationOptionsReads = 0
     private fun entry(name: String, path: String, size: Long = -1, status: String = "", changed: Boolean = false) = JSONObject().put("name", name).put("path", path)
         .put("directory", size < 0).apply { if (size >= 0) put("size", size); if (status.isNotEmpty()) put("status", status); if (changed) put("changed", true) }
     private val folders = mapOf(
@@ -98,6 +100,7 @@ internal object ConversationReviewFixtures {
 
     fun reply(op: String, fields: JSONObject, kind: String): JSONObject {
         check(BuildConfig.DESIGN_REVIEW)
+        if (op == "newOptions") creationOptionsReads++
         if (kind == "files") files(op, fields)?.let { return it }
         return when (op) {
             "codexUsage" -> JSONObject().put("ok", true).put("accountId", "demo-account").put("resetEligible", true).put("availableCount", 3).put("cardDetailsKnown", true).put("fetchedAt", System.currentTimeMillis() / 1000)
@@ -167,7 +170,10 @@ internal object ConversationReviewFixtures {
             }
             "history" -> conversation(kind).put("hasOlder", false)
             "send" -> if (kind == "failure") JSONObject().put("ok", false).put("error", "Mac 暂未响应，草稿已保留") else JSONObject().put("ok", true).put("accepted", true)
-            "approve" -> JSONObject().put("ok", true).put("submitted", true)
+            "approve" -> {
+                approvalRequestBodies.add(JSONObject(fields.toString()))
+                JSONObject().put("ok", true).put("submitted", true)
+            }
             else -> JSONObject().put("ok", true)
         }
     }

@@ -18,7 +18,6 @@
     <string name="session_project_folder">Session project /%1$s</string>
     <string name="session_capturing_app">Capturing %1$s…</string>
     <string name="session_settings_on_mac">This session is open in %1$s. Change its model and permission mode on the Mac.</string>
-    <string name="session_confirm_mode_change">Session: %1$s\nChange permission mode to %2$s.</string>
     <string name="session_claude_full_access_warning">Session: %1$s\nClaude Code may edit any file and execute commands without asking for confirmation.</string>
     <string name="session_codex_full_access_warning">Session: %1$s\nCodex may edit any file and run network-enabled commands. This setting applies to the current session and may also affect its running task.</string>
     <string name="session_context_summary">Used / capacity (percentage)\n%1$s</string>
@@ -88,7 +87,6 @@
     <string name="session_enter_a_password">Enter a password</string>
     <string name="session_back_to_all_projects">Back to all projects</string>
     <string name="session_first_message">First message…</string>
-    <string name="session_create_a_session_in_zcode_on_the_mac_and_send_the_first_message">Create a session in ZCode on the Mac and send the first message.</string>
     <string name="session_codex_new_background_explanation">Codex will create the session and send this message in the background on the Mac. Keep VibePier connected; Codex does not need to be in the foreground.</string>
     <string name="session_start">Start</string>
     <string name="session_enter_the_first_message">Enter the first message</string>
@@ -144,8 +142,10 @@
     <string name="session_selected">, selected</string>
     <string name="session_not_selected">, not selected</string>
     <string name="session_choose_or_enter_an_answer_then_submit_selecting_an_option_does_n">Choose or enter an answer, then submit. Selecting an option does not send it.</string>
+    <string name="session_review_request_before_deciding">Review the request before deciding. You can approve without scrolling to the bottom.</string>
     <string name="session_scroll_to_the_bottom_and_review_the_full_request_before_deciding">Scroll to the bottom and review the full request before deciding.</string>
     <string name="session_submit_answer">Submit answer</string>
+    <string name="session_allow_similar">Allow similar</string>
     <string name="session_allow_once">Allow once</string>
     <string name="session_deny">Deny</string>
     <string name="session_check_result">Check result</string>
@@ -160,8 +160,6 @@
     <string name="session_submitting_answer">Submitting answer…</string>
     <string name="session_saved_answer">Saved answer</string>
     <string name="session_submitting_decision">Submitting decision…</string>
-    <string name="session_replies_go_to_this_zcode_session">Replies go to this ZCode session</string>
-    <string name="session_viewing_zcode_session_phone_replies_are_currently_unavailable">Viewing ZCode session · Phone replies are currently unavailable</string>
     <string name="session_replies_go_only_to_this_session_permission_requests_need_separat">Replies go only to this session · Permission requests need separate confirmation</string>
     <string name="session_replies_go_to_this_session_in_the_claude_desktop_app">Replies go to this session in the Claude desktop app</string>
     <string name="session_this_session_is_running_in_a_mac_terminal_continue_on_the_mac">This session is running in a Mac terminal. Continue on the Mac.</string>
@@ -216,9 +214,7 @@
     <string name="session_choose_a_mac_app">Choose a Mac app</string>
     <string name="session_capture_only_a_visible_window_of_the_selected_app_first_allow_sc">Capture only a visible window of the selected app. First allow screen recording on the Mac.</string>
     <string name="session_change_in_the_mac_desktop_app">Change in the Mac desktop app</string>
-    <string name="session_change_permission_mode">Change permission mode?</string>
     <string name="session_confirm_change">Confirm change</string>
-    <string name="session_use_the_permission_modes_available_for_this_zcode_session">Use the permission modes available for this ZCode session.</string>
     <string name="session_sync_the_permission_mode_for_this_claude_desktop_session">Sync the permission mode for this Claude desktop session.</string>
     <string name="session_used_for_subsequent_requests_from_the_phone_in_this_claude_code_">Used for subsequent requests from the phone in this Claude Code session.</string>
     <string name="session_ask_confirm_before_changes">Ask · Confirm before changes</string>

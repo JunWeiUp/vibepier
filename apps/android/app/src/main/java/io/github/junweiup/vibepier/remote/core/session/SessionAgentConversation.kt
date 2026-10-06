@@ -16,6 +16,12 @@ internal class SessionAgentConversation(
     private val scheduleRead: (Long, () -> Unit) -> Unit = { _, block -> block() },
     private val readClock: () -> Long = { System.nanoTime() / 1_000_000 },
 ) {
+    private val creationReads = mutableMapOf<String, SessionAgentClient.ReadScope>()
+    internal fun cancelCreationOptions(id: String?) { creationReads.remove(id)?.cancel() }
+    internal fun cancelCreationOptions() {
+        val reads = creationReads.values.toList(); creationReads.clear()
+        reads.forEach { it.cancel() }
+    }
     private val leases = mutableMapOf<String, Pair<SessionAgentProtocol.Target.Creation, String>>()
     /** Recently settled v2 results keyed by operation ID, so a later "check result" never degrades to a v1 lookup. */
     private val settled = object : LinkedHashMap<String, JSONObject>() {
@@ -24,7 +30,7 @@ internal class SessionAgentConversation(
     fun rememberSettled(operationId: String, receipt: JSONObject) { settled[operationId] = JSONObject(receipt.toString()) }
     private var active: SessionAgentClient.Session? = null
     private var subscriptionId: String? = null
-    fun clearConnection() { leases.clear(); active = null; subscriptionId = null }
+    fun clearConnection() { cancelCreationOptions(); leases.clear(); active = null; subscriptionId = null }
     private fun creationKey(source: String, cwd: String, draft: String) = "$source\u0000$cwd\u0000$draft"
     private fun projectionFields(fields: JSONObject, source: String) = JSONObject(fields.toString()).put("provider", source).put("viewVersion", viewVersion())
 
@@ -148,7 +154,7 @@ internal class SessionAgentConversation(
     }
 
     /** Restored project views need a native workspace reference before any list/options/control read. */
-    private fun resolveWorkspace(fields: JSONObject, done: (JSONObject) -> Unit) {
+    private fun resolveWorkspace(fields: JSONObject, readScope: SessionAgentClient.ReadScope? = null, done: (JSONObject) -> Unit) {
         val original = scope(fields)
         val cwd = fields.optString("cwd")
         if (original == null || !cwd.startsWith('/') || '\u0000' in cwd) { done(failure(fields, "stale_state")); return }
@@ -156,9 +162,9 @@ internal class SessionAgentConversation(
         fun fetch(offset: Int, pages: Int) {
             if (!current(original)) { done(failure(fields, "stale_state")); return }
             agent.read(SessionAgentProtocol.Method.WORKSPACES, SessionAgentProtocol.Target.Adapter(original.adapter),
-                JSONObject().put("search", cwd).put("offset", offset).put("limit", 100), preserve = true) { reply ->
+                JSONObject().put("search", cwd).put("offset", offset).put("limit", 100), preserve = readScope == null, readScope = readScope) { reply ->
                 if (!current(original)) { done(failure(fields, "stale_state")); return@read }
-                if (reply !is SessionAgentProtocol.Reply.Read) { done(legacyReply(reply, fields)); return@read }
+                if (reply !is SessionAgentProtocol.Reply.Read) { done(projectReply(reply, fields)); return@read }
                 val rows = reply.result.optJSONArray("workspaces")
                 if (rows == null || rows.length() > 100) { done(failure(fields, "agent_protocol_invalid")); return@read }
                 for (index in 0 until rows.length()) {
@@ -183,24 +189,42 @@ internal class SessionAgentConversation(
     }
 
     fun request(op: String, fields: JSONObject, callback: (JSONObject) -> Unit): String? {
+        if (op != "newOptions" || !agent.negotiated) return requestScoped(op, fields, callback)
+        val frozen = JSONObject(fields.toString()).put("id", fields.optString("id").ifBlank(SessionAgentProtocol::id))
+        val id = frozen.getString("id")
+        cancelCreationOptions(id)
+        val readScope = agent.ReadScope()
+        creationReads[id] = readScope
+        val result = requestScoped(op, frozen, { reply ->
+            if (creationReads[id] === readScope) {
+                creationReads.remove(id); readScope.cancel()
+                callback(reply)
+            }
+        }, readScope)
+        if (result == null) cancelCreationOptions(id)
+        return result
+    }
+
+    private fun requestScoped(op: String, fields: JSONObject, callback: (JSONObject) -> Unit,
+                              readScope: SessionAgentClient.ReadScope? = null): String? {
+        if (readScope?.active == false) return fields.optString("id")
         val source = fields.optString("provider").ifBlank(provider)
         val cwd = fields.optString("cwd")
         if (agent.negotiated && cwd.isNotBlank() && op in setOf("list", "newOptions", "new") && agent.workspace(source, cwd) == null) {
             val frozen = projectionFields(fields, source).put("id", fields.optString("id").ifBlank(SessionAgentProtocol::id))
-            resolveWorkspace(frozen) { resolved ->
+            resolveWorkspace(frozen, readScope) { resolved ->
                 if (!resolved.optBoolean("ok")) callback(resolved)
-                else if (request(op, frozen, callback) == null) callback(failure(frozen, "stale_state"))
+                else if (requestScoped(op, frozen, callback, readScope) == null) callback(failure(frozen, "stale_state"))
             }
             return frozen.getString("id")
         }
         if (agent.negotiated && op in preparedReads) return prepareItemRead(op, fields, callback)
-        // A leftover v1 receipt stays on its own read-only receipt path; it never forces new work onto v1.
-        if (!agent.negotiated || op !in mutationOperations) return requestPrepared(op, fields, callback)
-        val frozen = JSONObject(fields.toString()).put("id", fields.optString("id").ifBlank(SessionAgentProtocol::id))
+        if (!agent.negotiated || op !in mutationOperations) return requestPrepared(op, fields, callback, readScope)
+        val frozen = JSONObject(fields.toString()).put("provider", source).put("id", fields.optString("id").ifBlank(SessionAgentProtocol::id))
         val id = frozen.getString("id")
         if (agent.hasPendingOperation(id)) {
             val original = agent.context(id)
-            agent.reconcile(id) { reply -> callback(if (original == null) failure(frozen, "receipt_unknown") else legacyReply(reply, original)) }
+            agent.reconcile(id) { reply -> callback(if (original == null) failure(frozen, "receipt_unknown") else projectReply(reply, original)) }
             return id
         }
         val scope = scope(frozen)
@@ -253,7 +277,7 @@ internal class SessionAgentConversation(
             val generation = agent.controlGeneration(scope.ref)
             agent.read(SessionAgentProtocol.Method.ITEMS, session.target, params) { reply ->
                 if (!current(scope) || generation != agent.controlGeneration(scope.ref)) { callback(failure(frozen, "stale_state")); return@read }
-                if (reply !is SessionAgentProtocol.Reply.Read) { callback(legacyReply(reply, projectionFields(frozen, scope.source))); return@read }
+                if (reply !is SessionAgentProtocol.Reply.Read) { callback(projectReply(reply, projectionFields(frozen, scope.source))); return@read }
                 val result = JSONObject(reply.result.toString())
                 if (result.has("threadId") && result.opt("threadId") != scope.thread) { callback(failure(frozen, "agent_target_mismatch")); return@read }
                 if (approval != null) {
@@ -261,7 +285,7 @@ internal class SessionAgentConversation(
                     if (details == null || details.opt("fingerprint") != approval.opt("fingerprint")) { callback(failure(frozen, "approval_expired")); return@read }
                     // Full native prose/form data does not override the service's normalized authority.
                     for (key in listOf("id", "revision", "fingerprint", "nativeRequestId", "nativeRequestFingerprint", "title",
-                        "decisionScope", "kind", "reason", "method", "plan", "planApprovalScope", "toolUseId")) {
+                        "decisionScope", "kind", "reason", "method", "plan", "planApprovalScope", "toolUseId", "allowSimilarDescription")) {
                         if (approval.has(key)) details.put(key, approval.get(key)) else details.remove(key)
                     }
                     details.put("canDecide", approval.opt("canDecide") == true)
@@ -281,8 +305,9 @@ internal class SessionAgentConversation(
         agent.refreshObservation(id, session.target.sessionRef, epoch, through)
     }
 
-    /** A null return means this is an independent v1 service or an existing v1 pending scope. */
-    private fun requestPrepared(op: String, fields: JSONObject, callback: (JSONObject) -> Unit): String? {
+    /** A null return means this is an independent transport service. */
+    private fun requestPrepared(op: String, fields: JSONObject, callback: (JSONObject) -> Unit,
+                                readScope: SessionAgentClient.ReadScope? = null): String? {
         val source = fields.optString("provider").ifBlank(provider)
         val originalOperation = fields.optString("operation")
         if (op == "receipt") settled[originalOperation]?.let { receipt ->
@@ -299,7 +324,7 @@ internal class SessionAgentConversation(
                 val response = JSONObject().put("id", id).put("provider", pendingContext.optString("provider")).put("ok", true)
                     .put("operation", originalOperation)
                 if (reply is SessionAgentProtocol.Reply.Mutation && reply.status in setOf(SessionAgentProtocol.Status.CONFIRMED, SessionAgentProtocol.Status.REJECTED)) {
-                    response.put("state", "complete").put("receipt", legacyReply(reply, pendingContext))
+                    response.put("state", "complete").put("receipt", projectReply(reply, pendingContext))
                 } else if (reply is SessionAgentProtocol.Reply.Failure && reply.code == SessionAgentClient.NOT_FOUND) {
                     response.put("state", "notFound")
                 } else response.put("state", "unknown")
@@ -307,7 +332,12 @@ internal class SessionAgentConversation(
             }
             return id
         }
-        if (!agent.negotiated || op !in routed) return null
+        if (op in SessionProfilePolicy.operations && (!agent.negotiated || op !in routed)) {
+            val id = fields.optString("id").ifBlank(SessionAgentProtocol::id)
+            callback(failure(JSONObject(fields.toString()).put("id", id), if (op == "receipt") "receipt_unknown" else "agent_state_not_ready"))
+            return id
+        }
+        if (op !in routed) return null
         val thread = fields.optString("threadId")
         val id = fields.optString("id").ifBlank(SessionAgentProtocol::id)
         fun fail(code: String) { callback(JSONObject().put("id", id).put("ok", false).put("code", code).put("error", errorText(code))) }
@@ -375,7 +405,7 @@ internal class SessionAgentConversation(
                         .put("content", content(fields))
                 }
                 "new" -> {
-                    if (SessionWaitingPolicy.duplicateCreation(agent.pendingLegacy(source, ""), fields.optString("cwd"), fields.optString("text"), fields.optJSONArray("attachments") ?: JSONArray(), id)) {
+                    if (SessionWaitingPolicy.duplicateCreation(agent.pendingContexts(source, ""), fields.optString("cwd"), fields.optString("text"), fields.optJSONArray("attachments") ?: JSONArray(), id)) {
                         fail("receipt_unknown"); return id
                     }
                     params.put("initialMessage", JSONObject().put("content", content(fields))).put("options", options(fields))
@@ -402,20 +432,21 @@ internal class SessionAgentConversation(
                     else {
                         val decision = fields.optString("option").ifBlank { if (fields.opt("allow") == true) "allow" else "deny" }
                         val choices = pending.optJSONArray("allowedDecisions") ?: JSONArray()
+                        if (decision == "allowSimilar" && source != "codex") { fail("unsupported"); return id }
                         if ((0 until choices.length()).none { choices.opt(it) == decision }) { fail("unsupported"); return id }
                         params.put("decision", decision)
                     }
                 }
             }
-            agent.mutate(method, mutationTarget, params, lease, operationId = id, context = context) { reply -> callback(legacyReply(reply, context)) }
+            agent.mutate(method, mutationTarget, params, lease, operationId = id, context = context) { reply -> callback(projectReply(reply, context)) }
             return id
         }
         val readTarget = if (op in setOf("list", "projects", "newOptions")) SessionAgentProtocol.Target.Adapter(adapterId) else target
-        agent.read(method, readTarget, params) { reply ->
+        agent.read(method, readTarget, params, readScope = readScope) { reply ->
             if (op in setOf("list", "projects", "open", "sync", "newOptions", "close") && (scope == null || !current(scope) ||
                 (op in setOf("open", "sync") && scope.ref != null && readGeneration != agent.controlGeneration(scope.ref)) ||
                 (op == "newOptions" && scope.workspace != agent.workspace(source, fields.optString("cwd"))))) { fail("stale_state"); return@read }
-            if (reply !is SessionAgentProtocol.Reply.Read) { callback(legacyReply(reply, context)); return@read }
+            if (reply !is SessionAgentProtocol.Reply.Read) { callback(projectReply(reply, context)); return@read }
             val result = reply.result
             val projected = when (op) {
                 "list" -> {
@@ -514,7 +545,7 @@ internal class SessionAgentConversation(
         for (key in listOf("model", "mode", "effort", "executionMode", "serviceTier")) if (fields.has(key)) put(key, fields.get(key))
         if (fields.has("confirmFullAccess")) put("confirmation", fields.get("confirmFullAccess"))
     }
-    fun legacyReply(reply: SessionAgentProtocol.Reply, context: JSONObject): JSONObject {
+    fun projectReply(reply: SessionAgentProtocol.Reply, context: JSONObject): JSONObject {
         val value = JSONObject().put("id", context.optString("id")).put("provider", context.optString("provider"))
             .put("threadId", context.optString("threadId")).put("viewVersion", context.optLong("viewVersion", viewVersion()))
         when (reply) {
@@ -559,7 +590,7 @@ internal class SessionAgentConversation(
 
         private val mutationOperations = setOf("send", "new", "settings", "interrupt", "approve", "queueDelete", "queueSteer")
         private val retryablePreparation = setOf("agent_session_not_open", "agent_session_view_closed", "agent_native_unavailable", "content_incomplete", "agent_state_not_ready")
-        private val preparedReads = setOf("composerOptions", "approvalDetails")
+        private val preparedReads = setOf("composerOptions", "approvalDetails", "contextUsage")
         private val preparationDelays = listOf(250L, 500L, 1_000L, 1_500L, 2_000L, 2_500L)
         // A cold Mac (provider launch, catalog refresh) needs more than one transport timeout before the single submission.
         private const val preparationDeadline = 25_000L
@@ -574,7 +605,10 @@ internal class SessionAgentConversation(
                     if (!id.isNullOrBlank()) rows[id] = item
                 }
             }
-            result.put("messages", JSONArray(rows.values.toList())).put("canSend", false).remove("agentCapabilities")
+            // A partial opening without content is not a confirmed empty conversation.
+            if (previous?.optJSONArray("messages") != null || next.optJSONArray("messages") != null)
+                result.put("messages", JSONArray(rows.values.toList()))
+            result.put("canSend", false).remove("agentCapabilities")
             return result
         }
     }

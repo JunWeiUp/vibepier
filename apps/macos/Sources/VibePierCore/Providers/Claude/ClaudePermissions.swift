@@ -181,14 +181,31 @@ enum ClaudePermissions {
         }
         return uses.filter { !results.contains($0.id) }
     }
-    /// Pairs each open request of this desktop session with its pending tool call, in order, by tool name.
+    /// The log exposes a tool name, not a tool-use ID. Only a unique request/call pair is usable.
+    /// An already allowed call may still lack its result; never resolve ambiguity by transcript order.
     static func approvals(
         _ entries: [[String: Any]], requests: [ClaudePermissionLog.Request], host: String, cwd: String
     ) -> [[String: Any]] {
-        var open = unresolved(entries)
-        return requests.filter { $0.host == host }.compactMap { request in
-            guard let index = open.firstIndex(where: { $0.name == request.tool }) else { return nil }
-            let use = open.remove(at: index)
+        let open = unresolved(entries)
+        let pending = requests.filter { $0.host == host }
+        return pending.map { request in
+            let candidates = open.filter { $0.name == request.tool }
+            let matchingRequests = pending.filter { $0.tool == request.tool }
+            guard candidates.count == 1, let use = candidates.first, matchingRequests.count == 1 else {
+                // Keep the waiting request visible without attributing any guessed tool input to it.
+                // Sorted identities keep refreshes stable and invalidate the card when ambiguity changes.
+                let fingerprint = CodexConversation.fingerprint([
+                    "state": "unverified-tool-binding", "host": host, "requestId": request.id,
+                    "tool": request.tool, "candidateIds": candidates.map(\.id).sorted(),
+                    "pendingIds": matchingRequests.map(\.id).sorted(),
+                ])
+                return [
+                    "id": request.id, "requestId": request.id, "fingerprint": fingerprint,
+                    "title": L10n.text("session.handle_this_on_the_mac"),
+                    "details": L10n.text("provider.this_request_must_be_handled_on_the_mac"),
+                    "canDecide": false, "allowedDecisions": [String](),
+                ]
+            }
             let input = (try? JSONSerialization.data(withJSONObject: use.input, options: [.sortedKeys])) ?? Data()
             let details = Self.details(use, cwd: cwd)
             let question = Self.question(use)

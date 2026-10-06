@@ -28,9 +28,9 @@ The reply HMAC covers its first six fields in the same form. The phone accepts o
 | 2 | Configuration, app shortcuts and icons | Required |
 | 4 | Encrypted session RPC, including lock/unlock and APK operations | Required |
 | 8 | Phone audio and microphone control | Optional; BLE and UDP support it, cloud relay does not |
-| 16 | Authenticated wrapper for already encrypted attachment fragments | Optional; never used for ordinary controls |
+| 16 (0x10) | Retired attachment bulk wrapper | Reserved; never advertised, selected or reused |
 
-The baseline is `7`; current UDP advertises `31`, BLE advertises `15`, and relay advertises `23` (older negotiated connections continue with `15`/`7`). Unknown offered bits are not selected. Both endpoints enforce the negotiated audio bit before encrypting or accepting microphone/audio messages; ordinary session content containing similar words is unaffected. The phone uses the Mac microphone when phone audio is unavailable. A held voice gesture releases the path it actually started even if capabilities change before release.
+The baseline is `7`; current UDP and BLE advertise `15`, and relay advertises `7`. Unknown offered bits are not selected. Both endpoints enforce the negotiated audio bit before encrypting or accepting microphone/audio messages; ordinary session content containing similar words is unaffected. The phone uses the Mac microphone when phone audio is unavailable. A held voice gesture releases the path it actually started even if capabilities change before release.
 
 An authenticated offer with no common protocol or a missing required capability receives:
 
@@ -102,20 +102,8 @@ The shared vectors use fixed nonces solely to verify implementations. Production
 
 完整原始握手的重试不会重置重放窗口；每台设备限制 4 个会话和 64 条握手回执，避免单台占满全局容量。撤销或更换密钥后，旧包不能再执行或接收私有状态；对应按键、音频和会话路由清理不等待常规超时，其他手机继续使用。已接受的服务商操作不能通过撤销授权倒退。真机 BLE/Wi-Fi/中继验收仍按发布清单单独完成。
 
-## Attachment fragment authentication / 附件分片认证
+## Binary file transport / 二进制文件传输
 
-Capability `16` allows phone-to-Mac attachment fragments to avoid a second AES-GCM encryption pass. The phone still encrypts the **whole RPC chunk once** with the existing `SessionEnvelope` AES-256-GCM key, a fresh nonce and device/packet/direction AAD. Each outer frame is:
+Attachment, APK and media bodies use the separate HTTPS binary file channel. Its offers and completion RPCs continue over the existing encrypted session channel. All secure-control data frames use the ordinary AES-GCM wrapper; `vibepier-bulk1` is rejected. Capability `0x10` is retired and must not be reused. The hello2/ready2 handshake, key derivation, direction keys, AAD and replay rules remain unchanged. The current shared cryptography vector is [control-v1.properties](../fixtures/control-v1.properties).
 
-```text
-vibepier-bulk1 <device-uuid> <session-uuid> <sequence> <base64-session-frame> <hex-hmac>
-```
-
-The connection-scoped authentication key is `HMAC-SHA256(handshake-key, UTF8("vibepier-bulk-key-v1|phone|<device>|<session>"))`. The frame tag covers the fields `vibepier-bulk-frame-v1`, `phone`, and all five wire fields before the tag, joined with `|`. Android derives this short-lived key once through Keystore; per-fragment HMAC runs in the background with this derived key, never an exported root key. A fresh handshake replaces the derived key, and disconnect drops it.
-
-The Mac accepts this form only on a live, root-bound, capability-16 connection and the original peer. It verifies the tag before advancing the shared replay window. Its body must be a bounded `vibepier-session1` upload fragment with the exact eight fields plus an optional `fragmentChars` field (512 or 7200), matching sender/device, UUID packet/upload and at most 7200 base64 characters. UDP uses 512-character fragments (up to 256 parts) to fit the MTU; the relay uses 7200-character fragments (up to 56 parts). Reassembly retains a fixed 30-second lifetime and the existing 300000-byte plaintext limit; the decrypted RPC must be `attachmentChunk` or `newAttachmentChunk`, version 1, and the exact outer attachment ID. Provider storage then enforces the device/session or verified creation-draft scope. No raw control, password, microphone, message body or unencrypted attachment can execute through this path. Packet metadata is visible; file bytes, names, scope and provider credentials remain encrypted. Replies and other traffic keep the existing AES-GCM transport wrapper.
-
-新增能力位 `16` 仅允许已加密附件分片使用连接级 HMAC 认证，避免逐分片再次进行 AES-GCM 加解密。整块附件 RPC 的 AES-GCM、随机 nonce、设备/包/方向绑定保持不变；连接认证、防重放、完整分片重组、上传归属及最终 SHA-256 校验仍必须全部通过。未协商该能力时继续双层加密，不增加明文降级或新配对要求。
-
-Cross-platform independent vector: [control-bulk-v1.json](../fixtures/control-bulk-v1.json). Upload flow, limits and completion semantics: [attachment transfer](../../docs/ATTACHMENT-TRANSFER.md).
-
-For negotiated uploads the Mac issues authenticated `uploadMissing` events for incomplete packets after 150 ms, at most three times without extending the packet lifetime. The phone resends only requested fragments from its bounded 2 MiB ciphertext cache, after checking the pending upload and current authorization. Missing parts do not trigger another encryption pass or a provider action.
+附件、APK 和媒体正文使用独立 HTTPS 二进制文件通道，凭证和完成 RPC 仍经现有加密会话通道传递。安全控制数据帧统一使用普通 AES-GCM；拒绝 `vibepier-bulk1`。能力位 `0x10` 已退役，不宣告、不选择、不复用；hello2/ready2、密钥派生、方向密钥、AAD 与重放规则保持不变。

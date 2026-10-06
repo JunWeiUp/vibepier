@@ -27,12 +27,12 @@ final class TaskActivityTests: XCTestCase {
     func testActivityOrderingSeparatesProviderIdentitiesAndSkipsViewedCompletedSessions() {
         let unread = session("same", provider: "claude")
         let running = session("same", running: true, unread: false)
-        let viewed = session("viewed", provider: "zcode", unread: false)
+        let viewed = session("viewed", provider: "claude", unread: false)
         let activity = TaskActivityJSON(runningCount: 1, unreadCount: 1, sessions: [unread, viewed, running])
         XCTAssertEqual(activity.orderedSessions.map(\.key), [running.key, unread.key])
         XCTAssertNotEqual(running.key, unread.key)
         XCTAssertEqual(unread.providerLabel, "Claude")
-        XCTAssertEqual(viewed.providerLabel, "ZCode")
+        XCTAssertEqual(viewed.providerLabel, "Claude")
         XCTAssertEqual(session("both", running: true).statusLabel, L10n.text("mac.running_with_an_unviewed_completion"))
         XCTAssertEqual(
             TaskActivityJSON.Session(id: "blank", provider: "codex", title: "  \n", isRunning: false, isUnread: true)
@@ -193,7 +193,7 @@ final class TaskActivityTests: XCTestCase {
     }
 
     func testFailedOpenRetainsUnreadMarksAndShowsAnError() async {
-        let entry = session("closed", provider: "zcode")
+        let entry = session("closed", provider: "claude")
         let activity = TaskActivityJSON(runningCount: 0, unreadCount: 1, sessions: [entry])
         var calls: [[String]] = []
         let model = DeviceModel(runCommand: { args in
@@ -205,7 +205,7 @@ final class TaskActivityTests: XCTestCase {
         await model.refreshStatus()
         calls = []
         await model.openTaskSession(entry)
-        XCTAssertEqual(calls, [["task-open", "zcode", "closed"]])
+        XCTAssertEqual(calls, [["task-open", "claude", "closed"]])
         XCTAssertEqual(model.taskActivity, activity)
         XCTAssertEqual(model.taskActivityError, "原生会话无法打开")
         XCTAssertNil(model.openingTask)

@@ -1,7 +1,6 @@
 package io.github.junweiup.vibepier.remote.features.sessions
 
 import io.github.junweiup.vibepier.remote.R
-import io.github.junweiup.vibepier.remote.BuildConfig
 import io.github.junweiup.vibepier.remote.core.session.SessionClient
 import io.github.junweiup.vibepier.remote.core.session.SessionCreationDraft
 
@@ -13,7 +12,6 @@ import android.net.Uri
 import android.os.Handler
 import android.os.Looper
 import android.provider.OpenableColumns
-import android.util.Base64
 import org.json.JSONObject
 import java.io.File
 import java.security.MessageDigest
@@ -73,7 +71,6 @@ internal object CodexFileUpload {
                     .put("attachmentId", id).put("provider", provider)
                 fun operation(name: String) = if (creation == null) name else "new" + name.replaceFirstChar { it.uppercase() }
                 var finished = false
-                var completing = false
                 var binaryTransfer: BinaryFileClient? = null
                 var binaryTicket: String? = null
                 var lastProgress = -1
@@ -97,13 +94,14 @@ internal object CodexFileUpload {
                 if (stopped()) { stop(); return@post }
                 watchCancellation()
                 val start = fields().put("name", name).put("mime", mime).put("size", size)
-                start.put("binaryVersion", 1).put("uploadVersion", 1).put("uploadFragmentChars", client.attachmentFragmentChars)
+                start.put("binaryVersion", 1)
                 client.request(operation("attachmentStart"), start) { response ->
                     if (finished) return@request
                     if (stopped()) { stop(); return@request }
                     if (!response.optBoolean("ok")) { finish(response); return@request }
                     val binary = response.optJSONObject("binary")
                     if (binary != null) {
+                        progress(fields().put("name", name).put("progress", 0))
                         val transfer = BinaryFileClient { !finished && !stopped() }; binaryTransfer = transfer; binaryTicket = binary.getString("id")
                         val host = client.binaryHost
                         worker.execute {
@@ -132,59 +130,7 @@ internal object CodexFileUpload {
                         }
                         return@request
                     }
-                    if (!BuildConfig.DESIGN_REVIEW) { finish(JSONObject().put("ok", false).put("error", resources.getString(R.string.file_binary_required))); return@request }
-                    val profile = response.optJSONObject("upload")
-                    val fast = !client.bluetooth && profile?.optInt("version") == 1 && profile.optString("token") == id &&
-                        profile.optInt("fragmentChars") == start.optInt("uploadFragmentChars") && profile.optInt("chunkBytes") == 64 * 1024 && profile.optInt("window") == 3
-                    val window = AttachmentUploadWindow(size, if (fast) 64 * 1024 else client.attachmentChunkBytes, if (fast) 3 else 1)
-                    fun report() {
-                        val percent = (window.acknowledgedBytes * 100L / size).toInt()
-                        val now = android.os.SystemClock.elapsedRealtime()
-                        if (percent != lastProgress && (lastProgress < 0 || now - lastProgressAt >= 150 || percent == 100)) {
-                            lastProgress = percent; lastProgressAt = now
-                            progress(fields().put("name", name).put("progress", percent))
-                        }
-                    }
-                    fun pump() {
-                        if (finished || completing) return
-                        if (stopped()) { stop(); return }
-                        if (window.complete) {
-                            completing = true
-                            val complete = fields().put("sha256", hash)
-                            if (fast) complete.put("uploadVersion", 1)
-                            client.request(operation("attachmentComplete"), complete) { result -> if (stopped()) stop() else finish(result) }
-                            return
-                        }
-                        while (true) {
-                            val offset = window.reserve() ?: break
-                            val length = window.length(offset)
-                            worker.execute {
-                                val encoded = try {
-                                    val bytes = ByteArray(length)
-                                    java.io.RandomAccessFile(file, "r").use { input -> input.seek(offset.toLong()); input.readFully(bytes) }
-                                    Base64.encodeToString(bytes, Base64.NO_WRAP)
-                                } catch (_: Exception) { null }
-                                main.post chunkReady@{
-                                    if (finished) return@chunkReady
-                                    if (stopped()) { stop(); return@chunkReady }
-                                    if (encoded == null) { finish(JSONObject().put("ok", false).put("error", resources.getString(R.string.attachment_expired))); return@chunkReady }
-                                    val chunk = fields().put("offset", offset).put("data", encoded)
-                                    if (fast) chunk.put("uploadVersion", 1).put("uploadFragmentChars", profile!!.getInt("fragmentChars"))
-                                    client.request(operation("attachmentChunk"), chunk) chunkReply@{ result ->
-                                        if (finished) return@chunkReply
-                                        if (stopped()) { stop(); return@chunkReply }
-                                        if (!result.optBoolean("ok")) { finish(result); return@chunkReply }
-                                        try {
-                                            check(result.optString("attachmentId") == id)
-                                            window.acknowledge(offset, result.getInt("offset"))
-                                        } catch (_: Exception) { finish(JSONObject().put("ok", false).put("error", resources.getString(R.string.client_message_invalid))); return@chunkReply }
-                                        report(); pump()
-                                    }
-                                }
-                            }
-                        }
-                    }
-                    report(); pump()
+                    finish(JSONObject().put("ok", false).put("error", resources.getString(R.string.file_binary_required)))
                 }
             }
         }

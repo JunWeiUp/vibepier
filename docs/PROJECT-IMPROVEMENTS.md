@@ -19,7 +19,7 @@ Build 11 continues the published preview with focused fixes. The existing public
 | Diagnostics | Preview/copy fixed transport categories, path, authorization and reconnection counts on the phone. No addresses, device identities, credentials, message bodies or raw exceptions enter the report. |
 | Packaging and CI | Build-number directories and source/digest sidecars preserve previous artifacts. Source/staging changes and conflicting bytes are rejected. Android candidate PR checks use one API 35 smoke plus the related runtime/conversation/APK probes. |
 
-The Claude transcript projection, history store, Android timeline/state and ZCode desktop cache now have explicit ownership boundaries. Keep later behavior changes separate from additional structural moves; the single-submit and unknown-receipt policy still applies.
+The Claude transcript projection, history store, Android timeline/state now have explicit ownership boundaries. Keep later behavior changes separate from additional structural moves; the single-submit and unknown-receipt policy still applies.
 
 ## Validation boundaries
 

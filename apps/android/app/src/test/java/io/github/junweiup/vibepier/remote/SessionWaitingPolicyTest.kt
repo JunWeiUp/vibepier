@@ -17,16 +17,16 @@ class SessionWaitingPolicyTest {
         assertFalse(SessionWaitingPolicy.duplicateCreation(listOf(pending), "/project", "hello", JSONArray(), "operation-a"))
     }
     @Test fun stoppingProjectWaitIncludesEveryOldCreationButIsolatesOtherProjectsAndProviders() {
-        fun pending(id: String, provider: String = "zcode", cwd: String = "/project", op: String = "new") =
+        fun pending(id: String, provider: String = "claude", cwd: String = "/project", op: String = "new") =
             JSONObject().put("id", id).put("provider", provider).put("cwd", cwd).put("op", op)
         val operations = listOf(pending("old"), pending("new"), pending("other", cwd = "/other"),
-            pending("claude", provider = "claude"), pending("send", op = "send"))
-        assertEquals(listOf("old", "new"), SessionWaitingPolicy.creationWaits(operations, "zcode", "/project").map { it.getString("id") })
+            pending("codex", provider = "codex"), pending("send", op = "send"))
+        assertEquals(listOf("old", "new"), SessionWaitingPolicy.creationWaits(operations, "claude", "/project").map { it.getString("id") })
         assertEquals(5, operations.size)
     }
     @Test fun legacyCreationWithoutDraftIdReleasesOldTextAndKeepsReceipt() {
-        val draft = SessionCreationDraft("draft", "zcode", "/project", "hi")
-        val old = JSONObject().put("id", "old").put("provider", "zcode").put("cwd", "/project").put("op", "new").put("text", "hi")
+        val draft = SessionCreationDraft("draft", "claude", "/project", "hi")
+        val old = JSONObject().put("id", "old").put("provider", "claude").put("cwd", "/project").put("op", "new").put("text", "hi")
         val fresh = SessionWaitingPolicy.freshCreationDraft(draft, listOf(old))
         assertNotEquals(draft.id, fresh.id)
         assertEquals("", fresh.text)

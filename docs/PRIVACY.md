@@ -74,7 +74,7 @@ Automatic unlock, usage tracking and phone microphone capture require separate c
 
 ### Provider-local receipts / 服务商进程内回执
 
-Claude/ZCode mutations and Codex creation also reserve process-local client/operation fingerprints. The cache has per-client/global record and byte budgets, preserves unresolved identities, and may retire completed response bodies without permitting re-execution. Bounded read-only observers can retain a creation baseline or first-message text until confirmation or process exit. These caches are not a replacement for the durable device-scoped receipt journal: a restart can remove native lookup evidence while the original durable reservation remains unknown. Disconnecting a phone does not discard an in-progress operation. ZCode unresolved native proof storage separately refuses admission at its count/byte limits.
+Claude mutations and Codex creation also reserve process-local client/operation fingerprints. The cache has per-client/global record and byte budgets, preserves unresolved identities, and may retire completed response bodies without permitting re-execution. Bounded read-only observers can retain a creation baseline or first-message text until confirmation or process exit. These caches are not a replacement for the durable device-scoped receipt journal: a restart can remove native lookup evidence while the original durable reservation remains unknown. Disconnecting a phone does not discard an in-progress operation.
 
 进程内缓存可能保留核验新建所需的首条消息或 ID 基线，确认后释放观察器，进程结束后清除；容量有每机和全局上限。手机断线不清除进行中的操作，丢失原生证据也不能删除持久化的未知标记或自动重发。
 
@@ -87,3 +87,7 @@ Account credentials remain with the local Codex app-server. The authorized phone
 The app picker shares installed application names and bundle identifiers with authorized phones. It scans `/Applications`, `/System/Applications`, and `~/Applications` (up to two nested directories), and saves the shared dock selection on the Mac. It does not share application paths or start an app when selected.
 
 手机应用选择器向已授权手机提供已安装应用的名称与标识符，选择结果保存到 Mac 并同步到其他手机。文件预览仍受 macOS 文件夹访问权限限制：首次读取文稿、桌面或下载目录中的会话文件时，需要在 Mac 的系统提示中允许对应目录；不要求完全磁盘访问权限。图片读取超时不会阻塞会话正文。
+
+Runtime storage accepts current formats only: Mac configuration rejects plaintext `relaySecret`; Android private preferences initialize only an empty store and do not import plaintext entries. Relay credentials are read only from the current secure store. Missing authorization epochs do not generate replacement identities, and cached key mappings are not automatically queued as edits. Invalid storage is preserved and rejected; no runtime migration or automatic cleanup of old credentials occurs.
+
+运行时仅接受当前存储格式：Mac 配置拒绝明文 `relaySecret`；Android 私有偏好只初始化空 store，不导入已有明文。中继凭据只从现用安全 store 读取；缺少授权 epoch 不补建身份，缓存按键映射不自动入队为编辑。无效存储保留原数据并拒绝使用，不进行运行时迁移或自动清理旧凭据。

@@ -70,18 +70,80 @@ final class AgentSessionCoordinatorTests: XCTestCase {
         try XCTUnwrap((capabilities["actions"] as? [String: [String: Any]])?[name])
     }
 
+    func testFailedCodexTurnRestoresSendAndSettingsWithoutHidingError() throws {
+        let failed: [String: Any] = [
+            "turnId": "failed-turn", "status": "failed", "items": [],
+            "error": ["message": "Synthetic provider model unavailable"],
+        ]
+        let state: [String: Any] = [
+            "id": "session", "threadRuntimeStatus": ["type": "systemError"],
+            "turns": [],
+            "turnHistory": [
+                "history": [
+                    "entitiesByKey": ["latest": failed],
+                    "islands": [["entries": [["value": "latest"]]]],
+                ]
+            ],
+        ]
+        var projected = CodexConversation.page(state)
+        XCTAssertEqual(projected["status"] as? String, "idle")
+        XCTAssertEqual(projected["activeTurnId"] as? String, "")
+        let errorMessages = CodexConversation.messages(failed)
+        XCTAssertTrue(
+            String(decoding: try JSONSerialization.data(withJSONObject: errorMessages), as: UTF8.self)
+                .contains("Synthetic provider model unavailable"))
+        XCTAssertTrue(String(decoding: try bytes(projected), as: UTF8.self).contains("failed-turn-error"))
+        projected["viewVersion"] = 7
+        projected["canSend"] = true  // Supplied only after native owner verification in CodexBridge.
+        let probe = Probe()
+        probe.reply = try bytes(projected)
+        let value = try coordinator(probe.adapter("codex"))
+        let opened = try perform(value, ["op": "open", "threadId": "session", "viewVersion": 7])
+        let caps = try XCTUnwrap(opened["agentCapabilities"] as? [String: Any])
+        for name in ["send", "settings", "modelSelection"] {
+            XCTAssertEqual(try action(caps, name)["available"] as? Bool, true, name)
+        }
+        XCTAssertEqual(try action(caps, "interrupt")["available"] as? Bool, false)
+        XCTAssertEqual(probe.requests.count, 1, "Reading an error must never automatically resend")
+
+        projected["canSend"] = false
+        probe.reply = try bytes(projected)
+        let unavailable = try perform(value, ["op": "open", "threadId": "session", "viewVersion": 7])
+        let blocked = try XCTUnwrap(unavailable["agentCapabilities"] as? [String: Any])
+        XCTAssertEqual(try action(blocked, "send")["available"] as? Bool, false)
+    }
+
+    func testCodexErrorRecoveryRequiresFailedLatestTurnAndNoRunningTurn() throws {
+        let failed: [String: Any] = ["turnId": "failed", "status": "failed", "items": []]
+        let running: [String: Any] = ["turnId": "running", "status": "inProgress", "items": []]
+        let cases: [(String, [[String: Any]], String)] = [
+            ("systemError", [failed], "idle"),
+            ("systemError", [], "systemError"),
+            ("systemError", [failed, running], "systemError"),
+            ("systemError", [running, failed], "systemError"),
+            ("systemError", [["status": "unknown"]], "systemError"),
+            ("notLoaded", [failed], "notLoaded"),
+            ("unknown", [failed], "unknown"),
+            ("active", [running], "active"),
+        ]
+        for (nativeStatus, turns, expected) in cases {
+            let page = CodexConversation.page([
+                "id": "session", "threadRuntimeStatus": ["type": nativeStatus], "turns": turns,
+            ])
+            XCTAssertEqual(page["status"] as? String, expected)
+        }
+    }
+
     func testStartupCatalogWarmupHonorsDisabledProviderPolicyWithoutNegotiation() throws {
         let codex = Probe()
         let claude = Probe()
-        let zcode = Probe()
         let value = AgentSessionCoordinator(
             registry: try AgentAdapterRegistry([
-                codex.adapter("codex"), claude.adapter("claude"), zcode.adapter("zcode"),
+                codex.adapter("codex"), claude.adapter("claude"),
             ]))
-        value.warmOptions(policy: SessionProviderPolicy(enabled: ["codex": true, "claude": false, "zcode": false]))
+        value.warmOptions(policy: SessionProviderPolicy(enabled: ["codex": true, "claude": false]))
         XCTAssertEqual(codex.warmed, 1)
         XCTAssertEqual(claude.warmed, 0)
-        XCTAssertEqual(zcode.warmed, 0)
     }
     func testSameScopeSnapshotDoesNotRevokeCurrentCapabilitiesWhileItsReadIsPending() throws {
         let probe = Probe()
@@ -136,8 +198,8 @@ final class AgentSessionCoordinatorTests: XCTestCase {
         XCTAssertThrowsError(try AgentAdapterRegistry([one, Probe().adapter("codex")]))
         XCTAssertThrowsError(try AgentAdapterRegistry([Probe().adapter("other")]))
         let registry = try AgentAdapterRegistry([one])
-        XCTAssertTrue(registry.adapter(provider: nil) === one)
-        XCTAssertTrue(registry.adapter(provider: "") === one)
+        XCTAssertNil(registry.adapter(provider: nil))
+        XCTAssertNil(registry.adapter(provider: ""))
         XCTAssertNil(registry.adapter(provider: "other"))
     }
     func testExecutionModeRequiresNativeCatalogAndIdleScope() throws {

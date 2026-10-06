@@ -19,16 +19,6 @@ final class StepGroupingProjectionTests: XCTestCase {
             let part = ClaudeTranscript.toolPart(["id": "tool-\(index)", "name": call.0, "input": call.1], cwd: nil)
             XCTAssertEqual(part.extra["groupType"] as? String, call.2)
             XCTAssertEqual(part.extra["toolName"] as? String, call.0)
-            let native: [String: Any] = [
-                "id": "tool-\(index)", "type": "tool", "tool": call.0,
-                "state": ["status": "completed", "input": call.1, "output": "BODY_KEEP_LOCAL"],
-            ]
-            XCTAssertEqual(ZCodeConversation.part(native).extra["groupType"] as? String, call.2)
-            let sequence = try XCTUnwrap(ZCodeConversation.sequence([native], offset: index).first)
-            XCTAssertEqual(sequence["groupType"] as? String, call.2)
-            XCTAssertEqual(sequence["index"] as? Int, index)
-            XCTAssertNil(sequence["output"])
-            XCTAssertEqual(sequence["bodyDeferred"] as? Bool, true)
         }
         let first = ClaudeTranscript.toolPart(["id": "a", "name": "Read", "input": ["file_path": "/a"]], cwd: nil)
         let second = ClaudeTranscript.toolPart(["id": "b", "name": "Read", "input": ["file_path": "/b"]], cwd: nil)
@@ -49,12 +39,8 @@ final class StepGroupingProjectionTests: XCTestCase {
             CodexConversation.part(["type": "mcpToolCall", "server": "cua_repl", "tool": "getState"], id: "c3"))
         let claude = ClaudeTranscript.toolPart(
             ["id": "l1", "name": "mcp__cua_repl__js", "input": ["code": "third()"]], cwd: nil)
-        let zcode = ZCodeConversation.part([
-            "id": "z1", "type": "tool", "tool": "mcp__cua_repl__js", "state": ["input": ["code": "fourth()"]],
-        ])
         XCTAssertEqual(first.extra["groupType"] as? String, second.extra["groupType"] as? String)
         XCTAssertEqual(first.extra["groupType"] as? String, claude.extra["groupType"] as? String)
-        XCTAssertEqual(first.extra["groupType"] as? String, zcode.extra["groupType"] as? String)
         XCTAssertEqual(first.extra["toolName"] as? String, "cua_repl · js")
         XCTAssertNotEqual(first.extra["groupType"] as? String, other.extra["groupType"] as? String)
         let dynamic = try XCTUnwrap(
@@ -101,25 +87,11 @@ final class StepGroupingProjectionTests: XCTestCase {
                     ["type": type, "text": "Plan", "summary": ["Reason"], "path": "/image.png"], id: type))
             XCTAssertNotNil(part.extra["groupType"])
         }
-        let compaction = ZCodeConversation.part(["id": "z1", "type": "compaction", "timelineStatus": "completed"])
-        let model = ZCodeConversation.part([
-            "id": "z2", "type": "timeline", "timelineType": "model_change", "status": "completed",
-        ])
-        XCTAssertNotEqual(compaction.extra["groupType"] as? String, model.extra["groupType"] as? String)
-        let image = ZCodeConversation.part([
-            "id": "z3", "type": "file", "mime": "image/png", "filename": "different.png", "imageDeferred": true,
-        ])
-        XCTAssertEqual(image.extra["groupType"] as? String, "image-view")
         let plan = try XCTUnwrap(CodexConversation.part(["type": "plan", "text": "Keep this visible"], id: "plan"))
         XCTAssertNil(plan.extra["groupType"])
         let todo = ClaudeTranscript.toolPart(["id": "todo", "name": "TodoWrite", "input": ["todos": []]], cwd: nil)
         XCTAssertEqual(todo.kind, "plan")
         XCTAssertNil(todo.extra["groupType"])
-        let zcodeTodo = ZCodeConversation.part([
-            "id": "todo", "type": "tool", "tool": "TodoWrite", "state": ["input": ["todos": []]],
-        ])
-        XCTAssertEqual(
-            zcodeTodo.extra["groupType"] as? String, "plan", "lazy tool-shaped checklist remains a grouping boundary")
         XCTAssertEqual(ConversationReply.toolGrouping("AskUserQuestion")["groupType"] as? String, "approval")
         XCTAssertEqual(ConversationReply.toolGrouping("ExitPlanMode")["groupType"] as? String, "approval")
         XCTAssertEqual(ConversationReply.toolGrouping("EnterPlanMode")["groupType"] as? String, "plan")

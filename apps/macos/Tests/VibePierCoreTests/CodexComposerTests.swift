@@ -124,13 +124,12 @@ final class CodexComposerTests: XCTestCase {
         _ = try attachments.start(start, device: "a", thread: "t")
         XCTAssertThrowsError(try attachments.start(start, device: "b", thread: "t"))
         XCTAssertThrowsError(try attachments.selected([id], device: "a", thread: "t"))
-        let chunk: [String: Any] = ["attachmentId": id, "offset": 0, "data": bytes.base64EncodedString()]
-        _ = try attachments.chunk(chunk, device: "a", thread: "t")
-        _ = try attachments.chunk(chunk, device: "a", thread: "t")
+        XCTAssertThrowsError(try attachments.appendImportedData(bytes, id: id, offset: 0, device: "other", thread: "t"))
+        XCTAssertThrowsError(try attachments.appendImportedData(bytes, id: id, offset: 0, device: "a", thread: "other"))
+        _ = try attachments.appendImportedData(bytes, id: id, offset: 0, device: "a", thread: "t")
+        _ = try attachments.appendImportedData(bytes, id: id, offset: 0, device: "a", thread: "t")
         XCTAssertThrowsError(
-            try attachments.chunk(
-                ["attachmentId": id, "offset": 0, "data": Data("DIFFERENT".utf8).base64EncodedString()], device: "a",
-                thread: "t"))
+            try attachments.appendImportedData(Data("DIFFERENT".utf8), id: id, offset: 0, device: "a", thread: "t"))
         XCTAssertThrowsError(
             try attachments.complete(["attachmentId": id, "sha256": "wrong"], device: "a", thread: "t"))
         _ = try attachments.complete(
@@ -143,50 +142,6 @@ final class CodexComposerTests: XCTestCase {
         // Sent files remain readable for the desktop even when removed from the mobile draft.
         XCTAssertFalse(try attachments.selected([id], device: "a", thread: "t").input.isEmpty)
     }
-    func testPipelinedAttachmentReordersAndRejectsMissingConflictingOrRestartedChunks() throws {
-        let root = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
-        defer { try? FileManager.default.removeItem(at: root) }
-        let attachments = try CodexAttachments(root: root)
-        let id = UUID().uuidString.lowercased()
-        let content = Data((0..<(3 * 64 * 1024 + 17)).map { UInt8($0 % 251) })
-        let start = try attachments.start(
-            ["attachmentId": id, "name": "test.bin", "size": content.count, "uploadVersion": 1], device: "owner",
-            thread: "thread")
-        XCTAssertEqual((start["upload"] as? [String: Any])?["window"] as? Int, 3)
-        func chunk(_ offset: Int, device: String = "owner", bytes: Data? = nil) throws -> [String: Any] {
-            try attachments.chunk(
-                [
-                    "attachmentId": id, "offset": offset, "uploadVersion": 1,
-                    "data": (bytes ?? content.subdata(in: offset..<min(offset + 64 * 1024, content.count)))
-                        .base64EncodedString(),
-                ], device: device, thread: "thread")
-        }
-        let completion: [String: Any] = [
-            "attachmentId": id, "uploadVersion": 1, "sha256": CodexConversation.dataHash(content),
-        ]
-        XCTAssertEqual(try chunk(2 * 64 * 1024)["durable"] as? Bool, false)
-        XCTAssertThrowsError(try chunk(0, device: "other"))
-        XCTAssertThrowsError(try attachments.complete(completion, device: "owner", thread: "thread"))
-        _ = try chunk(0)
-        _ = try chunk(0)
-        XCTAssertThrowsError(try chunk(0, bytes: Data(repeating: 0xff, count: 64 * 1024)))
-        _ = try chunk(3 * 64 * 1024)
-        _ = try chunk(64 * 1024)
-        let restarted = try CodexAttachments(root: root)
-        XCTAssertThrowsError(try restarted.complete(completion, device: "owner", thread: "thread"))
-        XCTAssertThrowsError(
-            try restarted.chunk(
-                [
-                    "attachmentId": id, "offset": 0, "uploadVersion": 1,
-                    "data": content.prefix(64 * 1024).base64EncodedString(),
-                ], device: "owner", thread: "thread"))
-        _ = try attachments.complete(completion, device: "owner", thread: "thread")
-        let selected = try CodexAttachments(root: root).selected([id], device: "owner", thread: "thread")
-        XCTAssertEqual(
-            try Data(contentsOf: URL(fileURLWithPath: try XCTUnwrap(selected.files.first?["path"] as? String))), content
-        )
-    }
-
     func testAttachmentUUIDCaseAliasesCannotOverwriteAnotherPhoneOrCountTwice() throws {
         let root = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
         defer { try? FileManager.default.removeItem(at: root) }
@@ -197,8 +152,7 @@ final class CodexComposerTests: XCTestCase {
             "attachmentId": id, "name": "fixture.txt", "size": content.count, "mime": "text/plain",
         ]
         _ = try attachments.start(start, device: "owner", thread: "draft")
-        _ = try attachments.chunk(
-            ["attachmentId": id, "offset": 0, "data": content.base64EncodedString()], device: "owner", thread: "draft")
+        _ = try attachments.appendImportedData(content, id: id, offset: 0, device: "owner", thread: "draft")
         start["attachmentId"] = id.lowercased()
         XCTAssertThrowsError(try attachments.start(start, device: "other-phone", thread: "draft"))
         _ = try attachments.complete(
@@ -287,8 +241,8 @@ final class CodexComposerTests: XCTestCase {
         _ = try attachments.start(
             ["attachmentId": id, "name": "test.txt", "size": 4], device: "phone", thread: "thread")
         XCTAssertThrowsError(
-            try attachments.chunk(
-                ["attachmentId": id, "offset": Int.max, "data": "YQ=="], device: "phone", thread: "thread"))
+            try attachments.appendImportedData(
+                Data("a".utf8), id: id, offset: Int.max, device: "phone", thread: "thread"))
         let fifo = parent.appendingPathComponent("pipe.txt")
         XCTAssertEqual(mkfifo(fifo.path, 0o600), 0)
         XCTAssertThrowsError(

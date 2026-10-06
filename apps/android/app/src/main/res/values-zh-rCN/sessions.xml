@@ -18,7 +18,6 @@
     <string name="session_project_folder">当前会话项目 /%1$s</string>
     <string name="session_capturing_app">正在截取 %1$s…</string>
     <string name="session_settings_on_mac">此会话正在 %1$s 桌面端打开，模型和权限模式请在 Mac 上切换。</string>
-    <string name="session_confirm_mode_change">会话：%1$s\n即将切换为%2$s。</string>
     <string name="session_claude_full_access_warning">会话：%1$s\nClaude Code 可以编辑任意文件并执行命令，不再请求确认。</string>
     <string name="session_codex_full_access_warning">会话：%1$s\nCodex 可以编辑任意文件并执行联网命令。设置应用到当前会话，此权限设置可能同时应用到当前运行任务。</string>
     <string name="session_context_summary">已用 / 总容量（占比）\n%1$s</string>
@@ -88,7 +87,6 @@
     <string name="session_enter_a_password">请输入密码</string>
     <string name="session_back_to_all_projects">返回全部项目</string>
     <string name="session_first_message">第一条消息…</string>
-    <string name="session_create_a_session_in_zcode_on_the_mac_and_send_the_first_message">在 Mac 上的 ZCode 中创建会话并发送第一条消息。</string>
     <string name="session_codex_new_background_explanation">Codex 将在 Mac 后台创建会话并发送这条消息。保持 VibePier 连接即可，无需将 Codex 切到前台。</string>
     <string name="session_start">开始</string>
     <string name="session_enter_the_first_message">请输入第一条消息</string>
@@ -144,8 +142,10 @@
     <string name="session_selected">，已选择</string>
     <string name="session_not_selected">，未选择</string>
     <string name="session_choose_or_enter_an_answer_then_submit_selecting_an_option_does_n">选择或填写后提交，选项不会自动发送。</string>
+    <string name="session_review_request_before_deciding">请核对请求后决定，无需滚动到底部即可批准。</string>
     <string name="session_scroll_to_the_bottom_and_review_the_full_request_before_deciding">请滑到底部查看完整请求后再决定。</string>
     <string name="session_submit_answer">提交答案</string>
+    <string name="session_allow_similar">允许此类</string>
     <string name="session_allow_once">允许此次</string>
     <string name="session_deny">拒绝</string>
     <string name="session_check_result">核对结果</string>
@@ -160,8 +160,6 @@
     <string name="session_submitting_answer">正在提交答案…</string>
     <string name="session_saved_answer">已保存的答案</string>
     <string name="session_submitting_decision">正在提交决定…</string>
-    <string name="session_replies_go_to_this_zcode_session">回复会发到 ZCode 的这个会话</string>
-    <string name="session_viewing_zcode_session_phone_replies_are_currently_unavailable">查看 ZCode 会话 · 当前无法从手机回复</string>
     <string name="session_replies_go_only_to_this_session_permission_requests_need_separat">仅回复当前会话 · 权限请求需单独确认</string>
     <string name="session_replies_go_to_this_session_in_the_claude_desktop_app">回复会发到 Claude 桌面端的这个会话</string>
     <string name="session_this_session_is_running_in_a_mac_terminal_continue_on_the_mac">此会话正在 Mac 终端中运行，请在 Mac 上继续</string>
@@ -216,9 +214,7 @@
     <string name="session_choose_a_mac_app">选择 Mac 应用</string>
     <string name="session_capture_only_a_visible_window_of_the_selected_app_first_allow_sc">仅截取所选应用的可见窗口。首次需在 Mac 允许屏幕录制。</string>
     <string name="session_change_in_the_mac_desktop_app">在 Mac 桌面端切换</string>
-    <string name="session_change_permission_mode">更改权限模式？</string>
     <string name="session_confirm_change">确认切换</string>
-    <string name="session_use_the_permission_modes_available_for_this_zcode_session">使用 ZCode 当前会话可用的权限模式。</string>
     <string name="session_sync_the_permission_mode_for_this_claude_desktop_session">同步 Claude 桌面端当前会话的权限模式。</string>
     <string name="session_used_for_subsequent_requests_from_the_phone_in_this_claude_code_">用于从手机继续此 Claude Code 会话的后续请求。</string>
     <string name="session_ask_confirm_before_changes">手动确认 · 修改前始终询问</string>

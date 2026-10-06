@@ -92,7 +92,6 @@ final class Daemon: @unchecked Sendable {
         guard ControlSocket.request(["cmd": "status"]) == nil else {
             throw CLIError(L10n.text("core.vibepier_or_the_vibepier_service_is_already_running_quit_the_existin"))
         }
-        config = try RelayCredentialMigration.migrate(config)
         SessionRemote.shared.configureProviders(SessionProviderPolicy(config))
         SessionRemote.shared.restoreAgentRuntimes()
         PhoneMicrophone.shared.recoverInputAfterRestart()
@@ -991,12 +990,10 @@ final class Daemon: @unchecked Sendable {
                     saved.relayRoom = url.isEmpty ? nil : room
                     try RelayCredentialStore.save(
                         url.isEmpty ? nil : RelaySettings(url: url, room: room, secret: secret))
-                    saved.relaySecret = nil
                     saved.relayDNSRecovery = url.isEmpty ? nil : dns == "alidns"
                     try saved.save()
                     config.relayURL = saved.relayURL
                     config.relayRoom = saved.relayRoom
-                    config.relaySecret = saved.relaySecret
                     config.relayDNSRecovery = saved.relayDNSRecovery
                 }
                 restartRelay()
@@ -1009,7 +1006,7 @@ final class Daemon: @unchecked Sendable {
             return ["ok": true, "code": settings.pairingCode]
         case "reload":
             do {
-                var cfg = try RelayCredentialMigration.migrate(Config.load())
+                var cfg = try Config.load()
                 try lock.withLock {
                     if SessionProviderPolicy(cfg).enabled != SessionProviderPolicy(config).enabled,
                         (cfg.sessionProviderRevision ?? 0) <= (config.sessionProviderRevision ?? 0)

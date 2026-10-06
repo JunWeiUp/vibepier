@@ -73,6 +73,8 @@ final class CodexBridge: @unchecked Sendable {
         executionModeCatalog: @escaping () throws -> [[String: Any]] = CodexExecutionMode.nativeCatalog,
         desktopBuild: @escaping () -> String? = CodexBridge.installedDesktopBuild,
         openNativeThread: @escaping @Sendable (String) -> Void = { thread in
+            // Keep unlocking inside the injectable desktop action, never in read-only socket tests.
+            try? ScreenLock.preferUnlocked {}
             DispatchQueue.main.async {
                 if let url = URL(string: "codex://threads/\(thread)") { NSWorkspace.shared.open(url) }
             }
@@ -211,8 +213,8 @@ final class CodexBridge: @unchecked Sendable {
             throw CLIError(L10n.text("core.invalid_request"))
         }
         var configured = request
-        // Legacy phones have no attachment draft. Bind their single creation to the original operation.
-        if configured["draftId"] == nil { configured["draftId"] = operation }
+        // Profile 2 always binds creation to the explicit phone draft; validate before any native catalog read.
+        _ = try SessionCreationDraft(request, project: request["cwd"] as? String ?? "", provider: "codex")
         let models = try composer.models()
         if configured["model"] == nil { configured["model"] = models.first?["id"] }
         let model = models.first { $0["id"] as? String == configured["model"] as? String } ?? [:]
@@ -316,6 +318,7 @@ final class CodexBridge: @unchecked Sendable {
             request["text"] == nil || request["text"] is String,
             request["attachments"] == nil || request["attachments"] is [String]
         else { return nil }
+        let draft = try SessionCreationDraft(request, project: cwd, provider: "codex")
         let text = (request["text"] as? String ?? "").replacingOccurrences(of: "\r\n", with: "\n")
             .trimmingCharacters(in: .whitespacesAndNewlines)
         let ids = request["attachments"] as? [String] ?? []
@@ -323,9 +326,6 @@ final class CodexBridge: @unchecked Sendable {
         var input: [[String: Any]] = text.isEmpty ? [] : [["type": "text", "text": text, "text_elements": []]]
         if !ids.isEmpty {
             guard let attachments else { return nil }
-            var original = request
-            if original["draftId"] == nil { original["draftId"] = operation }
-            let draft = try SessionCreationDraft(original, project: cwd, provider: "codex")
             input += try attachments.selected(ids, device: client, thread: draft.scope, markUsed: false).input
         }
         return try readBackgroundCreationReceipt(request, client, input)
@@ -445,6 +445,18 @@ final class CodexBridge: @unchecked Sendable {
                 emittedPages[client] = page
                 return ConversationReply.conditional(page, known: request["knownVersion"] as? String)
             }
+            if request["verifyNativeOwner"] as? Bool == true, selected[client] == thread {
+                // A repeated profile-2 read is an authority barrier, not a cache hit. Cold opens below
+                // still return opening until discovery/follow delivers state; selected views verify here.
+                viewVersions[client] = viewVersion
+                let state = try verifiedDesktopState(thread)
+                var page = conversationPage(state, thread: thread)
+                page["viewVersion"] = viewVersion
+                page["revision"] = revisions[thread] ?? 0
+                page["canSend"] = true
+                emittedPages[client] = page
+                return ConversationReply.conditional(page, known: request["knownVersion"] as? String)
+            }
             if viewVersions[client] == viewVersion {
                 guard selected[client] == thread else {
                     throw CLIError(L10n.text("session.the_session_view_is_closed"))
@@ -482,7 +494,6 @@ final class CodexBridge: @unchecked Sendable {
             knownVersions[client] = known
             try ipc.connect()
             // The desktop loads the thread only while the session is unlocked; the relock grace keeps it loaded.
-            try? ScreenLock.preferUnlocked {}
             openNativeThread(thread)
             resolveOwner(thread, client: client, viewVersion: viewVersion, attempts: 8)
             return ["threadId": thread, "opening": true]
@@ -582,11 +593,9 @@ final class CodexBridge: @unchecked Sendable {
                 ["attachmentId": id, "name": bundle + ".jpg", "mime": "image/jpeg", "size": bytes.count],
                 device: client, thread: thread)
             for offset in stride(from: 0, to: bytes.count, by: 128 * 1024) {
-                _ = try attachments.chunk(
-                    [
-                        "attachmentId": id, "offset": offset,
-                        "data": bytes.subdata(in: offset..<min(offset + 128 * 1024, bytes.count)).base64EncodedString(),
-                    ], device: client, thread: thread)
+                _ = try attachments.appendImportedData(
+                    bytes.subdata(in: offset..<min(offset + 128 * 1024, bytes.count)),
+                    id: id, offset: offset, device: client, thread: thread)
             }
             return try attachments.complete(
                 ["attachmentId": id, "sha256": CodexConversation.dataHash(bytes)], device: client, thread: thread)
@@ -599,7 +608,6 @@ final class CodexBridge: @unchecked Sendable {
             case "attachmentPreview":
                 return try attachments.preview(request["attachmentId"] as? String ?? "", device: client, thread: thread)
             case "attachmentStart": return try attachments.start(request, device: client, thread: thread)
-            case "attachmentChunk": return try attachments.chunk(request, device: client, thread: thread)
             case "attachmentComplete": return try attachments.complete(request, device: client, thread: thread)
             case "attachmentRemove":
                 try attachments.remove(request["attachmentId"] as? String ?? "", device: client, thread: thread)
@@ -704,6 +712,7 @@ final class CodexBridge: @unchecked Sendable {
             return reply
         }
         if op == "image" {
+            try BinaryMediaFiles.requireCurrent(request)
             let id = request["imageId"] as? String ?? ""
             guard
                 let source = ConversationReply.image(
@@ -712,9 +721,8 @@ final class CodexBridge: @unchecked Sendable {
             throw ConversationImageRequest(
                 thread: thread, id: id, source: source,
                 cwd: state["cwd"] as? String ?? "",
-                maxPixel: request["size"] as? String == "large"
-                    ? (request["binaryVersion"] as? Int == 1 ? 2048 : 1280) : 480,
-                device: client, binary: request["binaryVersion"] as? Int == 1)
+                maxPixel: request["size"] as? String == "large" ? 2048 : 480,
+                device: client)
         }
         if isBackground {
             if ["queueSteer", "queueDelete", "queueReceiptCheck"].contains(op) {
@@ -919,13 +927,13 @@ final class CodexBridge: @unchecked Sendable {
                 }),
                 projected["canDecide"] as? Bool == true, let requestID = approval["id"]
             else { throw CLIError(L10n.text("session.the_approval_expired_or_must_be_handled_on_the_mac_refresh_it")) }
-            guard let allow = request["allow"] as? Bool else {
-                throw CLIError(L10n.text("session.choose_allow_once_or_deny"))
-            }
             let method = approval["method"] as? String ?? ""
             var params: [String: Any] = ["conversationId": thread, "requestId": requestID]
             let name: String
             if method == "item/permissions/requestApproval" {
+                guard request["decision"] == nil, let allow = request["allow"] as? Bool else {
+                    throw CLIError(L10n.text("session.choose_allow_once_or_deny"))
+                }
                 name = "thread-follower-permissions-request-approval-response"
                 params["response"] = [
                     "permissions": allow
@@ -936,13 +944,49 @@ final class CodexBridge: @unchecked Sendable {
                 name =
                     method == "item/fileChange/requestApproval"
                     ? "thread-follower-file-approval-decision" : "thread-follower-command-approval-decision"
-                params["decision"] = allow ? "accept" : "decline"
+                params["decision"] = try CodexApprovalDecision.decision(request, source: approval, projected: projected)
             }
             _ = try ipc.request(name, params, version: 1, target: owner)
-            return ["submitted": true, "threadId": thread, "fingerprint": fingerprint]
+            var receipt: [String: Any] = ["submitted": true, "threadId": thread, "fingerprint": fingerprint]
+            if request["decision"] as? String == "allowSimilar" {
+                receipt["decision"] = "allowSimilar"
+                receipt["nativeRequestId"] = requestID
+            }
+            return receipt
         }
         throw CLIError(L10n.text("session.unsupported_session_operation"))
     }
+    private func discardDesktopState(_ thread: String) {
+        states.removeValue(forKey: thread)
+        revisions.removeValue(forKey: thread)
+        owners.removeValue(forKey: thread)
+        for (client, selectedThread) in selected where selectedThread == thread {
+            emittedPages.removeValue(forKey: client)
+        }
+    }
+
+    /// One bounded discovery plus one new owner-bound snapshot; never opens UI or retries a mutation.
+    private func verifiedDesktopState(_ thread: String) throws -> [String: Any] {
+        do {
+            try ipc.connect()
+            let discovery = try ipc.request(
+                "thread-owner-discovery", ["hostId": "local", "conversationId": thread], version: 1, timeout: 2)
+            guard let owner = discovery["handledByClientId"] as? String, !owner.isEmpty else {
+                throw CLIError(L10n.text("session.the_session_has_not_loaded_yet"))
+            }
+            // Revisions belong to the owner. A replacement may legitimately restart at revision zero.
+            if owners[thread] != owner { discardDesktopState(thread) }
+            owners[thread] = owner
+            let snapshot = try ipc.freshSnapshot(thread, owner: owner, minimumRevision: revisions[thread] ?? 0)
+            receive(snapshot.data)
+            return snapshot.state
+        } catch {
+            // A failed barrier must not leave an old complete page available to subsequent reads/writes.
+            discardDesktopState(thread)
+            throw error
+        }
+    }
+
     private func resolveOwner(_ thread: String, client: String, viewVersion: Int64, attempts: Int) {
         guard selected[client] == thread, viewVersions[client] == viewVersion else { return }
         do {

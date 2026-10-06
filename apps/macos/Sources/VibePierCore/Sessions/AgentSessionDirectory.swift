@@ -94,7 +94,7 @@ final class AgentSessionDirectory {
     }
     private static func valid(adapter: String, provider: String) -> Bool {
         [
-            "codex.currentV1": "codex", "claude.currentV1": "claude", "zcode.currentV1": "zcode",
+            "codex.currentV1": "codex", "claude.currentV1": "claude",
             "codex.managedAppServer": "codex", "claude.desktopMods": "claude",
         ][adapter] == provider
     }

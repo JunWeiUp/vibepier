@@ -12,7 +12,6 @@
     <string name="client_pairing_invalid">Could not read secure pairing data. Update VibePier on the Mac and retry.</string>
     <string name="client_connect_first">Connect to the Mac first.</string>
     <string name="client_authorize_first">Approve this phone on the Mac first.</string>
-    <string name="client_state_save_failed">Could not save session state. Nothing was sent.</string>
     <string name="client_receipt_save_failed">Could not save the request receipt. Nothing was sent.</string>
     <string name="client_unknown_result">No confirmation yet. Check the result before sending again.</string>
     <string name="client_mac_unresponsive">The Mac has not responded. Check desktop permissions or retry.</string>
@@ -69,9 +68,7 @@
     <string name="connection_notification_body">Stays connected in the background. Tap to open.</string>
     <string name="connection_disconnect">Disconnect</string>
     <string name="relay_store_save_failed">Could not save relay settings.</string>
-    <string name="relay_store_cleanup_failed">Could not remove legacy relay settings.</string>
     <string name="apk_preparing">\nPreparing…</string>
-    <string name="apk_ble_hint">\nBluetooth transfer is slower. Keep this page open, or switch to Wi-Fi to continue.</string>
     <string name="apk_verifying">%1$s\nVerifying APK…</string>
     <string name="apk_install_message">%1$s\nApp: %2$s\nFile verified. The system will ask you to confirm installation. Updates require the same signing key.</string>
     <string name="apk_install_failed">APK installation failed: %1$s</string>
@@ -80,8 +77,6 @@
     <string name="apk_cancel_receive">Cancel transfer</string>
     <string name="apk_receive_cancelled">Transfer cancelled by the user.</string>
     <string name="apk_invalid_length">The local file has an invalid length.</string>
-    <string name="apk_mac_cancelled">The Mac cancelled the transfer.</string>
-    <string name="apk_interrupted">Transfer interrupted. Reconnect to resume.</string>
     <string name="apk_write_failed">Could not write the APK.</string>
     <string name="apk_digest_failed">APK verification failed. Send it again from the Mac.</string>
     <string name="apk_invalid_file">Invalid or split APK. Select a complete single APK.</string>

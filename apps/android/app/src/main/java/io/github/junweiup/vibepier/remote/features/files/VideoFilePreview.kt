@@ -20,9 +20,6 @@ internal class VideoFilePreview(private val host: ProjectFileHost, private val p
     private val ui = android.os.Handler(android.os.Looper.getMainLooper())
     private val file = File(host.context.cacheDir, "video-${java.util.UUID.randomUUID()}.mp4")
     @Volatile private var closed = false
-    private var offset = 0
-    private var version = ""
-    private var total = 0
     private var ready = false
     private var binaryTransfer: BinaryFileClient? = null
     private val video = VideoView(context)
@@ -50,9 +47,7 @@ internal class VideoFilePreview(private val host: ProjectFileHost, private val p
     private fun current() = !closed && host.isCurrent()
     private fun load() {
         if (!current()) { release(); return }
-        val expected = offset
-        val fields = JSONObject().put("path", path).put("offset", expected).put("binaryVersion", 1)
-        if (version.isNotEmpty()) fields.put("version", version)
+        val fields = JSONObject().put("path", path).put("offset", 0).put("binaryVersion", 1)
         host.call("readVideoFile", fields) { result ->
             if (!current()) { release(); return@call }
             if (!result.optBoolean("ok")) {
@@ -79,43 +74,10 @@ internal class VideoFilePreview(private val host: ProjectFileHost, private val p
                 }
                 return@call
             }
-            if (!host.allowLegacyMedia) { status.text = context.getString(R.string.video_download_failed); return@call }
-            val revision = result.optString("version")
-            val size = result.optInt("size")
-            val next = result.optInt("nextOffset", -2)
-            val encoded = result.optString("video")
-            if (revision.isEmpty() || (version.isNotEmpty() && version != revision) || size !in 1..MAX_BYTES ||
-                (total != 0 && total != size) || result.optInt("offset", -1) != expected ||
-                result.optString("mime") != "video/mp4" || encoded.length > 180_000) {
-                status.text = context.getString(R.string.video_download_failed); return@call
-            }
-            version = revision; total = size
-            io.execute {
-                val written = runCatching {
-                    check(current())
-                    val bytes = android.util.Base64.decode(encoded, android.util.Base64.DEFAULT)
-                    check(bytes.isNotEmpty() && bytes.size <= 128 * 1024 && expected + bytes.size <= size)
-                    check(next == if (expected + bytes.size == size) -1 else expected + bytes.size)
-                    check(file.length() == expected.toLong())
-                    java.io.FileOutputStream(file, true).use { it.write(bytes) }
-                    check(file.length() == (expected + bytes.size).toLong())
-                    bytes.size
-                }
-                ui.post {
-                    if (!current()) { release(); return@post }
-                    if (written.isFailure) { status.text = context.getString(R.string.video_download_failed); return@post }
-                    offset = expected + written.getOrThrow()
-                    if (next == -1) {
-                        ready = true
-                        video.setVideoURI(android.net.Uri.fromFile(file))
-                    } else {
-                        status.text = context.getString(R.string.video_progress, (offset.toLong() * 100 / total).toInt())
-                        load()
-                    }
-                }
-            }
+            status.text = context.getString(R.string.video_download_failed)
         }
     }
+
     fun pause() { if (ready && video.isPlaying) video.pause(); controller.hide() }
     override fun onWindowVisibilityChanged(visibility: Int) {
         super.onWindowVisibilityChanged(visibility)
@@ -128,7 +90,6 @@ internal class VideoFilePreview(private val host: ProjectFileHost, private val p
         io.execute { file.delete() }
     }
     companion object {
-        private const val MAX_BYTES = 128 * 1024 * 1024
         private val io = Executors.newSingleThreadExecutor()
     }
 }

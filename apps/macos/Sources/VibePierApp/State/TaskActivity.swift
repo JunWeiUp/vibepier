@@ -21,7 +21,6 @@ struct TaskActivityJSON: Decodable, Equatable {
             switch provider {
             case "codex": return "Codex"
             case "claude": return "Claude"
-            case "zcode": return "ZCode"
             default: return provider
             }
         }

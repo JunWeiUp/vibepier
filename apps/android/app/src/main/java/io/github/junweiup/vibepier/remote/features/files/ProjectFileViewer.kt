@@ -47,7 +47,7 @@ internal class ProjectFileHost(
     val isCurrent: () -> Boolean,
     val canQuote: () -> Boolean, val quote: (String, Int?) -> Unit,
     val canAttach: () -> Boolean, val attach: (String) -> Unit,
-    val binaryHost: () -> String? = { null }, val allowLegacyMedia: Boolean = false,
+    val binaryHost: () -> String? = { null },
 ) {
     private val prefs = io.github.junweiup.vibepier.remote.core.security.PrivatePreferences.open(context, "project-files")
     var rootPath = ""
@@ -358,12 +358,7 @@ internal class ProjectFileViewer(
             val transfer = BinaryFileClient { current(token) }.also { imageTransfer = it }
             mediaIO.execute {
                 val bitmap = runCatching {
-                    if (result.has("binary")) BinaryMediaClient.image(result, address, transfer)
-                    else {
-                        check(host.allowLegacyMedia)
-                        val bytes = android.util.Base64.decode(result.optString("image"), android.util.Base64.DEFAULT)
-                        android.graphics.BitmapFactory.decodeByteArray(bytes, 0, bytes.size)
-                    }
+                    BinaryMediaClient.image(result, address, transfer)
                 }.getOrNull()
                 root.post {
                     result.optJSONObject("binary")?.optString("id")?.takeIf { it.isNotEmpty() }?.let { host.call("fileCancel", JSONObject().put("ticket", it)) {} }

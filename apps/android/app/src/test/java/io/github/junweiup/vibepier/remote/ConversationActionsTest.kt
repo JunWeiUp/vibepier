@@ -19,4 +19,16 @@ class ConversationActionsTest {
         assertFalse(submit(true, true, true, unresolved = true).enabled)
         assertFalse(submit(false, false, true, unresolved = true).enabled)
     }
+    @Test fun approvalReceiptRemainsReadableAfterWriteCapabilityExpires() {
+        assertTrue(ConversationActions.approvalReceiptEnabled(true, true, false, false, false))
+        assertFalse(ConversationActions.approvalReceiptEnabled(true, true, false, true, false))
+        assertTrue(ConversationActions.approvalReceiptEnabled(true, true, false, true, true))
+    }
+    @Test fun approvalReceiptStillRequiresAuthorizationAndAnIdleRequest() {
+        for (retry in listOf(false, true)) {
+            assertFalse(ConversationActions.approvalReceiptEnabled(false, true, false, retry, true))
+            assertFalse(ConversationActions.approvalReceiptEnabled(true, false, false, retry, true))
+            assertFalse(ConversationActions.approvalReceiptEnabled(true, true, true, retry, true))
+        }
+    }
 }

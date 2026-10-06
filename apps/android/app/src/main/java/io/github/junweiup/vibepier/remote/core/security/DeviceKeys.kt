@@ -1,6 +1,7 @@
 package io.github.junweiup.vibepier.remote.core.security
 
 import android.content.Context
+import android.content.SharedPreferences
 import android.security.keystore.KeyProperties
 import android.security.keystore.KeyProtection
 import java.security.KeyStore
@@ -9,8 +10,8 @@ import javax.crypto.SecretKey
 import javax.crypto.spec.SecretKeySpec
 
 /** Shared phone identity and non-exportable keys. The root key is never written to preferences. */
-internal class DeviceKeys(context: Context) {
-    private val prefs = context.getSharedPreferences("device-identity", Context.MODE_PRIVATE)
+internal class DeviceKeys(private val prefs: SharedPreferences) {
+    constructor(context: Context) : this(context.getSharedPreferences("device-identity", Context.MODE_PRIVATE))
     val device: String = synchronized(lock) {
         prefs.getString("device", null) ?: UUID.randomUUID().toString().also {
             check(prefs.edit().putString("device", it).commit()) { "Cannot persist phone identity" }
@@ -21,6 +22,7 @@ internal class DeviceKeys(context: Context) {
     private val names = listOf("session", "handshake", "phone", "mac")
 
     private fun cachedKeys(): CachedKeys? {
+        if (epoch() == null) return null
         cache[device]?.let { return it }
         return try {
             val vault = store()
@@ -37,10 +39,14 @@ internal class DeviceKeys(context: Context) {
     /** Identifies this authorization binding without exposing key material or a Mac identifier. */
     val authorizationIdentity: String? get() = synchronized(lock) {
         if (cachedKeys() == null) return null
-        prefs.getString("authorizationIdentity", null) ?: UUID.randomUUID().toString().also {
-            check(prefs.edit().putString("authorizationIdentity", it).commit())
-        }
+        epoch()
     }
+    private fun epoch(): String? = runCatching {
+        prefs.getString("authorizationIdentity", null)?.takeIf {
+            UUID.fromString(it).toString().equals(it, ignoreCase = true)
+        }
+    }.getOrNull()
+
     fun sessionKey(): SecretKey = synchronized(lock) { checkNotNull(cachedKeys()).session }
     fun controlKeys(): SecureControlKeys? = synchronized(lock) { cachedKeys()?.control }
 

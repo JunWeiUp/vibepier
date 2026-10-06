@@ -277,7 +277,7 @@ object MarkdownFileViewerProbe {
                 }
                 return selected
             }
-            for (provider in listOf("codex", "claude", "zcode")) {
+            for (provider in listOf("codex", "claude")) {
                 main {
                     if (fixtureClient!!.provider != provider) invoke(panel, "switchProvider", provider)
                     panel.javaClass.getDeclaredField("search").apply { isAccessible = true }.set(panel, "")
@@ -311,7 +311,7 @@ object MarkdownFileViewerProbe {
                     check(!beforeDrawer.dialog.isShowing && field(panel, "markdownViewer") == null)
                 }
             }
-            return "PASS: MD read params/provider, first error retry, preview/source without reread, UTF-8 snapshot paging, retained partial document/retry, changed-version rejection, reload generation, close/session callback cancellation, wrong-thread rejection, empty document, bounded display paging/full copy, 10,000-list page view limit, oversized-copy notice/clipboard preservation; actual session header→MD picker→README, non-MD filtering, user close/refresh/return-list dismissal and Codex/Claude/ZCode routes\n"
+            return "PASS: MD read params/provider, first error retry, preview/source without reread, UTF-8 snapshot paging, retained partial document/retry, changed-version rejection, reload generation, close/session callback cancellation, wrong-thread rejection, empty document, bounded display paging/full copy, 10,000-list page view limit, oversized-copy notice/clipboard preservation; actual session header→MD picker→README, non-MD filtering, user close/refresh/return-list dismissal and Codex/Claude routes\n"
         } finally {
             main {
                 open.forEach { it.dismiss() }

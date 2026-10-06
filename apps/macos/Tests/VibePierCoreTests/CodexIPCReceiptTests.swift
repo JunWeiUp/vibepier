@@ -225,6 +225,107 @@ final class CodexIPCReceiptTests: XCTestCase {
         }
     }
 
+    func testVerifiedCachedOpenRefreshesSameOwnerAndChangedOwnerWithoutDesktopOpen() throws {
+        for scenario in ["same-owner", "changed-owner"] { try verifiedCachedOpen(scenario) }
+    }
+
+    func testVerifiedCachedOpenFailsClosedOnDiscoveryOrSnapshotFailure() throws {
+        for scenario in ["discovery-error", "silent", "wrong-owner"] { try verifiedCachedOpen(scenario) }
+    }
+
+    private func verifiedCachedOpen(_ scenario: String) throws {
+        final class FixtureState: @unchecked Sendable {
+            let lock = NSLock()
+            var verifying = false
+            var opens = 0
+        }
+        let fixture = FixtureState()
+        let thread = "00000000-0000-4000-8000-000000000010"
+        let server = try NativeIPCFixture { request in
+            let verifying = fixture.lock.withLock { fixture.verifying }
+            let owner = verifying && scenario == "changed-owner" ? "new-owner" : "owner"
+            if request["method"] as? String == "thread-owner-discovery" {
+                if verifying && scenario == "discovery-error" {
+                    return .reply([
+                        "type": "response", "requestId": request["requestId"]!, "resultType": "error",
+                        "error": "fixture unavailable",
+                    ])
+                }
+                var reply = NativeIPCFixture.success(request, result: [:])
+                reply["handledByClientId"] = owner
+                return .reply(reply)
+            }
+            XCTAssertEqual(
+                request["method"] as? String, "thread-stream-following-changed", "Verification must only read")
+            if (request["params"] as? [String: Any])?["following"] as? Bool != true { return .silent }
+            XCTAssertEqual(request["targetClientIds"] as? [String], [owner])
+            if verifying && scenario == "silent" { return .silent }
+            var state = CodexHistoryReadbackTests.state([verifying ? 4 : 3])
+            state["id"] = thread
+            var packet = CodexHistoryReadbackTests.packet(
+                state: state, revision: verifying && scenario == "changed-owner" ? 1 : 100)
+            packet["sourceClientId"] = verifying && scenario == "wrong-owner" ? "unrelated-owner" : owner
+            var params = packet["params"] as! [String: Any]
+            params["conversationId"] = thread
+            packet["params"] = params
+            return .reply(packet)
+        }
+        let root = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+        try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
+        let ipc = CodexIPC(path: server.path)
+        let bridge = CodexBridge(
+            ipc: ipc, followUps: CodexFollowUps(file: root.appendingPathComponent("queue.json")),
+            attachments: nil, executionModeCatalog: { [] }, desktopBuild: { "fixture" },
+            openNativeThread: { _ in fixture.lock.withLock { fixture.opens += 1 } })
+        defer {
+            bridge.stopAll()
+            ipc.close()
+            server.stop()
+            try? FileManager.default.removeItem(at: root)
+        }
+        let cached = expectation(description: "seed cached state")
+        bridge.event = { _, data in
+            let page = try? JSONSerialization.jsonObject(with: data) as? [String: Any]
+            if page?["event"] as? String == "snapshot" { cached.fulfill() }
+        }
+        let initial = try JSONSerialization.data(withJSONObject: ["op": "open", "threadId": thread, "viewVersion": 7])
+        let opened = expectation(description: "initial open")
+        bridge.perform(initial, client: "fixture") { _ in opened.fulfill() }
+        wait(for: [opened, cached], timeout: 4)
+        bridge.event = nil
+        fixture.lock.withLock { fixture.verifying = true }
+        let checked = expectation(description: "verified cached open " + scenario)
+        let verified = try JSONSerialization.data(withJSONObject: [
+            "op": "open", "threadId": thread, "viewVersion": 7, "verifyNativeOwner": true,
+        ])
+        bridge.perform(verified, client: "fixture") { data in
+            let page = try? JSONSerialization.jsonObject(with: data) as? [String: Any]
+            if ["same-owner", "changed-owner"].contains(scenario) {
+                XCTAssertEqual(page?["ok"] as? Bool, true)
+                XCTAssertEqual((page?["messages"] as? [[String: Any]])?.first?["id"] as? String, "u4", scenario)
+                XCTAssertEqual(page?["revision"] as? Int, scenario == "changed-owner" ? 1 : 100)
+                XCTAssertEqual(
+                    page?["nativeOwnerEpoch"] as? String,
+                    CodexConversation.fingerprint(["owner": scenario == "changed-owner" ? "new-owner" : "owner"]))
+            } else {
+                XCTAssertEqual(page?["ok"] as? Bool, false, scenario)
+                XCTAssertNil(page?["messages"], "Failure must not return old complete content")
+                XCTAssertNotEqual(page?["canSend"] as? Bool, true)
+            }
+            checked.fulfill()
+        }
+        wait(for: [checked], timeout: 8)
+        XCTAssertEqual(fixture.lock.withLock { fixture.opens }, 1, "Verification must not open native UI")
+        let expected =
+            scenario == "discovery-error"
+            ? ["thread-owner-discovery", "thread-stream-following-changed", "thread-owner-discovery"]
+            : [
+                "thread-owner-discovery", "thread-stream-following-changed", "thread-owner-discovery",
+                "thread-stream-following-changed",
+            ]
+        XCTAssertEqual(server.methods, expected, "Exactly one bounded verification, no mutation or retry")
+    }
+
     func testBridgeSameViewWithMissingStateRefollowsOnlyItsSelectedThreadWithoutOpeningDesktopAgain() throws {
         final class Counts: @unchecked Sendable {
             let lock = NSLock()

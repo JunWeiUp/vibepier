@@ -3,26 +3,6 @@ import XCTest
 @testable import VibePierCore
 
 final class DesktopMutationTests: XCTestCase {
-    func testCreationPreparationFailureDoesNotClaimMessageSubmissionWhileSettingsStayUnknown() {
-        let prepare = { () throws -> Void in
-            try DesktopMutationScope.run { scope in
-                try scope.attempt {}
-                throw CLIError("Mode readback unavailable")
-            }
-        }
-        XCTAssertThrowsError(try prepare()) { error in
-            XCTAssertTrue(error is UnconfirmedDesktopMutation)
-        }
-        XCTAssertThrowsError(try DesktopMutationScope.beforeCreationSubmission(prepare)) { error in
-            XCTAssertFalse(error is UnconfirmedDesktopMutation)
-            XCTAssertNil(ProviderFailure.reply(error, provider: "zcode")["unknown"])
-        }
-        XCTAssertThrowsError(try UnconfirmedDesktopMutation.attempting { throw CLIError("Send acknowledgement lost") })
-        { error in
-            XCTAssertEqual(ProviderFailure.reply(error, provider: "zcode")["unknown"] as? Bool, true)
-        }
-    }
-
     func testClaudeLateNativeReceiptResolvesOriginalOperationWithoutResubmitting() throws {
         let receipts = ProviderOperationReceipts()
         let request: [String: Any] = ["op": "send", "id": "operation", "threadId": "thread", "text": "fixture"]
@@ -96,7 +76,7 @@ final class DesktopMutationTests: XCTestCase {
                     unavailable: "unavailable", unconfirmed: diagnostic)
             ) { error in
                 XCTAssertTrue(error is UnconfirmedDesktopMutation)
-                for provider in ["claude", "zcode"] {
+                for provider in ["claude"] {
                     let result = ProviderFailure.reply(error, provider: provider)
                     XCTAssertEqual(result["unknown"] as? Bool, true)
                     XCTAssertEqual(result["ok"] as? Bool, false)

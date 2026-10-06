@@ -1,3 +1,4 @@
+import CryptoKit
 import Darwin
 import Foundation
 import XCTest
@@ -21,8 +22,19 @@ final class SessionProjectFilesTests: XCTestCase {
         _ op: String, _ request: [String: Any], _ root: URL, rows: [[String: Any]] = [],
         reader: SessionMarkdownFiles = SessionMarkdownFiles()
     ) throws -> [String: Any] {
-        try SessionProjectFiles.reply(
-            op, request, cwd: root.path, rows: { rows }, reader: reader, device: "phone", thread: "thread")
+        var current = request
+        if op == "readVideoFile" { current["binaryVersion"] = 1 }
+        return try SessionProjectFiles.reply(
+            op, current, cwd: root.path, rows: { rows }, reader: reader, device: "phone", thread: "thread",
+            mediaOffer: { snapshot, device, thread, mime in
+                defer { snapshot.discard() }
+                XCTAssertEqual(device, "phone")
+                XCTAssertEqual(thread, "thread")
+                let bytes = try Data(contentsOf: snapshot.file)
+                XCTAssertEqual(bytes.count, snapshot.size)
+                XCTAssertEqual(SHA256.hash(data: bytes).map { String(format: "%02x", $0) }.joined(), snapshot.digest)
+                return ["size": snapshot.size, "sha256": snapshot.digest, "mime": mime]
+            })
     }
 
     func testVideoRepairsRepeatedWorkspaceSuffixWithoutEscaping() throws {
@@ -52,21 +64,22 @@ final class SessionProjectFilesTests: XCTestCase {
         XCTAssertThrowsError(try reply("readVideoFile", ["path": "vibed/escape.mp4"], root))
     }
 
-    func testVideoChunksAreBoundedVersionedAndWorkspaceScoped() throws {
+    func testVideoBinarySnapshotIsBoundedVersionedAndWorkspaceScoped() throws {
         let (parent, root) = try fixture()
         defer { try? FileManager.default.removeItem(at: parent) }
         let video = root.appendingPathComponent("demo.MP4")
-        let original = Data((0..<(SessionVideoFiles.chunkBytes + 17)).map { UInt8($0 % 251) })
+        let original = Data((0..<(128 * 1024 + 17)).map { UInt8($0 % 251) })
         try original.write(to: video)
         let first = try reply("readVideoFile", ["path": "demo.MP4"], root)
         let revision = try XCTUnwrap(first["version"] as? String)
         XCTAssertEqual(first["size"] as? Int, original.count)
-        XCTAssertEqual(first["nextOffset"] as? Int, SessionVideoFiles.chunkBytes)
-        var bytes = try XCTUnwrap(Data(base64Encoded: try XCTUnwrap(first["video"] as? String)))
-        let last = try reply("readVideoFile", ["path": "demo.MP4", "offset": bytes.count, "version": revision], root)
-        bytes.append(try XCTUnwrap(Data(base64Encoded: try XCTUnwrap(last["video"] as? String))))
-        XCTAssertEqual(bytes, original)
-        XCTAssertEqual(last["nextOffset"] as? Int, -1)
+        XCTAssertEqual(first["nextOffset"] as? Int, -1)
+        XCTAssertNil(first["video"])
+        let profile = try XCTUnwrap(first["binary"] as? [String: Any])
+        XCTAssertEqual(profile["size"] as? Int, original.count)
+        XCTAssertEqual(
+            profile["sha256"] as? String,
+            SHA256.hash(data: original).map { String(format: "%02x", $0) }.joined())
         XCTAssertLessThan(try JSONSerialization.data(withJSONObject: first).count, 300_000)
         XCTAssertThrowsError(try reply("readVideoFile", ["path": "demo.MP4", "offset": 1], root))
         XCTAssertThrowsError(try reply("readVideoFile", ["path": "demo.MP4", "offset": -1], root))
@@ -85,6 +98,24 @@ final class SessionProjectFilesTests: XCTestCase {
         try handle.truncate(atOffset: UInt64(SessionVideoFiles.maximumBytes + 1))
         try handle.close()
         XCTAssertThrowsError(try reply("readVideoFile", ["path": "large.mp4"], root))
+    }
+
+    func testMediaRejectsMissingAndUnsupportedBinaryVersion() throws {
+        let (parent, root) = try fixture()
+        defer { try? FileManager.default.removeItem(at: parent) }
+        for operation in ["readImageFile", "readVideoFile"] {
+            for fields: [String: Any] in [[:], ["binaryVersion": 0], ["binaryVersion": 2]] {
+                XCTAssertThrowsError(
+                    try SessionProjectFiles.reply(
+                        operation, fields, cwd: root.path, rows: { [] }, reader: SessionMarkdownFiles(),
+                        device: "phone", thread: "thread",
+                        mediaOffer: { snapshot, _, _, _ in
+                            snapshot.discard()
+                            XCTFail("Unsupported client reached the binary offer")
+                            return [:]
+                        }))
+            }
+        }
     }
 
     func testBrowseReportsSizesGitStateAndChangedFolders() throws {

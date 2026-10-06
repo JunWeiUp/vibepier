@@ -1,6 +1,6 @@
 # Project files / 项目文件
 
-The open conversation's folder button opens a read-only browser of its trusted workspace. Codex, Claude Code and ZCode advertise `projectFiles` only when this Mac implementation is available. Both Mac and Android must be updated. This is a workspace browser, not a general Mac filesystem browser.
+The open conversation's folder button opens a read-only browser of its trusted workspace. Codex and Claude Code advertise `projectFiles` only when this Mac implementation is available. Both Mac and Android must be updated. This is a workspace browser, not a general Mac filesystem browser.
 
 会话标题栏的文件夹按钮打开当前会话工作目录。界面参照 `files.html` 的项目文件设计：石墨色分层背景、薄荷色主操作、目录树、路径面包屑和底部操作栏。Mac 与 Android 需一起更新。
 
@@ -19,6 +19,10 @@ Text pages continue loading while the source list is hidden; failures after a pa
 
 源码列表尚未显示时也会继续读取后续分块；中途失败会显示错误及重试按钮。HTML/HTM 默认网页预览，可切换源码；支持内嵌样式、脚本和 data 图片。预览不访问网络/CDN、旁边文件、iframe、手机文件或应用接口，不触发下载或外部跳转。切换标签保留预览状态，关闭或重新加载时销毁。
 
+Image and video RPCs require `binaryVersion=1` and return a scoped Binary transfer profile. Missing or unsupported versions fail closed; inline base64 image responses and text-chunk video transfers are removed. Markdown and source-text pagination remain supported.
+
+图片与视频 RPC 必须携带 `binaryVersion=1`，只返回限定作用域的 Binary 传输描述；缺失或不支持的版本直接拒绝。已移除 base64 图片响应和文本分块视频传输；Markdown 与源码文本分页保留。
+
 ## Boundaries / 边界
 
 The provider validates the authorized device, selected session and view version before capturing the request. The Mac derives cwd and turn data itself. File reads use descriptor checks and reject symlink escapes. UTF-8 files are limited to 2 MiB; each directory returns up to 200 visible entries, searches up to 100 results, and diffs up to 128 KiB. Hidden dotfiles are omitted. Large, binary and unreadable files have explicit states.
@@ -29,7 +33,7 @@ Filesystem reads retain VibePier's bounded asynchronous workers and deadlines; M
 
 ## Implementation and validation / 实现与验证
 
-- Mac: `Providers/Shared/SessionProjectFiles.swift`, `SessionMarkdownFiles.swift`, three provider bridges.
+- Mac: `Providers/Shared/SessionProjectFiles.swift`, `SessionMarkdownFiles.swift`, the Codex and Claude provider bridges.
 - Android: `features/files`, `ConversationPanel`, `ConversationMessageRenderer`, Markdown links and session read cancellation.
 - Protocol additions: `fileChanges`, `readFile`, `readImageFile`, `fileDiff`, `searchFiles`, `openFile`; `browseFiles` gains root, branch, size and status fields. No relay format change.
 - Tests: temporary-repository Git state/diff/search, missing/deleted paths, symlink escape, binary/oversized files, executable refusal, invalidated queued reads and bridge authorization; JVM tests cover file links, diff rows, syntax tokens and draft quoting.

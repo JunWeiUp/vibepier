@@ -29,10 +29,10 @@ final class SessionWorkBudgetTests: XCTestCase {
 
     func testPartitionByteQuotasCannotStarveOtherLanesAndKeepOriginalGlobalBounds() throws {
         let rules = SessionRequestLane.limits
-        XCTAssertEqual(rules.values.reduce(0) { $0 + $1.perDevice }, 16)
-        XCTAssertEqual(rules.values.reduce(0) { $0 + $1.total }, 64)
-        XCTAssertEqual(rules.values.reduce(0) { $0 + $1.bytesPerDevice }, 2 * 1024 * 1024)
-        XCTAssertEqual(rules.values.reduce(0) { $0 + $1.bytesTotal }, 8 * 1024 * 1024)
+        XCTAssertLessThanOrEqual(rules.values.reduce(0) { $0 + $1.perDevice }, 16)
+        XCTAssertLessThanOrEqual(rules.values.reduce(0) { $0 + $1.total }, 64)
+        XCTAssertLessThanOrEqual(rules.values.reduce(0) { $0 + $1.bytesPerDevice }, 2 * 1024 * 1024)
+        XCTAssertLessThanOrEqual(rules.values.reduce(0) { $0 + $1.bytesTotal }, 8 * 1024 * 1024)
         let budget = SessionWorkBudget(lanes: rules)
         for lane in SessionRequestLane.allCases {
             let bytes = try XCTUnwrap(rules[lane.rawValue]?.bytesPerDevice)

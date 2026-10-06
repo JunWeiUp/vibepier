@@ -41,21 +41,20 @@ struct SessionEnvelope {
             authenticating: aad(device: device, packet: packet, direction: direction))
     }
     static func frames(
-        _ data: Data, device: String, packet: String, sender: String, fragmentChars: Int = 900, requestID: String? = nil
+        _ data: Data, device: String, packet: String, sender: String
     ) -> [Data] {
-        guard fragmentChars == 900 || (fragmentChars == 7200 && requestID != nil) else { return [] }
+        let fragmentChars = 900
         let text = Array(data.base64EncodedString().utf8)
         let parts = (text.count + fragmentChars - 1) / fragmentChars
         var frames: [Data] = []
         for i in stride(from: 0, to: text.count, by: fragmentChars) {
-            var frame: [String: Any] = [
+            let frame: [String: Any] = [
                 "type": "vibepier-session1", "device": device, "sender": sender, "packet": packet,
                 "part": i / fragmentChars, "parts": parts,
                 "data": String(decoding: text[i..<min(i + fragmentChars, text.count)], as: UTF8.self),
             ]
-            if fragmentChars == 7200 { frame["request"] = requestID }
             guard let bytes = try? JSONSerialization.data(withJSONObject: frame, options: [.withoutEscapingSlashes]),
-                bytes.count <= (fragmentChars == 7200 ? SecureControlEnvelope.maximumPlaintext : 4096)
+                bytes.count <= 4096
             else { return [] }
             frames.append(bytes)
         }
@@ -91,8 +90,7 @@ public final class SessionRemote: @unchecked Sendable {
     private var lease: DispatchWorkItem?
     private var pairResults: [String: Data] = [:]
     private var pairing = Set<String>()
-    private var outgoing:
-        [String: (device: String, frames: [Data], created: Double, fastPeer: String?, provider: String?)] = [:]
+    private var outgoing: [String: (device: String, frames: [Data], created: Double, provider: String?)] = [:]
     /// Final replies produced while the phone had no live route (e.g. its screen locked mid-creation). Bounded and
     /// short-lived; the journal stays authoritative and the phone's read-only operation lookup covers anything dropped.
     private var undelivered: [String: [(data: Data, created: Double)]] = [:]
@@ -102,14 +100,12 @@ public final class SessionRemote: @unchecked Sendable {
     let events = SessionWorkBudget()
     private let ingress = SessionWorkBudget(
         limits: .init(perDevice: 4096, total: 8192, bytesPerDevice: 4 * 1024 * 1024, bytesTotal: 16 * 1024 * 1024))
-    private var taskViews: [String: TaskViewIntent] = [:]
     private let receiptFile = Paths.supportDirectory.appendingPathComponent("codex-receipts.json")
     private init() {
         journal = try? SessionReceiptJournal(file: receiptFile)
         coordinator.event = { [weak self] client, provider, data in
             guard let self else { return }
             self.queue.async { self.agentService?.receiveCurrentV1Event(data, provider: provider, client: client) }
-            self.enqueueEvent(data, device: client, provider: provider)
         }
         runtimeHost.event = { [weak self] client, adapter, data in
             guard let self else { return }
@@ -148,7 +144,6 @@ public final class SessionRemote: @unchecked Sendable {
                 coordinator.stopObservation(
                     client: device, providers: Set(SessionV1Contract.providers.filter { !policy.isEnabled($0) }))
                 runtimeHost.stop(client: device)
-                taskViews.removeValue(forKey: device)
                 sendObject(["event": "providersChanged", "providerAccess": policy.object], device: device)
             }
         }
@@ -177,7 +172,6 @@ public final class SessionRemote: @unchecked Sendable {
             self.coordinator.stopObservation(client: id, forgetNegotiation: true)
             self.agentService?.close(client: id)
             self.runtimeHost.stop(client: id)
-            self.taskViews.removeValue(forKey: id)
             self.outgoing = self.outgoing.filter { $0.value.device != id }
             self.inbox.revoke(id)
             self.readReplies.remove(device: id)
@@ -203,7 +197,6 @@ public final class SessionRemote: @unchecked Sendable {
                 self.runtimeHost.stop(client: client)
             }
             self.routes.removeAll()
-            self.taskViews.removeAll()
             self.inbox.discardPartial()
             self.readReplies.removeAll()
             self.outgoing.removeAll()
@@ -217,7 +210,6 @@ public final class SessionRemote: @unchecked Sendable {
     private func removePeer(_ peer: String) {
         for id in routes.filter({ $0.value.peer == peer }).keys {
             routes.removeValue(forKey: id)
-            taskViews.removeValue(forKey: id)
             coordinator.stopObservation(client: id, forgetNegotiation: true)
             agentService?.close(client: id)
             runtimeHost.stop(client: id)
@@ -295,21 +287,11 @@ public final class SessionRemote: @unchecked Sendable {
             self.accept(data, peer: peer, sender: sender, send: send)
         }
     }
-    private func recoverUpload(sender: String, packet: String) {
-        queue.asyncAfter(deadline: .now() + 0.15) {
-            guard let missing = self.inbox.missingUpload(sender: sender, packet: packet) else { return }
-            self.sendObject(missing, device: sender)
-            self.recoverUpload(sender: sender, packet: packet)
-        }
-    }
     private func accept(_ data: Data, peer: String, sender: String, send: @escaping @Sendable ([Data]) -> Void) {
         guard let key = trust.key(for: sender) else { return }
-        guard let message = inbox.receive(data, sender: sender, key: key, allowsUploads: !peer.hasPrefix("ble:")),
+        guard let message = inbox.receive(data, sender: sender, key: key),
             let id = message.request["id"] as? String
-        else {
-            if let packet = inbox.recoveryPacket(data, sender: sender) { recoverUpload(sender: sender, packet: packet) }
-            return
-        }
+        else { return }
         let request = message.request
         let clear = message.clear
         let device = sender
@@ -322,30 +304,28 @@ public final class SessionRemote: @unchecked Sendable {
             for reply in held where now - reply.created < 600 { self.send(reply.data, device: device) }
         }
         if request["op"] as? String == "resend", let original = request["packet"] as? String,
-            let saved = outgoing[original], saved.device == device,
-            saved.fastPeer == nil || saved.fastPeer == peer
+            let saved = outgoing[original], saved.device == device
         {
             send(saved.frames)
             return
         }
         if ["notificationSubscribe", "providers"].contains(request["op"] as? String ?? "") {
-            // Authenticated no-op establishes the route even without opening a conversation.
-            var response: [String: Any] = ["id": id, "ok": true, "providerAccess": providerPolicy.object]
-            if let capabilities = coordinator.describe(
-                client: device, requestedVersion: request["agentCapabilityVersion"], policy: providerPolicy)
-            {
-                response["agentCapabilities"] = extendedCapabilities(capabilities)
-            }
-            if agentService != nil {
-                response["agentProfiles"] = [
-                    "versions": [2], "minimumClientVersion": 2, "methods": AgentSessionProfile.methods,
-                ]
-            }
+            // Both bootstrap operations use the same production capability negotiation.
+            let response = Self.providerDiscoveryResponse(
+                id: id, client: device, policy: providerPolicy, coordinator: coordinator,
+                runtimeAdapters: runtimeHost.descriptors(), serviceAvailable: agentService != nil)
             sendObject(response, device: device)
             return
         }
         if request["op"] as? String == "agentRequest" {
             acceptAgentRequest(request, clear: clear, device: device)
+            return
+        }
+        let recordedKey = journal?.existingKey(device: device, operation: id) ?? device + ":" + id
+        if let rejection = Self.rejectedPhoneSession(
+            request, recorded: journal?.receipt(recordedKey) != nil, journalReliable: journal?.isReliable == true
+        ) {
+            sendObject(rejection, device: device)
             return
         }
         if request["op"] as? String == "relaySetup" {
@@ -372,11 +352,10 @@ public final class SessionRemote: @unchecked Sendable {
             sendObject(["id": id, "ok": true], device: device)
             return
         }
-        if ["apkOffer", "apkChunk", "apkStatus", "apkBinary", "apkProgress"].contains(request["op"] as? String ?? "") {
+        if ["apkOffer", "apkStatus", "apkBinary", "apkProgress"].contains(request["op"] as? String ?? "") {
             do {
                 let response = try apk.reply(request, device: device, peer: peer).merging(["id": id]) { $1 }
-                let fast = apk.fastDownload(request, device: device, peer: peer)
-                sendObject(response, device: device, fragmentChars: fast ? 7200 : 900, requestID: fast ? id : nil)
+                sendObject(response, device: device)
             } catch {
                 sendObject(["id": id, "ok": false, "error": String(describing: error)], device: device)
             }
@@ -441,7 +420,8 @@ public final class SessionRemote: @unchecked Sendable {
                     ], device: device)
                 return
             }
-            let saved = journal.receipt(device + ":" + operation)
+            let savedKey = journal.existingKey(device: device, operation: operation) ?? device + ":" + operation
+            let saved = journal.receipt(savedKey)
             var result: [String: Any] = [
                 "id": id, "operation": operation, "ok": true,
                 "state": saved == nil ? "notFound" : saved?.result == nil ? "unknown" : "complete",
@@ -449,33 +429,20 @@ public final class SessionRemote: @unchecked Sendable {
             if let saved, saved.result == nil, saved.retired != true {
                 var lookup: [String: Any] = ["op": "receiptCheck", "threadId": saved.thread, "operation": operation]
                 let original = saved.intent.flatMap { try? JSONSerialization.jsonObject(with: $0) as? [String: Any] }
-                if let original, ["settings", "interrupt"].contains(original["op"] as? String ?? "") {
-                    lookup = original
-                    lookup["op"] =
-                        original["op"] as? String == "settings" ? "settingsReceiptCheck" : "interruptReceiptCheck"
+                guard let original, Self.canReconcileEnvelopeReceipt(original) else {
+                    sendObject(result, device: device)
+                    return
                 }
-                if let original, ["queueSteer", "queueDelete"].contains(original["op"] as? String ?? "") {
-                    lookup = original
-                    lookup["action"] = original["op"] as? String == "queueDelete" ? "delete" : "steer"
-                    lookup["op"] = "queueReceiptCheck"
-                }
-                if let original, original["op"] as? String == "new" {
-                    lookup = Self.creationReceiptLookup(original, operation: operation, thread: saved.thread)
-                }
-                if original?["op"] as? String == "codexUsageReset" {
-                    lookup["op"] = "codexUsageResetReceipt"
-                    lookup["accountId"] = original?["accountId"]
-                    lookup["creditId"] = original?["creditId"]
-                }
-                lookup["originalOperation"] = original?["op"]
-                lookup["provider"] = original?["provider"]
-                let approvalFingerprint =
-                    original?["op"] as? String == "approve" ? original?["fingerprint"] as? String : nil
-                let originalOperation = original?["op"] as? String ?? ""
-                let originalCwd = original?["cwd"] as? String ?? ""
-                let originalAccountId = original?["accountId"] as? String ?? ""
-                let originalCreditId = original?["creditId"] as? String ?? ""
-                let originalExecutionMode = original?["executionMode"] as? String ?? ""
+                lookup["op"] = "codexUsageResetReceipt"
+                lookup["accountId"] = original["accountId"]
+                lookup["creditId"] = original["creditId"]
+                lookup["originalOperation"] = original["op"]
+                lookup["provider"] = original["provider"]
+                let originalOperation = original["op"] as? String ?? ""
+                let originalCwd = original["cwd"] as? String ?? ""
+                let originalAccountId = original["accountId"] as? String ?? ""
+                let originalCreditId = original["creditId"] as? String ?? ""
+                let originalExecutionMode = original["executionMode"] as? String ?? ""
                 if let bytes = try? JSONSerialization.data(withJSONObject: lookup) {
                     guard
                         case .accepted(let ticket) = executions.begin(
@@ -493,7 +460,7 @@ public final class SessionRemote: @unchecked Sendable {
                             defer { self.executions.finish(ticket) }
                             if let body = SessionProviderReply.resolvedLookup(
                                 reply, thread: saved.thread, operation: originalOperation,
-                                cwd: originalCwd, fingerprint: approvalFingerprint ?? "",
+                                cwd: originalCwd, fingerprint: "",
                                 accountId: originalAccountId, creditId: originalCreditId,
                                 executionMode: originalExecutionMode)
                             {
@@ -502,7 +469,7 @@ public final class SessionRemote: @unchecked Sendable {
                                 if receipt["accepted"] == nil { receipt["accepted"] = body["ok"] as? Bool == true }
                                 let context = SessionProviderReply.Context([
                                     "id": operation, "op": originalOperation, "threadId": saved.thread,
-                                    "fingerprint": approvalFingerprint ?? "", "cwd": originalCwd,
+                                    "fingerprint": "", "cwd": originalCwd,
                                     "accountId": originalAccountId, "creditId": originalCreditId,
                                 ])
                                 let checked = SessionProviderReply(
@@ -512,7 +479,7 @@ public final class SessionRemote: @unchecked Sendable {
                                     guard let journal = self.journal else {
                                         throw CLIError(L10n.text("core.invalid_receipt"))
                                     }
-                                    try journal.complete(device + ":" + operation, result: bytes)
+                                    try journal.complete(savedKey, result: bytes)
                                 }
                                 if checked.definitive {
                                     self.sendObject(
@@ -541,7 +508,6 @@ public final class SessionRemote: @unchecked Sendable {
             sendObject(result, device: device)
             return
         }
-        if request["op"] as? String == "close" { BinaryFileTransfers.shared.cancelMedia(device: device) }
         let descriptor = SessionV1Contract.descriptor(request["op"] as? String ?? "")
         let mutable = descriptor?.durableMutation == true
 
@@ -566,16 +532,6 @@ public final class SessionRemote: @unchecked Sendable {
         }
         // Existing mutation receipts can be read/replayed even when fresh execution capacity is full.
         let known = mutable && journal?.receipt(receiptKey) != nil
-        if !known, let failure = coordinator.freshMutationFailure(request, client: device) {
-            sendObject(
-                [
-                    "id": id, "ok": false, "code": failure,
-                    "error": L10n.text(
-                        failure == "agent_upgrade_required" ? "agent.upgrade_required" : "agent.capability_unavailable"),
-                ],
-                device: device)
-            return
-        }
         let ticket = known ? nil : beginWork(request, device: device, bytes: clear.count)
         guard known || ticket != nil else { return }
         var dispatched = false
@@ -627,16 +583,6 @@ public final class SessionRemote: @unchecked Sendable {
             sendBusy(id, device: device)
             return
         }
-        let taskView = TaskViewIntent(request).map { intent in
-            var captured = intent
-            captured.completion = ConversationActivity.shared.viewCompletion(provider: intent.provider, id: intent.id)
-            return captured
-        }
-        if let taskView {
-            taskViews[device] = taskView
-        } else if request["op"] as? String == "close" {
-            taskViews.removeValue(forKey: device)
-        }
         let replyContext = SessionProviderReply.Context(request)
         let accessProvider = SessionProviderPolicy.provider(request)
         let independent = descriptor?.contentProviderScope == false
@@ -658,29 +604,11 @@ public final class SessionRemote: @unchecked Sendable {
                         try journal.complete(receiptKey, result: bytes)
                     }
                 }
-                let object = reply.object
                 let bytes = reply.data
                 if !mutable { self.readReplies.complete(receiptKey, hash: hash, result: bytes) }
-                if let taskView { self.finishTaskView(object, device: device, provider: taskView.provider) }
                 self.send(bytes, device: device, provider: !mutable && !independent ? accessProvider : nil)
             }
         }
-    }
-    /// The durable original carries the exact configuration and attachment scope.
-    /// Receipt recovery changes only routing fields and never submits that intent again.
-    static func creationReceiptLookup(_ original: [String: Any], operation: String, thread: String) -> [String: Any] {
-        var lookup = original
-        lookup["op"] = "newReceiptCheck"
-        lookup["operation"] = operation
-        lookup["threadId"] = thread
-        return lookup
-    }
-    private func finishTaskView(_ page: [String: Any], device: String, provider: String) {
-        guard routes[device] != nil, let view = taskViews[device], view.isReady(page, provider: provider) else {
-            return
-        }
-        taskViews.removeValue(forKey: device)
-        ConversationActivity.shared.markViewed(provider: provider, id: view.id, completion: view.completion)
     }
     func sendBusy(_ id: String, device: String) {
         sendObject(["id": id, "ok": false, "error": L10n.text("control.requests_busy")], device: device)
@@ -708,18 +636,15 @@ public final class SessionRemote: @unchecked Sendable {
     }
     private func sendConversationEvent(_ data: Data, device: String, provider: String) {
         guard providerPolicy.isEnabled(provider) else { return }
-        if let page = try? JSONSerialization.jsonObject(with: data) as? [String: Any] {
-            finishTaskView(page, device: device, provider: provider)
-        }
         send(data, device: device, provider: provider)
     }
-    func sendObject(_ value: [String: Any], device: String, fragmentChars: Int = 900, requestID: String? = nil) {
+    func sendObject(_ value: [String: Any], device: String) {
         if let data = try? JSONSerialization.data(withJSONObject: value, options: [.withoutEscapingSlashes]) {
-            send(data, device: device, fragmentChars: fragmentChars, requestID: requestID)
+            send(data, device: device)
         }
     }
     func send(
-        _ data: Data, device: String, fragmentChars: Int = 900, requestID: String? = nil, provider: String? = nil
+        _ data: Data, device: String, provider: String? = nil
     ) {
         guard data.count <= 300_000 else {
             // Never drop a reply silently: the phone would wait on "正在打开" forever.
@@ -735,7 +660,7 @@ public final class SessionRemote: @unchecked Sendable {
         }
         guard let route = routes[device], let key = trust.key(for: device) else {
             // Only request replies are held; pushed pages and events are repaired by the next sync.
-            if trust.key(for: device) != nil, requestID == nil,
+            if trust.key(for: device) != nil,
                 (try? JSONSerialization.jsonObject(with: data) as? [String: Any])?["id"] is String
             {
                 let now = ProcessInfo.processInfo.systemUptime
@@ -753,8 +678,7 @@ public final class SessionRemote: @unchecked Sendable {
         guard let sealed = try? SessionEnvelope.seal(data, key: key, device: device, packet: packet, direction: "mac")
         else { return }
         let frames = SessionEnvelope.frames(
-            sealed, device: device, packet: packet, sender: route.sender, fragmentChars: fragmentChars,
-            requestID: requestID)
+            sealed, device: device, packet: packet, sender: route.sender)
         guard !frames.isEmpty else { return }
         let own = outgoing.filter { $0.value.device == device }
         if own.count >= 8, let oldest = own.min(by: { $0.value.created < $1.value.created })?.key {
@@ -764,7 +688,7 @@ public final class SessionRemote: @unchecked Sendable {
             outgoing.removeValue(forKey: oldest)
         }
         outgoing[packet] = (
-            device, frames, ProcessInfo.processInfo.systemUptime, fragmentChars == 7200 ? route.peer : nil, provider
+            device, frames, ProcessInfo.processInfo.systemUptime, provider
         )
         route.send(frames)
     }

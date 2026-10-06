@@ -19,8 +19,8 @@ func versionedHelloMAC(secret []byte, protocol, role, room, ts, nonce string) []
 	return mac.Sum(nil)
 }
 
-func helloMAC(secret []byte, role, room, ts, nonce string) []byte {
-	return versionedHelloMAC(secret, "vibepier-relay1", role, room, ts, nonce)
+func currentRole(protocol int, role string) bool {
+	return (protocol == 2 && role == "host") || (protocol == 1 && role == "client")
 }
 
 func (r *relay) verify(line string) (protocol int, role, roomName string, err error) {
@@ -33,7 +33,7 @@ func (r *relay) verify(line string) (protocol int, role, roomName string, err er
 		protocol = 2
 	}
 	role, roomName = parts[2], parts[3]
-	if (role != "host" && role != "client") || (protocol == 2 && role != "host") {
+	if !currentRole(protocol, role) {
 		return 0, "", "", errors.New("bad-role")
 	}
 	if !roomPattern.MatchString(roomName) || len(parts[5]) < 16 || len(parts[5]) > 64 {
