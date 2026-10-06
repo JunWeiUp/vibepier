@@ -128,6 +128,8 @@ enum ClaudePermissions {
     struct Question {
         let text: String
         let options: [String]
+        /// Native option descriptions, aligned with `options`; the desktop renders each beside its label.
+        var descriptions: [String] = []
     }
     /// Only the native plan body may be accepted once. ExitPlanMode can also request
     /// tool permission grants; those variants and unknown future fields stay Mac-only.
@@ -156,7 +158,10 @@ enum ClaudePermissions {
         let labels = optionsRaw.compactMap { ($0["label"] as? String)?.trimmingCharacters(in: .whitespacesAndNewlines) }
             .filter { !$0.isEmpty }
         guard labels.count == optionsRaw.count, Set(labels).count == labels.count else { return nil }
-        return Question(text: text, options: labels)
+        let descriptions = optionsRaw.map {
+            ($0["description"] as? String)?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+        }
+        return Question(text: text, options: labels, descriptions: descriptions)
     }
     /// Tool calls of the main conversation that have no result yet, oldest first.
     static func unresolved(_ entries: [[String: Any]]) -> [ToolUse] {
@@ -204,6 +209,7 @@ enum ClaudePermissions {
             if let question {
                 row["question"] = question.text
                 row["options"] = question.options
+                row["optionDescriptions"] = question.descriptions
             }
             return row
         }

@@ -306,4 +306,7 @@
     <string name="session_abandon_settings_description">The Mac could not confirm whether this change took effect. Abandoning only unlocks the controls on this phone; nothing is resent. Check the current settings, then choose them again if needed.</string>
     <string name="session_abandon_settings_action">Abandon and choose again</string>
     <string name="session_settings_abandoned">Settings change abandoned. Check the current settings.</string>
+    <string name="session_approval_blocked_submitted">Your decision was sent; waiting for the desktop to confirm it.</string>
+    <string name="session_approval_blocked_control">Session control is not ready yet; refreshing. The choices unlock once it is ready.</string>
+    <string name="session_approval_blocked_unsupported">The Mac cannot answer this request for you right now (the session must be open in the desktop app). Handle it on the Mac.</string>
 </resources>

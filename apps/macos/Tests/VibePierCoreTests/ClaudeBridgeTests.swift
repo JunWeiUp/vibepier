@@ -28,6 +28,21 @@ final class ClaudeBridgeTests: XCTestCase {
         ]
         XCTAssertNil(ClaudeTranscript.userText(typed))
     }
+    func testQuestionOptionCardsMatchTheirLabelOrdinalAndDescriptionOnly() {
+        XCTAssertTrue(ClaudeDesktop.optionButton("Postgres", option: "Postgres", description: nil))
+        XCTAssertTrue(
+            ClaudeDesktop.optionButton(
+                "Postgres  Relational\nstore", option: "Postgres", description: "Relational store"))
+        XCTAssertTrue(
+            ClaudeDesktop.optionButton(
+                "1 Postgres Relational store", option: "Postgres", description: "Relational store"))
+        XCTAssertTrue(ClaudeDesktop.optionButton("2. SQLite", option: "SQLite", description: ""))
+        XCTAssertFalse(ClaudeDesktop.optionButton("Postgres Relational store", option: "Postgres", description: nil))
+        XCTAssertFalse(
+            ClaudeDesktop.optionButton("Postgres extra", option: "Postgres", description: "Relational store"))
+        XCTAssertFalse(ClaudeDesktop.optionButton("Yes, and don't ask again", option: "Yes", description: nil))
+        XCTAssertFalse(ClaudeDesktop.optionButton("", option: "", description: nil))
+    }
     func testCurrentBlockerClearsOnProgressInterruptAndNewPrompt() {
         let error: [String: Any] = ["type": "system", "subtype": "api_error", "error": ["status": 429]]
         XCTAssertEqual(ClaudeTranscript.blocker([error])?["code"] as? String, "rateLimit")

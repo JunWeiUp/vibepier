@@ -234,7 +234,9 @@ final class CodexBridge: @unchecked Sendable {
         else { throw CLIError(L10n.text("core.invalid_request")) }
         let cwd = request["cwd"] as? String ?? ""
         guard try store.isProject(cwd) else { throw CLIError(L10n.text("session.codex_creation_project_unverified")) }
-        let project = try store.creationProject(cwd: cwd)
+        guard let project = try? store.creationProject(cwd: cwd) else {
+            throw CLIError(L10n.text("session.codex_creation_requires_saved_project"))
+        }
         let draft = try SessionCreationDraft(request, project: project.cwd, provider: "codex")
         let settings = try composer.settings(
             request, state: ["latestThreadSettings": ["serviceTier": NSNull()]], executionModes: executionModes())
@@ -346,6 +348,11 @@ final class CodexBridge: @unchecked Sendable {
             let cwd = request["cwd"] as? String ?? ""
             guard try store.isProject(cwd) else {
                 throw CLIError(L10n.text("session.codex_creation_project_unverified"))
+            }
+            // Thread folders that are not saved Codex projects can be browsed but not created in. Say so before the
+            // person writes a first message, rather than refusing it at submission.
+            if op == "newOptions", (try? store.creationProject(cwd: cwd)) == nil {
+                throw CLIError(L10n.text("session.codex_creation_requires_saved_project"))
             }
             guard let attachments else { throw CLIError(L10n.text("session.attachment_storage_is_unavailable")) }
             let draft = try SessionCreationDraft(request, project: cwd, provider: "codex")

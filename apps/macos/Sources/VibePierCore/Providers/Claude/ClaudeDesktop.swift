@@ -422,8 +422,27 @@ enum ClaudeDesktop {
     }
     /// Answers an `AskUserQuestion` card by pressing the button labeled with the chosen option, the same way
     /// `answerPermission` presses Allow/Deny. Both perform only one verified click.
+    /// An option card's accessible name is its text children joined: optionally an ordinal, the label and, when
+    /// present, the native description. Only those exact forms of the chosen option match.
+    static func optionButton(_ label: String, option: String, description: String?) -> Bool {
+        func normalized(_ value: String) -> String {
+            value.split(whereSeparator: \.isWhitespace).joined(separator: " ")
+        }
+        let target = normalized(option)
+        guard !target.isEmpty else { return false }
+        var forms = [target]
+        if let description = description.map(normalized), !description.isEmpty {
+            forms.append(target + " " + description)
+        }
+        let text = normalized(label)
+        if forms.contains(text) { return true }
+        // Numbered cards prefix "1", "1." or "1)" before the label.
+        guard let ordinal = text.range(of: #"^[0-9]{1,2}[.)]? "#, options: .regularExpression) else { return false }
+        return forms.contains(String(text[ordinal.upperBound...]))
+    }
     static func answerQuestion(
-        option: String, host: String, stillPending: @escaping () -> Bool, confirmed: (Double) -> Bool
+        option: String, description: String? = nil, host: String, stillPending: @escaping () -> Bool,
+        confirmed: (Double) -> Bool
     ) throws {
         try DesktopInteractions.acquire()
         defer { DesktopInteractions.lock.unlock() }
@@ -437,7 +456,8 @@ enum ClaudeDesktop {
                 {
                     guard let window = focusedWindow(application) else { return false }
                     buttons = find(window, limit: 12000) {
-                        role($0) == "AXButton" && label($0).trimmingCharacters(in: .whitespacesAndNewlines) == target
+                        role($0) == "AXButton"
+                            && optionButton(label($0), option: target, description: description)
                     }
                     return !buttons.isEmpty
                 })

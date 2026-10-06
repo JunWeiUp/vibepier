@@ -3447,6 +3447,10 @@
     "en": "Another Codex session is being created. Wait for its result before starting another.",
     "zh-Hans": "另一个 Codex 会话正在创建，请等待结果后再新建。"
   },
+  "session.codex_creation_requires_saved_project": {
+    "en": "This folder is not a saved Codex project (for example a \"Work outside a project\" chat folder), so a new session cannot be created in it. Add it as a project in Codex, or choose a saved project.",
+    "zh-Hans": "这个目录不是 Codex 中已保存的项目（例如“不在项目中工作”的对话目录），无法在其中新建会话。请先在 Codex 中把它添加为项目，或选择已保存的项目。"
+  },
   "session.codex_creation_project_unverified": {
     "en": "Cannot uniquely verify this Codex project and its working directory. Use a saved local project with one root and a unique name.",
     "zh-Hans": "无法唯一确认 Codex 项目及工作目录。请使用已保存、名称唯一且只有一个根目录的本地项目。"

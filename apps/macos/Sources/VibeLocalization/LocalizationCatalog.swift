@@ -3258,6 +3258,10 @@ enum LocalizationCatalog {
             "Cannot uniquely verify this Codex project and its working directory. Use a saved local project with one root and a unique name.",
             "无法唯一确认 Codex 项目及工作目录。请使用已保存、名称唯一且只有一个根目录的本地项目。",
         ],
+        "session.codex_creation_requires_saved_project": [
+            "This folder is not a saved Codex project (for example a \"Work outside a project\" chat folder), so a new session cannot be created in it. Add it as a project in Codex, or choose a saved project.",
+            "这个目录不是 Codex 中已保存的项目（例如“不在项目中工作”的对话目录），无法在其中新建会话。请先在 Codex 中把它添加为项目，或选择已保存的项目。",
+        ],
         "session.codex_creation_settings_unverified": [
             "The new native Codex session does not match the requested model or approval settings. No first message was sent.",
             "新 Codex 会话的模型或审批设置与所选配置不一致，首条消息尚未发送。",

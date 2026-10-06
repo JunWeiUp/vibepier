@@ -1612,8 +1612,11 @@ class ConversationPanel(private val activity: Activity, private val client: Sess
         val content = ScrollView(context).apply { addView(form) }
         val heading = context.getString(R.string.session_title_heading, title)
         val message = label(heading + if (isQuestion) context.getString(R.string.session_choose_or_enter_an_answer_then_submit_selecting_an_option_does_n) else context.getString(R.string.session_scroll_to_the_bottom_and_review_the_full_request_before_deciding), 13f, Palette.muted)
+        // Why the choices are disabled, so a tap never silently does nothing.
+        val reason = label("", 13f, Palette.amber).apply { visibility = GONE }
         val body = column().apply {
             addView(message, LinearLayout.LayoutParams(-1, -2).apply { bottomMargin = dp(8) })
+            addView(reason, LinearLayout.LayoutParams(-1, -2).apply { bottomMargin = dp(8) })
             addView(content, LinearLayout.LayoutParams(-1, 0, 1f))
         }
         val actions = column()
@@ -1639,10 +1642,25 @@ class ConversationPanel(private val activity: Activity, private val client: Sess
         fun uncertain() = if (reviews) null else client.uncertain(target).firstOrNull { it.optString("op") == "approve" && it.optString("fingerprint") == fingerprint }
         fun current() = actionScope == renderingScope() && foreground && !drawer && token == generation &&
             target == thread && approvalDialog === dialog && dialog.isShowing
+        var refreshedForControl = false
         fun update() {
             val unknown = uncertain() != null
             val canPick = actionScope == renderingScope() && foreground && !drawer && mutableReady && supports("approvals") &&
                 (isQuestion || !content.canScrollVertically(1)) && submittingApproval.isEmpty() && fingerprint !in approvedHere && !unknown
+            val blocked = when {
+                canPick || submittingApproval.isNotEmpty() || unknown -> null
+                fingerprint in approvedHere -> R.string.session_approval_blocked_submitted
+                !connected -> R.string.session_mac_disconnected_showing_saved_list
+                !mutableReady -> R.string.session_approval_blocked_control
+                !supports("approvals") -> R.string.session_approval_blocked_unsupported
+                !isQuestion && content.canScrollVertically(1) -> R.string.session_scroll_to_the_bottom_and_review_the_full_request_before_deciding
+                else -> null
+            }
+            reason.text = blocked?.let(context::getString).orEmpty(); reason.visibility = if (blocked == null) GONE else VISIBLE
+            // Session control can be lost on reconnect; refresh it once instead of leaving the choices dead.
+            if (blocked == R.string.session_approval_blocked_control && !refreshedForControl && connected && !reviews) {
+                refreshedForControl = true; if (client.sessionControlKnown(thread)) resync(false) else requestOpen()
+            }
             if (isQuestion) {
                 val filled = (0 until questions.length()).count { answers[questions.getJSONObject(it).getString("id")]?.isNotBlank() == true }
                 val complete = if (approval.optString("method") == "item/tool/requestUserInput") filled == questions.length() else filled > 0

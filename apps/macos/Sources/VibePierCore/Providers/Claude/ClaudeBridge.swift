@@ -822,8 +822,14 @@ final class ClaudeBridge: @unchecked Sendable {
                 guard let option, options.contains(option) else {
                     throw CLIError(L10n.text("provider.select_a_valid_option"))
                 }
+                let descriptions = approval["optionDescriptions"] as? [String] ?? []
+                let description = options.firstIndex(of: option).flatMap {
+                    descriptions.indices.contains($0) ? descriptions[$0] : nil
+                }
                 try ScreenLock.unlocked {
-                    try ClaudeDesktop.answerQuestion(option: option, host: host, stillPending: stillPending) {
+                    try ClaudeDesktop.answerQuestion(
+                        option: option, description: description, host: host, stillPending: stillPending
+                    ) {
                         self.permissions.waitAnswered(requestID, decision: "once", seconds: $0)
                     }
                 }

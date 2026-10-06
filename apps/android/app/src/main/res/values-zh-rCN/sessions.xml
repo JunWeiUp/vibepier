@@ -304,4 +304,7 @@
     <string name="session_abandon_settings_description">Mac 无法确认这次修改是否生效。放弃只会解锁手机上的按钮，不会重新发送。请核对当前设置，需要时重新选择。</string>
     <string name="session_abandon_settings_action">放弃并重新设置</string>
     <string name="session_settings_abandoned">已放弃设置修改，请核对当前设置</string>
+    <string name="session_approval_blocked_submitted">你的决定已发送，正在等待桌面端确认。</string>
+    <string name="session_approval_blocked_control">会话控制尚未就绪，正在刷新；就绪后即可选择。</string>
+    <string name="session_approval_blocked_unsupported">Mac 暂时无法代你处理这个请求（需要该会话在桌面端打开），请在 Mac 上处理。</string>
 </resources>
